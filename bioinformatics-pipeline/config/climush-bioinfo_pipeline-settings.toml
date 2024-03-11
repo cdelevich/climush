@@ -1,0 +1,92 @@
+# This is the configuration file for the CliMush bioinformatics pipeline.
+
+title = 'CliMush Bioinformatics Pipeline Configuration'
+
+[run_details]
+user.name =        ''   # REQUIRED: name of user running the pipeline
+user.email =       ''   # REQUIRED: contact email of user running the pipeline
+user.institution = ''   # REQUIRED: home institution of user running the pipeline
+run_name =         'bioinfo-test'   # optional: name to use when referencing this collection of samples
+
+[automate]
+run_all =  false     # optional: when set to 'true', the entire pipeline will run from start to finish automatically
+run_some = []       # optional: list of integers corresponding to the steps of the pipeline to run, e.g., [1,2,3]
+exclude =  []       # optional: list of integers corresponding to the steps of the pipeline to exclude
+
+[auto_response]
+save_all =      true    # optional: when set to 'true', will save all logs from the pipeline run; otherwise saves none
+save_some =     []      # optional: list of integers corresponding to the steps of the pipeline to save logs for
+exit_on_error = true    # optional: when set to 'true', automated pipeline will stop if error/warning shown
+
+[primers]
+fwd.sequence.pacbio =   'ACCWGCGGARGGATCATTA'       # sequence of the pacbio forward primer
+fwd.sequence.illumina = 'CTTGGTCATTTAGAGGAAGTAA'    # sequence of the illumina forward primer
+fwd.sequence.sanger =   ''                          # sequence of the sanger forward primer
+fwd.sequence.custom =   'CAGCCGCGGTAATTCCAGCT'      # optional: sequence of a custom forward primer
+fwd.name = { pacbio = 'ITS1catta', illumina = 'ITS1F', sanger = '', custom = 'WANDA1' }  # key-value pairs of fwd primer names
+
+rev.sequence.pacbio =   'TCCTGAGGGAAACTTCG'         # sequence of the pacbio reverse primer
+rev.sequence.illumina = 'GCTGCGTTCTTCATCGATGC'      # sequence of the illumina reverse primer
+rev.sequence.sanger =   ''                          # sequence of the sanger reverse primer
+rev.sequence.custom =   'GAACCCAAACACTTTGGTTTCC'    # optional: sequence of a custom reverse primer
+rev.name = { pacbio = 'LR5', illumina = 'ITS2', sanger = '', custom = 'AML2' }  # key-value pairs of rev primer names
+
+[cutadapt]
+max_error_rate =   { 'fwd' = 0.2, 'rev' = 0.2 }     # maximum error rate used by cutadapt for fwd and rev primer match
+linked_adapters =  true                             # if true, primers are linked
+require_adapters = { 'fwd' = true, 'rev' = true }   # if true, fwd/rev primer is required in order to trim
+keep_untrimmed =   true                             # if true, save untrimmed reads to an untrimmed folder
+max_untrimmed =    10                               # optional: the maximum allowed percentage of total reads to remain
+                                                    #           untrimmed (10 = 10% of total input reads not trimmed)
+
+[pacbio_demultiplexing]
+multiplex.7803 =        'pacbio_soil-litter_2023-10'      # conversion: UO sequencing core ID to CliMush sample ID
+multiplex.6971 =        'pacbio_sporocarp-f_2023-03'      # conversion: UO sequencing core ID to CliMush sample ID
+multiplex.7668 =        'pacbio_sporocarp-f_2023-11'      # conversion: UO sequencing core ID to CliMush sample ID
+mapping_file_path =     ''                                # optional: path to mapping file if outside file structure
+min_precision =         { 'fwd' = 93, 'rev' = 93 }        # barcode precision minimum score
+
+[quality_filtering]
+pacbio.qscore =            40      # optional: quality score folder to use in pipeline (options: 20, 30, 40)
+pacbio.min_count.derep01 = 1       # optional: minimum number of identical full-length reads (or %); must be at least 1
+pacbio.min_count.derep02 = 5       # optional: minimum number of identical reads after derep of subregion reads (or %)
+pacbio.min_len =           100     # optional: minimum sequence length (bp) of post-primer removal reads
+pacbio.max_len =           8000    # optional: maximum sequence length (bp) of post-primer removal reads
+
+illumina.merge_reads =       true  # optional: if true, all forward and reverse reads will be merged
+illumina.max_error =         2     # optional: maximum expected error
+illumina.min_count.derep01 = 1     # optional: minimum number of identical full-length reads (or %)
+illumina.min_count.derep02 = 1     # optional: minimum number of identical reads after derep of subregion reads (or %)
+illumina.min_len =           0     # optional: minimum sequence length (bp) of post-primer removal reads
+illumina.max_len =           600   # optional: maximum sequence length (bp) of post-primer removal reads
+
+[clustering]
+min_threshold =  95             # optional: minimum percent identity to cluster reads into OTUs
+method =        'average'       # optional: method used to align reads prior to clustering
+group_by =      'community'     # optional: what pool of reads to consider when clustering (options: community, sample)
+choose_rep_by = 'read count'    # optional: how to chose the representative read for each OTU
+                                #           (options: read count, read size)
+choose_top_by = 'read count'    # optional: how to chose the top OTU per sample (options: read count, read size);
+                                #           only relevant for sporocarp samples
+
+[taxonomy]
+algorithm = 'blastn'                     # optional: algorithm used to assign taxonomy to OTUs
+
+refdb.unite.include = true               # optional: if true, the UNITE reference dataset will be used
+
+refdb.genbank.include =       true       # optional: if true, NCBI GenBank sequences will be used
+refdb.genbank.fungi_only =    true       # optional: if true, limits search to fungi only
+refdb.genbank.sortby =       'perident'  # optional: metric to prioritize when choosing top matches
+refdb.genbank.num_return =    5          # optional: number of GenBank top hits to return
+refdb.genbank.type_priority = true       # optional: if true, will add type hit if within the top XX? hits
+refdb.genbank.type_only =     false      # optional: if true, will only compare against GenBank type sequences
+
+refdb.climushref.include = true          # optional: if true, the CliMush custom reference set will be used
+refdb.climushref.append =  false         # optional: if true, new OTUs will be appended to the custom reference set
+
+refdb.maarjam.include = true             # optional: if true, the MaarjAM reference dataset will be used
+
+[error_message]
+script =    ''  # LEAVE BLANK: if error causes pipeline exit, records script w/ error to allow to resume when fixed
+timestamp = ''  # LEAVE BLANK: date and time of error causing exit from pipeline
+details =   ''  # LEAVE BLANK: error message printed describing error that caused exit from pipeline

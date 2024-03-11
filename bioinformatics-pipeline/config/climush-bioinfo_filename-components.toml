@@ -1,0 +1,17 @@
+# This is the configuration file for the CliMush file naming convention.
+
+title = 'CliMush Bioinformatics File Naming Convention Labels'
+
+[components]
+sequence_platform = ['sanger', 'illumina', 'pacbio']
+compartment = [
+    'litter', 'soil', 'spore',
+    'sporocarp-f', 'sporocarp-a',
+    'leaf-sp01', 'leaf-sp02',
+    'seed-sp01', 'seed-sp02',
+    'root-sp01', 'root-sp02'
+]
+coll_date_fmt = 'YYYY-MM'
+ecoregion = ['D01', 'D03', 'D05', 'D06', 'D13', 'D14', 'D16', 'D19']
+treatment = ['UC', 'UO', 'UC', 'BC', 'BO', 'GC']
+subplot = ['01', '02', '03', '04', '05', '06', '07', '08', '09']

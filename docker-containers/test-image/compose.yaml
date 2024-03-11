@@ -1,0 +1,29 @@
+name: climush
+
+version: "1.0.0"
+
+services:
+  climush-bioinformatics:
+    platform: linux/amd64
+    image: climush_bioinfo:v1.0.0
+    build:
+      context: git@github.com:cdelevich/climush_containers.git#main:/climush_bioinformatics/app/
+      ssh:
+        - default
+      args:
+        - VERSION_NUM=1.0.0
+    stdin_open: true
+    tty: true
+    volumes:
+      - type: bind
+        source: ./
+        target: /home/mycophile/pipeline
+      - type: bind
+        source: ./
+        target: /home/mycophile/config
+      - type: bind
+        source: ./
+        target: /home/mycophile/climush_py-package
+      - type: bind
+        source: ./
+        target: /home/mycophile/sequences
