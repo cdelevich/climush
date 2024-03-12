@@ -56,7 +56,7 @@ VOLUME ["/home/$USER/climush_py-package", "/home/$USER/config", "/home/$USER/pip
 #COPY --chown=$USER:users climush_py-package /home/$USER/climush_py-package
 #COPY --chown=$USER:users config /home/$USER/config
 #COPY --chown=$USER:users pipeline /home/$USER/pipeline
-COPY --chown=$USER:users bash_aliases /home/$USER/.bashrc
+COPY --chown=$USER:users .bashrc /home/$USER/.bashrc
 
 # Define an environment var to indicate script is running in a container
 ENV CONTAINERIZED=''
