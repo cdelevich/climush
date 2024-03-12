@@ -19,5 +19,5 @@ dependencies:
   - cutadapt=4.6
   - lima=2.9
   - bbmap=39.06
-  - tomlkit=0.12.3
-  - rdp_classifier=2.13
+#  - tomlkit=0.12.3
+#  - rdp_classifier=2.13
