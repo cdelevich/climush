@@ -1,23 +1,24 @@
 name: mycoformatics
-channels:
-  - bioconda
-#  - qiime2
-  - conda-forge
+#channels:
+#  - bioconda
+##  - qiime2
+#  - conda-forge
 dependencies:
-  - mothur=1.48.0
-  - vsearch=2.15
-  - blast=2.15
-  - itsx=1.1
+  - bioconda::mothur=1.48.0
+  - bioconda::vsearch=2.15
+  - bioconda::blast=2.15
+  - bioconda::itsx=1.1
 #  - qiime2=2023.7
-  - pandas=2.2
-  - scipy=1.12
-  - numpy=1.26
-  - matplotlib=3.8
-  - seaborn=0.13
-  - biopython=1.83
-  - seqkit=2.7
-  - cutadapt=4.6
-  - lima=2.9
-  - bbmap=39.06
-#  - tomlkit=0.12.3
-#  - rdp_classifier=2.13
+  - anaconda::pandas=2.2
+  - anaconda::scipy=1.12
+  - anaconda::numpy=1.26
+  - anaconda::matplotlib=3.8
+  - anaconda::seaborn=0.13
+  - anaconda::biopython=1.83
+  - bioconda::seqkit=2.8
+  - bioconda::cutadapt=4.6
+  - bioconda::lima=2.9
+  - bioconda::bbmap=39.06
+  - conda-forge::tomlkit=0.12
+  - bioconda::rdp_classifier=2.14
+  - bioconda::amptk=1.6
