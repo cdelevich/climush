@@ -1,17 +1,17 @@
 name: climush
 
-version: "1.0.0"
+version: "0.0.0"
 
 services:
   climush-bioinformatics:
     platform: linux/amd64
-    image: climush_bioinfo:v1.0.0
+    image: climush-bioinfo:v0.0.0
     build:
-      context: git@github.com:cdelevich/climush_containers.git#main:/climush_bioinformatics/app/
+      context: git@github.com:cdelevich/climush.git#main:/docker-containers/test-image/app/
       ssh:
         - default
       args:
-        - VERSION_NUM=1.0.0
+        - VERSION_NUM=0.0.0
     stdin_open: true
     tty: true
     volumes:
