@@ -13,7 +13,7 @@ dependencies:
   - bioconda::lima=2.9.*
   - bioconda::bbmap=39.06  # complete version
   - bioconda::rdp_classifier=2.2  # no minor version
-  - bioconda::amptk=1.2.*
+  - bioconda/label/cf201901::amptk=1.2.*
   - conda-forge::tomlkit=0.7.*
   - conda-forge::pandas=2.2.*
   - conda-forge::scipy=1.12.*
