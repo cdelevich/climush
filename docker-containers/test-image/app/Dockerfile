@@ -63,5 +63,5 @@ ENV CONTAINERIZED=''
 USER $USER
 
 # set bash as entrypoint, start by sourcing the .bashrc file
-CMD ["source", "/home/$USER/.bashrc"]
+CMD ["/home/$USER/.bashrc"]
 ENTRYPOINT ["/bin/bash"]

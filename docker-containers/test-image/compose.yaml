@@ -1,11 +1,11 @@
 name: climush
 
-version: "0.0"
+version: "0.1"
 
 services:
   climush-bioinformatics:
     platform: linux/amd64
-    image: climush-bioinfo:v0.0
+    image: climush-bioinfo:v0.1
     build:
       context: git@github.com:cdelevich/climush.git#main:/docker-containers/test-image/app/
       ssh:
