@@ -62,6 +62,9 @@ COPY --chown=$USER:users .bashrc /home/$USER/.bashrc
 ENV CONTAINERIZED=''
 USER $USER
 
+# set shell to bash
+SHELL ["/bin/bash", "-c"]
+
 # set bash as entrypoint, start by sourcing the .bashrc file
 CMD ["/home/$USER/.bashrc"]
 ENTRYPOINT ["/bin/bash"]
