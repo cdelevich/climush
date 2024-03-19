@@ -1,4 +1,7 @@
 from pathlib import Path
+import sys
+# REMOVE PACKAGE WORKAROUND BELOW
+# from climush.utilities import mkdir_exist_ok
 
 # PIPELINE
 try:
@@ -32,7 +35,14 @@ SORT_DEMUX = SEQUENCES / 'needs_demux'
 SORT_UNCLEAR = SEQUENCES / 'needs_clarification'
 
 # PIPELINE-OUTPUT
+##REMOVE AFTER PACKAGE TESTING#######
+sys.path.insert(0, str(PACKAGE))
+from climush.utilities import mkdir_exist_ok
+#####################################
 PIPELINE_OUT = ROOT / 'pipeline-output'
+mkdir_exist_ok(PIPELINE_OUT)  # make the main output dir; will execute if this script is run in any pipeline script
+
+# don't make these directories unless they produce output (so mkdir in their pipeline script, otherwise don't create)
 DEMUX = PIPELINE_OUT / 'demultiplexed'
 PREFILTER = PIPELINE_OUT / 'prefiltered'
 PRIMER_TRIM = PIPELINE_OUT / 'primers-trimmed'
