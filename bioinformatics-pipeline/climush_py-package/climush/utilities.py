@@ -125,15 +125,56 @@ def exit_process(message, config_section='error.message'):
     print(f'Exiting {script_name}...\n')
     return sys.exit()
 
+# recursive function that will seek out yes/no/quit response continuously until achieved
+def prompt_yes_no_quit(message):
+    '''
+    User prompt accepting specific responses.
+
+    Takes the input of a print message that shows just prior to a user prompt. The message
+    should specify the potential responses of yes/y, no/n, or quit/exit (case insensitive).
+    If the user inputs a response that is not one of these potential responses, it will provide
+    a notification that the input response was not recognize, and relist the acceptable responses.
+    It then will immediately reprint the initial prompt to allow the user another chance to enter
+    and acceptable input string.
+    :param message: any message describing what is wanted from the user; see the return for how
+    to set up the message so that the desired output is achieved
+    :return: if response is yes/y, it will return nothing and then next line of code in the
+    script will be run; if response is no/n/quit/exit, then it will exit the current script; if the
+    response is unfamiliar, it will print an alert for invalid input, and restart the prompt
+    again until an acceptable answer is received.
+    '''
+
+    print(f'{message} [yes/no/quit]\n')
+
+    response = input()
+
+    if re.search(YES_RE, response, re.I):
+        return None
+    elif re.search(NO_RE, response, re.I) or re.search(QUIT_RE, response, re.I):
+        print(f'Exiting...\n')
+        return sys.exit()
+    else:
+        print(f'Your response was not recognized out of the list of potential responses. Please respond with '
+              f'\'yes\', \'no\', or \'quit\'.\n')
+        return prompt_yes_no_quit(message)
+
 # print out list of options for option-based prompts
 def prompt_print_options(option_list):
     option_list.sort()  # sort option list for easier user experience
+    option_list.append('quit')  # add option to quit, listed last
+
     for o,opt in enumerate(option_list):
         if (o+1) < len(option_list):
             print(f'\t[{o+1}]: {opt}')  # print out all options from option list, excluding final option
         else:
             selected_opt = input(f'\t[{o+1}]: {opt}\n')  # print out last option from option list as prompt
-    return option_list[int(selected_opt)-1]  # return the item from option list matching the user input
+
+    result = option_list[int(selected_opt)-1]  # return the item from option list matching the user input
+
+    if result == 'quit':
+        return sys.exit()
+    else:
+        return result
 
 # print a CLI prompt when multiple files are detected when only one is expected
 def prompt_multiple_files(file_path):
@@ -154,6 +195,12 @@ def prompt_sequencing_platform(sample_id):
               f'(2) use the file renaming script, rename_sequence_files.py, to rename the files to match '
               f'the file naming convention.\n')
         return
+
+# print indented list
+def print_indented_list(print_list):
+    print_list[0] = '\t' + print_list[0] # add leading tab for first item printed from list, otherwise adds after line break
+    formatted_list = '\n\t'.join(print_list)
+    return print(formatted_list)
 
 # run shell command and save stdout and stderr to file
 def run_subprocess(cli_command_list, dest_dir):
@@ -396,12 +443,15 @@ def count_files(file_path, search_for='*'):
     return len(list(file_path.glob(search_for)))
 
 
-def check_for_input(file_dir, file_ext=SEQ_FILE_GLOB):
+def check_for_input(file_dir, seq_platform=None, file_ext=SEQ_FILE_GLOB):
     '''
     Checks if there are input files for the process.
 
     :param file_dir: the directory path to check for files and to check
     whether the path exists
+    :param seq_platform: the type of sequencing files to look for ['illumina',
+    'sanger', 'pacbio']; defaults to None, meaning it will return True if any
+    non-empty directory or file is located
     :param file_ext: the expected file extension of the files to search for,
     using asterisk '*' for wildcard (used in glob)
     :return: two items; [1] Boolean T/F, whether there is a directory in this
@@ -410,18 +460,38 @@ def check_for_input(file_dir, file_ext=SEQ_FILE_GLOB):
     '''
     assert is_pathclass(file_dir)
 
-    if file_dir.is_dir():
-        if count_files(file_path=file_dir, search_for=file_ext) > 0:
-            file_list = list(file_dir.glob(file_ext))
-            return True, file_list
-        else:
-            file_list = []
-            print(f'The directory {file_dir} exists, but is empty.\n')
-            return False, file_list
+    # I decided to leave this out so you could put any regex in (i.e., multiplexed pacbio files will start with \d{4}
+    # accepted_seq_input = [None, 'illumina', 'sanger', 'pacbio']
+    # if not seq_platform in accepted_seq_input:
+    #     print(f'The provided sequencing platform, {seq_platform}, is not one of the accepted '
+    #           f'values: {accepted_seq_input}. Please retry with one input value from this list '
+    #           f'as a string, or multiple values as a list of strings.\n')
+    #     return sys.exit()
+
+    if seq_platform is None:
+        seq_re = '.+?'  # will return all files in directory
+    elif isinstance(seq_platform, list):
+        seq_re = '|'.join(seq_platform)  # returns only those in provided list
     else:
-        file_list = []
+        seq_re = seq_platform  # returns only those of the provided platform
+
+    if file_dir.is_dir():  # check that input is a directory
+        if count_files(file_path=file_dir, search_for=file_ext) > 0:  # confirm it is not empty
+            file_list = [f for f in file_dir.glob('*') if re.search(seq_re, f.name, re.I)]  # check for specific files
+            if len(file_list) > 0:
+                return True, file_list  # return true if files matching criteria are found
+            else:
+                print(f'The directory {file_dir} contains files, but none that match the platform-specific search '
+                      f'criteria: {seq_platform}.')
+                return False, file_list  # return false if not
+        else:
+            file_list = []  # if input is a directory, but it is empty...
+            print(f'The directory {file_dir} exists, but is empty.\n')
+            return False, file_list  # return false and empty list
+    else:
+        file_list = []  # if input is not a directory
         print(f'The directory {file_dir} does not exist.\n')
-        return False, file_list
+        return False, file_list  # return false and empty list
 
 # get name of previous script
 
