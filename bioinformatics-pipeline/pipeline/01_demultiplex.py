@@ -112,6 +112,9 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
     mapping_dir = file_map['config']['bc_mapping']  # directory containing all mapping files
     mapping_files = list(mapping_dir.glob('*'))  # get mapping files, as list (will reuse + exhaust)
 
+    # ACCESS USER SETTINGS FROM CONFIG
+    run_name = settings['run_details']['run_name']  # name to use for this sequence run
+
     # CONFIRM THAT PLATFORM IS PACBIO
     # check that the sequence platform is set to pacbio; not suitable for others platforms right now
     if not seq_platform == 'pacbio':
@@ -292,7 +295,7 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
             num_bc_mapping = len(set(seq_run_bc[b]))
 
             # the number of unique barcodes from this mapping file should match the number in the overall bc dict
-            if num_bc_before == 0:  # if previously empty (first addition to dict), nothing to compare
+            if num_bc_overall == 0:  # if previously empty (first addition to dict), nothing to compare
                 pass  # continue to adding this mapping file's barcodes to the overall dict
             else:
                 if num_bc_overall < num_bc_mapping:  # if there are additional barcodes in this mapping file...
@@ -316,7 +319,65 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
             unique_barcodes[b].update(seq_run_bc[b])  # use update to add list to set
 
     # write out fasta file of unique barcodes; must be ordered so same numbering is used every time this is run
+    # create new path in pipeline output, and use this path to create fasta file name
+    fasta_out_dir = mkdir_exist_ok(new_dir = 'barcodes', parent_dir = file_map['pipeline-output']['demultiplexed'])
+    barcode_fasta = (fasta_out_dir / f'barcodes_{run_name}').with_suffix('.fasta')
 
+    with open(barcode_fasta, 'wt') as fout:
+        for bc_dir in unique_barcodes:  # for fwd/rev unique barcodes...
+
+            bc_list = list(unique_barcodes[bc_dir])  # convert set to list, so it can be sorted
+            bc_list.sort()  # sort barcode list, so barcode headers in fasta are numbered the same way every time
+
+            for b,bc in enumerate(bc_list):  # for each unique barcode in the sorted list...
+
+                fout.write(f'>{bc_dir}_{b+1}\n')  # add header w/ barcode number; +1 to account for zero-index
+                fout.write(f'{bc}\n')  # add barcode sequence
+
+    # DEMULTIPLEX USING LIMA
+    # create a directory for all lima output
+    lima_output = mkdir_exist_ok(new_dir='lima_output', parent_dir=file_map['pipeline-output']['demultiplexed'])
+
+    # get all unique run queue IDs from files needing demux; will use to detect paired pools
+    queue_ids = set(re.search('^\d{4}', f.stem).group(0) for f in multiplexed_files)
+
+    for qid in queue_ids:
+
+        # get the climush sequencing run ID that corresponds to this queue ID
+        seq_run = settings_dict['pacbio_demultiplexing']['multiplex'][qid]
+
+        # create an output directory for this sequencing run using the climush sequencing run ID
+        seq_run_output = lima_output / seq_run  # create an output dir for each seq run
+
+        # located all multiplexed sequencing files that match this queue ID
+        pools_to_demux = [f for f in multiplexed_files if re.search(f'^{qid}', f.name)]
+
+        # alert if only one pool is detected
+        if len(pools_to_demux) == 1:
+            msg = f'WARNING. There is only one multiplexed sequencing file ({pools_to_demux[0].name}) for sequencing ' \
+                  f'run {seq_run} when two are typically expected: one for each pool of sequences that were ' \
+                  f'sequenced simultaneously on separate SMRT cells. Do you wish to continue with only half of the ' \
+                  f'sequences from this sequencing run?'  # yes/no/quit automatically added by function
+            prompt_yes_no_quit(msg)  # if yes, auto-continues; if no or quit, exits
+
+        for pool in pools_to_demux:
+
+            # detect pool number from the file name; remove queue ID first to avoid any confusion
+            try:  # should be able to do automatically
+                pool_num = re.search('\d', re.sub(f'^{qid}\.', '', pool.name)).group(0)
+            except AttributeError:  # but if re.search does not return a match
+                print(f'The sequencing pool number for the multiplexed file {pool.name} could not be detected in ' \
+                      f'the file name. Please enter the pool number corresponding to this file as a single digit'
+                      f'(i.e., no leading zeros or decimals): ')
+                pool_num = input()
+
+            # define prefix to use for lima output files; include path to the output directory for this seq run
+            out_prefix = seq_run_output / f'lima-demux_{seq_run}_pool0{pool_num}'
+
+            # assemble list of commands required to run lima demultiplexing
+            lima_cmd = ['lima', pool, barcode_fasta, out_prefix, '--hifi-preset', 'ASYMMETRIC']
+
+            run_subprocess(cli_command_list = lima_cmd, dest_dir = lima_output)
 
 
 
