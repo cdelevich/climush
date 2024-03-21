@@ -290,6 +290,53 @@ def get_seq_platform(fastx_file, delim):
     else:
         pass
 
+def import_mapping_df(df_path):
+    '''
+    Import .csv, .txt, or .xlsx table as a dictionary.
+
+    Read in a mapping file for demultiplexing. Can accomodate the file formats
+    .xlsx, .csv, and .txt. Will output a dictionary, where the key is the name
+    of the tab in the dataframe and the value is the dataframe in that tab. Will
+    always return a dictionary, although only .xlsx files will have tabs. Formats
+    the name of the keys in the output dictionary to be 'pool1' or 'pool2'; the
+    number of the pool is inferred from the name of the tab (.xlsx) or the name
+    of the file (.csv, .txt). Returned as dictionary so that the output can be
+    handled in the same way, regardless of file type (e.g., loop through tabs
+    even if a .csv, which will have a single tab).
+    :param df_path: path to the dataframe
+    :return: dictionary, where the key is 'pool1' or 'pool2', and the value is the
+    dataframe belonging to that tab, or in the case of a .csv or .txt file, the
+    entirety of that dataframe file.
+    '''
+
+    POOL_NUM_RE = '(?<=pool).?(\d)'
+
+    if re.search('^\.x', df_path.suffix):  # if an excel file
+        mapping_tabs = pd.read_excel(df_path, sheet_name=None)  # need to set sheet_name to None to get all tabs
+        for tab in mapping_tabs:
+            try:  # format the name of the tab to be uniform across all tabs/dataframes
+                pool_num = re.search(POOL_NUM_RE, tab.name, re.I).group(0)
+            except AttributeError:
+                print(f'The pool number could not be inferred from tab {tab} in the mapping file {df_path.name}. '
+                      f'Please type the correct pool number for this file: ')
+                pool_num = prompt_print_options(['1', '2'])  # choose from 1 or 2 (or quit, built into function)
+            mapping_tabs[f'pool{pool_num}'] = mapping_tabs.pop(tab)  # replace old tab (key) with reformatted one
+    elif re.search('^\.c|^\.txt$', df_path.suffix):  # I think you can read in .txt and .csv files the same way?
+        try:  # try to get the pool number from the file name
+            pool_num = re.search(POOL_NUM_RE, df_path.name, re.I).group(0)
+        except AttributeError:  # if there's no detected pool number in the name, prompt user to specify one
+            print(f'The pool number could not be inferred from the file name of the mapping file {df_path.name}. '
+                  f'Please type the correct pool number for this file: ')
+            pool_num = prompt_print_options(['1', '2'])  # choose from 1 or 2 (or quit, built into function)
+        mapping_tabs = {f'pool{pool_num}': pd.read_csv(df_path)}  # make dict to match format from .xlsx
+    else:
+        print(f'ERROR. The file format {df_path.suffix} of the mapping file {df_path.name} is not a recognized '
+              f'file type. Accepted file types are: \'.xlsx\', \'.csv\', and \'.txt\'.\n')
+        sys.exit()
+
+    return mapping_tabs
+
+
 #######################
 # FILE PATHS ##########
 #######################
