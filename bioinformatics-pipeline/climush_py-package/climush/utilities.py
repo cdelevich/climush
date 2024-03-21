@@ -314,9 +314,10 @@ def import_mapping_df(df_path):
 
     if re.search('^\.x', df_path.suffix):  # if an excel file
         mapping_tabs = pd.read_excel(df_path, sheet_name=None)  # need to set sheet_name to None to get all tabs
-        for tab in mapping_tabs:
+        old_tab_names = list(mapping_tabs.keys())  # make list of old names, otherwise cannot update key names in loop
+        for tab in old_tab_names:
             try:  # format the name of the tab to be uniform across all tabs/dataframes
-                pool_num = re.search(POOL_NUM_RE, tab.name, re.I).group(0)
+                pool_num = re.search(POOL_NUM_RE, tab, re.I).group(0)
             except AttributeError:
                 print(f'The pool number could not be inferred from tab {tab} in the mapping file {df_path.name}. '
                       f'Please type the correct pool number for this file: ')
