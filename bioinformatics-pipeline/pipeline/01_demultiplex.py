@@ -98,6 +98,7 @@ else:
 def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio'):
 
     # REMOVE AFTER TESTING ############
+    # DON'T FORGET TO UNCOMMENT THE RUN_SUBPROCESS LINE WHERE LIMA ACTUALLY RUNS!!! #################
     file_map = fpm.copy()
     multiplexed_files = pacbio_files
     settings_dict = settings.copy()
@@ -286,10 +287,10 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
                        'rev_bc': set()}
 
     # aggregate all barcodes from the mapping files that belong to the multiplexed sequences that need demux
-    for map in demux_mapping:
+    for dxmap in demux_mapping:
 
         # get all barcodes for this seq run's mapping file, with primers removed
-        seq_run_bc = get_barcodes(map_path = map, primers = primer_dict)
+        seq_run_bc = get_barcodes(map_path = dxmap, primers = primer_dict)
 
         # add barcodes from this seq run to the overall dict of unique barcodes
         for b in ['fwd_bc', 'rev_bc']:
@@ -331,6 +332,7 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
 
     # create a dictionary with the barcode seq as the key and the value is the ID name (header) in the output fasta file
     unique_barcode_labels = {}
+    bc_name_index = {}
 
     fasta_index = 0
     with open(barcode_fasta, 'wt') as fout:
@@ -348,9 +350,10 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
                 fout.write(f'{bc}\n')  # add barcode sequence
 
                 # add barcode name and its sequence to the unique barcode labels dictionary
-                unique_barcode_labels[bc] = {}
-                unique_barcode_labels[bc].update({'bc_name': bc_name})  # I'll want to look up by sequence, so make seq the key
-                unique_barcode_labels[bc].update({'bc_index': fasta_index})  # lima provides index of found barcode, so need for demux
+                unique_barcode_labels.update({bc: bc_name})
+
+                # add barcode name and its index to the bc name index dictionary
+                bc_name_index.update({fasta_index: bc_name})
                 fasta_index += 1  # have to use counter because pulling from two sources, will reset to 0 for rev bc
 
     # DEMULTIPLEX USING LIMA #############################################################################
@@ -395,19 +398,19 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
             # assemble list of commands required to run lima demultiplexing
             lima_cmd = ['lima', pool, barcode_fasta, out_prefix, '--min-score', '93', '--hifi-preset', 'ASYMMETRIC']
 
-            run_subprocess(cli_command_list = lima_cmd, dest_dir = lima_output)
+            # run_subprocess(cli_command_list = lima_cmd, dest_dir = lima_output)
 
     # CREATE DICTIONARY OF BARCODE PAIRS FOR ALL SAMPLES
     sample_barcodes = {q:{'pool1': {},
                           'pool2': {}} for q in queue_ids}
 
-    for map in demux_mapping:
+    for dxmap in demux_mapping:
 
         # get the queue ID from the name of the multiplexed sequencing file; need it to find key in sample_barcodes
-        qid = re.search('^(\d{4})', list(demux_mapping[map])[0].name).group(0)
+        qid = re.search('^(\d{4})', list(demux_mapping[dxmap])[0].name).group(0)
 
         # import the mapping file dataframe
-        mapping_df = import_mapping_df(df_path=map)
+        mapping_df = import_mapping_df(df_path=dxmap)
 
         # loop through each tab (= pool1/pool2) in the df to get the sample ID and its barcode combo
         for tab in mapping_df:
@@ -426,17 +429,24 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
 
                 # get the barcode matching the full barcode from the df; keep the short (no-primer) version
                 fwd_bc = [f for f in unique_barcode_labels if re.search(f'^{f}', fwd_full_bc, re.I)][0]
-                fwd_id = unique_barcode_labels[fwd_bc]['bc_name']  # use non-primer barcode to get the barcode ID
+                fwd_id = unique_barcode_labels[fwd_bc]  # use non-primer barcode to get the barcode ID
                 rev_bc = [r for r in unique_barcode_labels if re.search(f'^{r}', rev_full_bc, re.I)][0]
-                rev_id = unique_barcode_labels[rev_bc]['bc_name']
+                rev_id = unique_barcode_labels[rev_bc]
 
                 sample_barcodes[qid][tab].update({smp_id:{}})  # add sample key
                 sample_barcodes[qid][tab][smp_id].update({fwd_id:fwd_bc, rev_id:rev_bc})  # add bc IDs and seqs
 
     # READ IN INFO FROM LIMA OUTPUT
-    read_barcodes = {}
+    # set this dictionary up the same way it was done for sample_barcodes, to distinguish different seq runs, pools, etc.
+    read_barcodes = {q:{'pool1': {},
+                        'pool2': {}} for q in queue_ids}
 
     for subdir in lima_subdirs:
+
+        # get the queue ID from the name of the multiplexed sequencing file; need it to find key in sample_barcodes
+        cid = re.search('^pacbio.+', subdir.name).group(0)  # get climush ID, which will be in name of file
+        mp_dict = settings_dict['pacbio_demultiplexing']['multiplex']  # make shorter for list comp below
+        qid = [k for k in mp_dict if cid in mp_dict[k]][0]  # convert to qid to match dict
 
         for p in ['pool1', 'pool2']:
 
@@ -448,10 +458,36 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
                 for r in fin.readlines():
                     if r.startswith('>'):
                         read_id = re.findall('(?<=>).+?(?=\sbc)', r, re.I)[0]
-                        read_barcode_i = re.search('(?<=bc=)\d{1,2},\d{1,2}', r, re.I).group(0).split(',')
-                        read_barcodes.update({read_id: read_barcode_i})
+                        read_barcode_i = list(map(int, re.search('(?<=bc=)\d{1,2},\d{1,2}', r, re.I).group(0).split(',')))
+                        read_bc_names = [bc_name_index[i] for i in read_barcode_i]  # convert index to name
+                        read_barcodes[qid][p].update({read_id: read_bc_names})
                     else:
                         continue
+
+    # COMPARE LIMA BARCODE COMBINATIONS TO MAPPING FILE BARCODE COMBINATIONS
+    final_demux = {q:{'pool1': {},
+                      'pool2': {}} for q in queue_ids}
+
+    for qid in read_barcodes:
+        for p in ['pool1', 'pool2']:
+            sample_subdict = sample_barcodes[qid][p]
+            for r in read_barcodes[qid][p]:
+                # REMOVE AFTER TESTING ##############
+                r = 'm64047_230523_213434/197456/ccs'
+                #####################################
+
+                read_id = r
+                bc_list = read_barcodes[qid][p][r]
+
+                # test = [list(sample_subdict[s]) for s in sample_subdict]
+                sample_id = [s for s in sample_subdict if len(set(sample_subdict[s].keys()).difference(set(bc_list))) == 0]
+
+                if len(sample_id) == 1:
+                    read_seq =
+                    final_demux[qid][p].update({sample_id[0]:})
+
+    def get_sample_id():
+
 
 
 
