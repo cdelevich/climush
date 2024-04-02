@@ -80,14 +80,14 @@ else:
 #####################################################
 
 # LIKELY GOOD TO GO
-run_name = settings['run_details']['run_name']
-quality_score = str(settings['quality_filtering']['pacbio']['qscore'])
-output_path = fpm['pipeline-output']['demultiplexed']
-raw_read_path = fpm['sequences']['demux']
-
-# REQUIRE ATTENTION
-barcode_path = ''
-final_demux_path = ''
+# run_name = settings['run_details']['run_name']
+# quality_score = str(settings['quality_filtering']['pacbio']['qscore'])
+# output_path = fpm['pipeline-output']['demultiplexed']
+# raw_read_path = fpm['sequences']['demux']
+#
+# # REQUIRE ATTENTION
+# barcode_path = ''
+# final_demux_path = ''
 # primer_path = settings['primers']  # moved up to the PacBio section
 # primer_path = "../miscell/primers/"
 
@@ -107,28 +107,39 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
     csv_df = next(file_map['config']['bc_mapping'].glob('*.csv'))
     ###################################
 
-    # DEFINE RELEVANT FILE PATHS
+    # DEFINE RELEVANT FILE PATHS ####################################################################
     # get the paths needed for demux
     mapping_dir = file_map['config']['bc_mapping']  # directory containing all mapping files
     mapping_files = list(mapping_dir.glob('*'))  # get mapping files, as list (will reuse + exhaust)
 
-    # ACCESS USER SETTINGS FROM CONFIG
+    # ACCESS USER SETTINGS FROM CONFIG ##############################################################
     run_name = settings['run_details']['run_name']  # name to use for this sequence run
 
-    # CONFIRM THAT PLATFORM IS PACBIO
+    # CONSTRUCT REGEX CONSTANTS #####################################################################
+    # column name regex; column names vary among mapping files
+    FWD_COL_RE = '(fwd)|(forward)'
+    REV_COL_RE = '(rev)|(reverse)'
+    SAMPLE_ID_RE = '^sample'
+
+    # CONFIRM THAT PLATFORM IS PACBIO ###############################################################
     # check that the sequence platform is set to pacbio; not suitable for others platforms right now
     if not seq_platform == 'pacbio':
         print(f'Currently, this function only accepts PacBio sequences. Not suited for demultiplexing Sanger or '
               f'Illumina sequences.\n')
         sys.exit()
 
-    # LOCATE MAPPING FILE FOR EACH MULTIPLEXED SEQUENCE FILE
+    # LOCATE MAPPING FILE FOR EACH MULTIPLEXED SEQUENCE FILE #########################################
+    # get all unique run queue IDs from files needing demux; will use later on
+    queue_ids = set()
+
     # link multiplexed sequence files in needs_demux to their corresponding mapping file in config directory
     demux_mapping = {}  # key is mapping file path, value(s) is sequence file path in needs_demux dir
+
     for mp_file in multiplexed_files:
 
         # get the sequencing core's queue ID from multiplexed seq file and corresponding climush sample ID for this queue ID
         qid = re.search('^(\d{4})', mp_file.name).group(0)  # get queue ID from file name
+        queue_ids.add(qid)  # add the qid to the set of all queue ids requiring demux
         cid = settings_dict['pacbio_demultiplexing']['multiplex'][qid]  # get climush - queue ID pairing from config
         qid_files = [f for f in mapping_files if
                      re.search(f'^{cid}', f.name)]  # all files in mapping files dir that match climush id
@@ -153,7 +164,7 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
             else:
                 demux_mapping.update({right_map: [mp_file]})  # add queue ID and first multiplexed file as list
 
-    # CREATE A FASTA FILE OF ALL UNIQUE BARCODES USED TO MULTIPLEX
+    # CREATE A FASTA FILE OF ALL UNIQUE BARCODES USED TO MULTIPLEX ###################################
     # define subfunctions to help locate and prepare barcodes for demultiplexing
     def get_col_name(pattern, df):
 
@@ -181,33 +192,28 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
             return get_col_name(pattern=retry_pattern, df=df)
     def get_barcodes(map_path, primers):
 
-        # column name regex; column names vary among mapping files
-        FWD_COL_RE = '(fwd)|(forward)'
-        REV_COL_RE = '(rev)|(reverse)'
-
         # create an empty list to add fwd/rev barcodes to; output from function then added to set from all mapping df
         fwd_barcodes = []
         rev_barcodes = []
 
         # read in mapping file based on file type (.xlsx, .csv, .txt)
-        if re.search('^\.x', map_path.suffix):  # if an excel file
-            mapping_tabs = pd.read_excel(map_path, sheet_name=None)  # need to set sheet_name to None to get all tabs
-        elif re.search('^\.c|^\.txt$', map_path.suffix):  # I think you can read in .txt and .csv files the same way?
-            mapping_tabs = {'pool#': pd.read_csv(map_path)}  # make same format as xlsx dict so next part works for all
-        else:
-            print(f'ERROR. The file format {map_path.suffix} of the mapping file {map_path.name} is not a recognized '
-                  f'file type. Accepted file types are: \'.xlsx\', \'.csv\', and \'.txt\'.\n')
-            sys.exit()
+        mapping_tabs = import_mapping_df(df_path=map_path)
 
         # go through each tab in the df and get the barcodes
         for tab in mapping_tabs:  # go through each tab...
             if re.search('pool', tab, re.I):  # ...only if relevant to mapping/demux
 
-                fwd_col = get_col_name(FWD_COL_RE, mapping_tabs[tab])  # get name of bc column used in df
+                # get the name used for the fwd/rev barcode columns in this mapping file
+                fwd_col = get_col_name(FWD_COL_RE, mapping_tabs[tab])
                 rev_col = get_col_name(REV_COL_RE, mapping_tabs[tab])
 
-                fwd_barcodes.extend(mapping_tabs[tab][fwd_col].to_list())  # add bc to the total list
-                rev_barcodes.extend(mapping_tabs[tab][rev_col].to_list())  # use extend to prevent sublists
+                # get list of values for barcodes and sample IDs
+                fwd_bc = mapping_tabs[tab][fwd_col].to_list()
+                rev_bc = mapping_tabs[tab][rev_col].to_list()
+
+                # add all barcodes in the column to the total barcode list
+                fwd_barcodes.extend(fwd_bc)  # add bc to the total list
+                rev_barcodes.extend(rev_bc)  # use extend to prevent sublists
 
         # make sure that the barcodes don't contain the primer sequences; if they do, remove primer sequence from bc
         fwd_bc_noprimer = [re.sub(f'{primers["fwd_primer"]}$', '', fwd) for fwd in fwd_barcodes]
@@ -323,6 +329,10 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
     fasta_out_dir = mkdir_exist_ok(new_dir = 'barcodes', parent_dir = file_map['pipeline-output']['demultiplexed'])
     barcode_fasta = (fasta_out_dir / f'barcodes_{run_name}').with_suffix('.fasta')
 
+    # create a dictionary with the barcode seq as the key and the value is the ID name (header) in the output fasta file
+    unique_barcode_labels = {}
+
+    fasta_index = 0
     with open(barcode_fasta, 'wt') as fout:
         for bc_dir in unique_barcodes:  # for fwd/rev unique barcodes...
 
@@ -331,15 +341,22 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
 
             for b,bc in enumerate(bc_list):  # for each unique barcode in the sorted list...
 
-                fout.write(f'>{bc_dir}_{b+1}\n')  # add header w/ barcode number; +1 to account for zero-index
+                bc_name = f'{bc_dir}_{b+1}'  # create barcode id w/ barcode number; +1 to account for zero-index
+
+                # write barcode name and its sequence to the fasta file
+                fout.write(f'>{bc_name}\n')  # add header
                 fout.write(f'{bc}\n')  # add barcode sequence
 
-    # DEMULTIPLEX USING LIMA
+                # add barcode name and its sequence to the unique barcode labels dictionary
+                unique_barcode_labels[bc] = {}
+                unique_barcode_labels[bc].update({'bc_name': bc_name})  # I'll want to look up by sequence, so make seq the key
+                unique_barcode_labels[bc].update({'bc_index': fasta_index})  # lima provides index of found barcode, so need for demux
+                fasta_index += 1  # have to use counter because pulling from two sources, will reset to 0 for rev bc
+
+    # DEMULTIPLEX USING LIMA #############################################################################
     # create a directory for all lima output
     lima_output = mkdir_exist_ok(new_dir='lima_output', parent_dir=file_map['pipeline-output']['demultiplexed'])
-
-    # get all unique run queue IDs from files needing demux; will use to detect paired pools
-    queue_ids = set(re.search('^\d{4}', f.stem).group(0) for f in multiplexed_files)
+    lima_subdirs = []  # create list of output directories to read lima output from later on
 
     for qid in queue_ids:
 
@@ -347,7 +364,8 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
         seq_run = settings_dict['pacbio_demultiplexing']['multiplex'][qid]
 
         # create an output directory for this sequencing run using the climush sequencing run ID
-        seq_run_output = lima_output / seq_run  # create an output dir for each seq run
+        seq_run_output = mkdir_exist_ok(new_dir=seq_run, parent_dir=lima_output) # create an output dir for each seq run
+        lima_subdirs.append(seq_run_output)
 
         # located all multiplexed sequencing files that match this queue ID
         pools_to_demux = [f for f in multiplexed_files if re.search(f'^{qid}', f.name)]
@@ -372,267 +390,71 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
                 pool_num = input()
 
             # define prefix to use for lima output files; include path to the output directory for this seq run
-            out_prefix = seq_run_output / f'lima-demux_{seq_run}_pool0{pool_num}'
+            out_prefix = seq_run_output / f'lima-demux_{seq_run}_pool{pool_num}'
 
             # assemble list of commands required to run lima demultiplexing
-            lima_cmd = ['lima', pool, barcode_fasta, out_prefix, '--hifi-preset', 'ASYMMETRIC']
+            lima_cmd = ['lima', pool, barcode_fasta, out_prefix, '--min-score', '93', '--hifi-preset', 'ASYMMETRIC']
 
             run_subprocess(cli_command_list = lima_cmd, dest_dir = lima_output)
 
+    # CREATE DICTIONARY OF BARCODE PAIRS FOR ALL SAMPLES
+    sample_barcodes = {q:{'pool1': {},
+                          'pool2': {}} for q in queue_ids}
+
+    for map in demux_mapping:
+
+        # get the queue ID from the name of the multiplexed sequencing file; need it to find key in sample_barcodes
+        qid = re.search('^(\d{4})', list(demux_mapping[map])[0].name).group(0)
+
+        # import the mapping file dataframe
+        mapping_df = import_mapping_df(df_path=map)
+
+        # loop through each tab (= pool1/pool2) in the df to get the sample ID and its barcode combo
+        for tab in mapping_df:
+
+            # get the name of the column used for the sample ID, fwd barcode, rev barcode
+            smp_col = get_col_name(pattern=SAMPLE_ID_RE, df=mapping_df[tab])
+            fwd_col = get_col_name(pattern=FWD_COL_RE, df=mapping_df[tab])
+            rev_col = get_col_name(pattern=REV_COL_RE, df=mapping_df[tab])
+
+            for i in range(mapping_df[tab].shape[0]):
+
+                # from the dataframe, get the sample ID, fwd barcode sequence, and rev barcode sequence
+                smp_id = mapping_df[tab][smp_col][i]
+                fwd_full_bc = mapping_df[tab][fwd_col][i]  # pull full barcode from df (may contain primer still)
+                rev_full_bc = mapping_df[tab][rev_col][i]  # may also container primer
+
+                # get the barcode matching the full barcode from the df; keep the short (no-primer) version
+                fwd_bc = [f for f in unique_barcode_labels if re.search(f'^{f}', fwd_full_bc, re.I)][0]
+                fwd_id = unique_barcode_labels[fwd_bc]['bc_name']  # use non-primer barcode to get the barcode ID
+                rev_bc = [r for r in unique_barcode_labels if re.search(f'^{r}', rev_full_bc, re.I)][0]
+                rev_id = unique_barcode_labels[rev_bc]['bc_name']
+
+                sample_barcodes[qid][tab].update({smp_id:{}})  # add sample key
+                sample_barcodes[qid][tab][smp_id].update({fwd_id:fwd_bc, rev_id:rev_bc})  # add bc IDs and seqs
+
+    # READ IN INFO FROM LIMA OUTPUT
+    read_barcodes = {}
+
+    for subdir in lima_subdirs:
+
+        for p in ['pool1', 'pool2']:
+
+            # find the fasta file for this pool, which has the read ID and the barcode combination
+            lima_fasta = [f for f in subdir.glob('*.*') if re.search(f'{subdir.name}_{p}\.fasta', f.name, re.I)][0]
+
+            # open the fasta file and pull the indices of the forward and reverse barcodes
+            with open(lima_fasta, 'r') as fin:
+                for r in fin.readlines():
+                    if r.startswith('>'):
+                        read_id = re.findall('(?<=>).+?(?=\sbc)', r, re.I)[0]
+                        read_barcode_i = re.search('(?<=bc=)\d{1,2},\d{1,2}', r, re.I).group(0).split(',')
+                        read_barcodes.update({read_id: read_barcode_i})
+                    else:
+                        continue
 
 
-###################################
-### FROM 01_CREATE-BARCODE-FASTA.PY
-###################################
 
-
-# define single function to carry out barcode file creation
-def create_barcode_fasta(barcode_df, pool_num, settings_dict, file_map):
-    """
-    Create a fasta file of unique forward and reverse barcodes from an input mapping file that
-    should contain a column for the forward barcode, reverse barcode, and sample ID. Column naming
-    is flexible, as function will look for any column name with 'fwd' or 'forward', 'rev' or
-    'reverse', and 'sample' and 'id', 'no', 'num', with or without space or underscore, and case
-    insensitive. Barcodes may have primers attached in these tables, which will be removed, if present,
-    in this function.
-    :param barcode_df: input barcode file already read in
-    :param pool_num: if sequencing run was split into multiple pools, include the pool number
-    :return: no direct output, but will save a [1] fasta file of the barcodes and [2] a csv of
-    sample IDs and their barcode combinations for in further steps of demultiplexing.
-    """
-    # REMOVE AFTER TESTING ###############
-    barcode_df = pool1_df.copy()
-    pool_num = 1
-    settings_dict = settings.copy()
-    ######################################
-
-    # create a dict to collect info for fwd and rev barcodes
-    bc_info = {'forward':{'col_name_regex': '(fwd)|(forward)',
-                          'primer_seq': '',  # get later when accessing primer seq from settings/config
-                          'w_primer_col': 'fwd_w_bc',
-                          'col_name': 'forward'},
-               'reverse':{'col_name_regex': '(rev)|(reverse)',
-                          'primer_seq': '',
-                          'w_primer_col':'rev_w_bc',
-                          'col_name': 'reverse'}}
-
-    # get column names for barcodes and sample IDs
-    def get_col_name(pattern, df):
-
-        # search for columns that match the provided pattern
-        matches = [c for c in df.columns if re.search(pattern, c, re.I)]
-
-        # output depends on the number of matches returned (ideally 1)
-        if len(matches) == 1:  # if one match, return that column name
-            return matches[0]
-
-        else:  # if multiple or no matches, rerun with new user-input regex
-
-            # check number of matches, will print out different prompt, but otherwise executes same thing
-            if len(matches) == 0:  # if no matches
-                print(f'No column matching the pattern \'{pattern}\' was located in the input dataframe. Please try '
-                      f'another regular expression that better matches a single column out of these columns in the '
-                      f'dataframe: ')
-            else:
-                print(f'{len(matches)} column names match the pattern \'{pattern}\' in the input dataframe. Please try '
-                      f'another regular expression that better matches a single column out of these columns in the '
-                      f'dataframe: ')
-
-            print_indented_list(matches)  # print out the columns of the dataframe (formatted to be indented)
-            retry_pattern = input()
-            return get_col_name(pattern=retry_pattern, df=df)
-
-    fwd_col = get_col_name(pattern = bc_info['forward']['col_name_regex'], df = barcode_df)
-    rev_col = get_col_name(pattern = bc_info['reverse']['col_name_regex'], df = barcode_df)
-    smp_col = get_col_name(pattern = '(sample)(_|\s)(id|no|num)', df = barcode_df)
-
-    # rename columns
-    barcode_df.rename(columns={smp_col: 'sample_id',
-                               fwd_col: bc_info['forward']['w_primer_col'],
-                               rev_col: bc_info['reverse']['w_primer_col']},
-                      inplace=True)
-
-    # remove primers from barcodes, if present
-    # get primer str from configuration file
-    primer_fwd = settings_dict['primers']['fwd']['sequence']['pacbio']
-    primer_rev = settings_dict['primers']['rev']['sequence']['pacbio']
-
-    # add primer seqs to the bc_info dictionary
-    bc_info['forward']['primer_seq'] = primer_fwd
-    bc_info['reverse']['primer_seq'] = primer_rev
-
-    # create new column with the primers removed from the barcodes
-    barcode_df['forward'] = [re.sub(f'{primer_fwd}$', '', fwd) for fwd in barcode_df[bc_info['forward']['w_primer_col']]]
-    barcode_df['reverse'] = [re.sub(f'{primer_rev}$', '', rev) for rev in barcode_df[bc_info['reverse']['w_primer_col']]]
-
-    # confirm that primers removed from the barcodes, then remove old columns w/ primers still attached
-    def primers_removed_from_bc(df, bc_direction, barcode_info):
-
-        # get the length of the barcode without the primer
-        len_bc = list(set(len(f) for f in df[barcode_info[bc_direction]['col_name']]))
-
-        # get expected length of barcode w/o primer by subtracting primer length from original barcode length
-        len_og_bc = list(set(len(f) for f in df[barcode_info[bc_direction]['w_primer_col']]))
-        if len(len_og_bc) == 1:
-            expected_len = len_og_bc[0] - len(barcode_info[bc_direction]['primer_seq'])
-        else:
-            print(f'ERROR.')
-            print(f'number of unique lengths of barcodes w/ primers: {len(len_og_bc)}')
-            print(f'unique lengths of barcodes w/ primers:            {len_og_bc}')
-            return False
-
-        if (len(len_bc) == 1) and (int(len_bc[0]) == expected_len):  # all same length and length is size of bc w/ primer minus len primer
-            return True
-        else:
-            print(f'ERROR.')
-            print(f'number of unique barcode lengths: {len(len_bc)}')
-            print(f'length of barcode w/ primer:      {expected_len}')
-            print(f'length(s) of barcode w/o primer:  {len_bc}')
-            return False
-
-    for d in bc_info.keys():
-        if not primers_removed_from_bc(df = barcode_df, bc_direction = d, barcode_info = bc_info):
-            print(f'Something went wrong with removing the primers from the barcodes in the '
-                  f'mapping file. Exiting...\n')  # NEED MORE INFORMATIVE PRINT STATEMENT HERE
-            # sys.exit()
-
-    # create df that contains the sample IDs with the sequences of the barcodes
-    # create dictionary with sample IDs as keys, and values for forward and reverse barcodes for each
-    fwd_series = barcode_df[bc_info['forward']['col_name']]
-    rev_series = barcode_df[bc_info['reverse']['col_name']]
-
-    barcode_dict = {k:{'fwd_bc':'', 'rev_bc':''} for k in barcode_df['sample_id']}
-
-    for smp in barcode_dict:
-        barcode_dict[smp]['fwd_bc'] = barcode_df[barcode_df['sample_id'] == smp][bc_info['forward']['col_name']].reset_index(drop=True)[0]
-        barcode_dict[smp]['rev_bc'] = barcode_df[barcode_df['sample_id'] == smp][bc_info['reverse']['col_name']].reset_index(drop=True)[0]
-
-    # wanted_cols = ['sample_id','forward','reverse']
-    # sampleid_df = pd.melt(barcode_csv[wanted_cols], id_vars='sample_id', var_name='barcode_direction', value_name='sequence')
-    # assert (len(barcode_csv['sample_id']) == len(sampleid_df['sample_id']) / 2), 'Dataframe likely contains extra columns that' \
-    #                                                                              'were not be removed from the dataframe (though ' \
-    #                                                                              'the code should do this).'
-
-    # create a set of forward and reverse barcodes
-    fwd_unique_bc = list(set(barcode_df[bc_info['forward']['col_name']]))
-    rev_unique_bc = list(set(barcode_df[bc_info['reverse']['col_name']]))
-
-    # get the number of unique barcodes, add to bc_info, and the number of unique samples
-    bc_info['forward']['num_unique_bc'] = len(fwd_unique_bc)
-    bc_info['reverse']['num_unique_bc'] = len(rev_unique_bc)
-    num_unique_samples = len(barcode_df[smp_col].unique())
-
-    # barcode_df = sampleid_df.drop('sample_id', axis=1).drop_duplicates(subset='sequence').sort_values(
-    #     by='sequence').reset_index().drop('index', axis=1)
-    #
-    # # make sure each sequence is unique in df
-    # assert len(fwd_bc) + len(rev_bc) == barcode_df.shape[0]
-    # assert len(barcode_df['sequence'].unique()) == len(barcode_df['sequence'])
-
-    # add sorted list of unique barcodes to the bc_info dict
-    fwd_unique_bc.sort()  # must sort prior to adding to dict; lima must receive barcodes in same order each time
-    bc_info['forward']['unique_bc'] = fwd_unique_bc
-    rev_unique_bc.sort()  # must sort prior to adding to dict; lima must receive barcodes in same order each time
-    bc_info['reverse']['unique_bc'] = rev_unique_bc
-
-    # # create headers for barcode fasta file using the indices of the *sorted* dataframe, barcode_df
-    # # must be sorted to produce the same file each time, which is crucial for the way Lima works
-    # barcode_df['barcode_header'] = None
-    #
-    # for i in range(barcode_df.shape[0]):
-    #     if barcode_df['barcode_direction'][i] == 'forward':
-    #         barcode_df['barcode_header'][i] = "bc_fwd_" + str(barcode_df.index[i])
-    #     else:
-    #         barcode_df['barcode_header'][i] = "bc_rev_" + str(barcode_df.index[i])
-
-    fasta_out_dir = mkdir_exist_ok(new_dir = 'barcodes', parent_dir = fpm['pipeline-output']['demultiplexed'])
-    fasta_out = (fasta_out_dir / f'pool0{str(pool_num)}_barcodes').with_suffix('.fasta')
-    with open(fasta_out, 'wt') as fout:
-
-        for bc_dir in bc_info:  # for fwd/rev
-
-            for b,bc in enumerate(bc_info[bc_dir]['unique_bc']):  # for each unique bc
-
-                if bc_dir == 'forward':
-                    fout.write(f'>bc_fwd_{b}\n')  # add header
-                else:
-                    fout.write(f'>bc_rev_{b}\n')
-
-                fout.write(f'{bc}\n')  # add sequence
-
-    # write out the barcode info dictionary to JSON
-    bc_info_out = (fasta_out_dir / f'pool0{str(pool_num)}_barcode-summary').with_suffix('.json')
-
-    # # write out barcodes and headers as fasta file
-    # fasta_output_name = output_path + run_name + "pool" + str(pool_num) + "_barcodes.fasta"
-    # with open(fasta_output_name, 'wt') as fout:
-    #     for i in range(barcode_df.shape[0]):
-    #         fout.write(">" + barcode_df['barcode_header'][i] + '\n')
-    #         fout.write(barcode_df['sequence'][i] + '\n')
-
-    # if os.path.isfile(fasta_output_name) == True:
-    #     print(f"\nBarcode fasta file for pool {pool_num}, {os.path.basename(fasta_output_name)}, has been created.\n")
-
-    # merge sample id dataframe and barcode id dataframe by sequence
-    # merged_df = pd.merge(barcode_df, sampleid_df)
-    # wider_df = pd.pivot(data=merged_df, index='sample_id', columns='barcode_direction', values='barcode_header').reset_index()
-    # wider_df['fwd_index'] = [wider_df['forward'][i].split('_')[2] for i in range(wider_df.shape[0])]
-    # wider_df['rev_index'] = [wider_df['reverse'][i].split('_')[2] for i in range(wider_df.shape[0])]
-    #
-    # csv_output_name = output_path + run_name + "pool" + str(pool_num) + "_merged.csv"
-    # wider_df.to_csv(csv_output_name, index=False)
-
-    # assert len(wider_df['forward'].unique()) == num_unique_fwd
-    # assert len(wider_df['reverse'].unique()) == num_unique_rev
-    # assert len(wider_df.index.unique()) == num_unique_samples
-
-    # if os.path.isfile(csv_output_name) == True:
-    #     print(f"Merged sample ID and barcode name file for pool {pool_num}, {csv_output_name}, has been created.\n")
-
-    return None
-
-# run command for however many pools you might have (can loop if several)
-create_barcode_fasta(barcode_csv=pool1_df, pool_num=1, settings_dict=settings, file_map=fpm)
-create_barcode_fasta(barcode_csv=pool2_df, pool_num=2, settings_dict=settings, file_map=fpm)
-sys.exit()
-###################################
-### FROM 02_RUN-LIMA.PY
-###################################
-
-print(f'\nUsing the barcode fasta files located in {barcode_path} and the raw '
-      f'sequence files located in {raw_read_path}. If you\'d '
-      f'like to use another folder containing barcodes or raw reads, please see options by using the '
-      f'--help function after the name of this script (i.e., python3 02_run-lima.py --help)\n')
-
-def get_rawread_filename(pool_num):
-    filename_regex = re.compile(('^(\d{4}\.Pool' + str(pool_num) + ')\S+(\.fastq\.gz)$'))
-    rawread_file = list(filter(filename_regex.search, os.listdir(raw_read_path)))
-    assert len(rawread_file) == 1, f'{len(rawread_file)} .fastq.gz files were located in the ' \
-                                   f'provided filepath: {rawread_file} for pool {pool_num}. Requires exactly 1 ' \
-                                   f'file per pool.'
-    return raw_read_path + rawread_file[0]
-
-def execute_lima_demux(pool_num):
-    '''
-    Composes the command line script for Lima demultiplexing, and executes it.
-    :param run_prefix: four-digit prefix on sequencing run files, provided by sequencer
-    :param pool_num: sequencing pool number, if split into more than one pool
-    :return:
-    '''
-    start_runtime()
-    rawread_file = get_rawread_filename(pool_num)
-    barcode_file = barcode_path + run_name + "pool" + str(pool_num) + "_barcodes.fasta"
-    output = barcode_path + run_name + "pool" + str(pool_num) + "_demux.fasta"
-
-    lima_cmd = "lima " + rawread_file + " " + barcode_file + " " + output + \
-               " --hifi-preset ASYMMETRIC" # asymmetric means forward and reverse barcodes are unique
-
-    os.system(lima_cmd)
-    end_runtime()
-    print_runtime(custom_text=f'Lima demultiplexed samples from pool {pool_num}')
-
-execute_lima_demux(pool_num = 1)
-execute_lima_demux(pool_num = 2)
 
 ###################################
 ### FROM 03_DEMULTIPLEX.PY
