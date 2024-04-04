@@ -1,5 +1,5 @@
 pipeline-output/
 __pycache__/
-sequences*/
+sequences_*/
 .idea
 subsample_pacbio_raw.py
