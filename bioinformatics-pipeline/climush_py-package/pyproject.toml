@@ -1,5 +1,22 @@
 [build-system]
-
 requires = ['setuptools']
-
 build-backend = 'setuptools.build_meta'
+
+[project]
+name = 'climush'
+version = '0.0.1'
+authors = [
+    { name='Carolyn Delevich', email='cdelevic@uoregon.edu' }]
+description = 'Tools to run the CliMush bioinformatics pipeline.'
+readme = 'README.md'
+classifiers = [
+    'Programming Language :: Python :: 3',
+    'License :: OSI Approved :: MIT License',
+    'Operating System :: Unix',
+    'Development Status :: 3 - Alpha',
+]
+
+[project.urls]
+Homepage = 'https://github.com/cdelevich/climush/tree/main/bioinformatics-pipeline'
+Repository = 'https://github.com/cdelevich/climush/tree/main/bioinformatics-pipeline/climush_py-package'
+Issues = 'https://github.com/cdelevich/climush/issues'
