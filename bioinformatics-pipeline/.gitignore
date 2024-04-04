@@ -2,3 +2,4 @@ pipeline-output/
 __pycache__/
 sequences*/
 .idea
+subsample_pacbio_raw.py
