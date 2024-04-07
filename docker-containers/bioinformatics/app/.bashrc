@@ -1,3 +1,4 @@
+#!/bin/bash
 
 alias sort_files='python3 pipeline/00_sort-files.py'
 alias demux='python3 pipeline/01_demultiplex.py'
