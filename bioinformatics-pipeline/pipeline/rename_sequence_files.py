@@ -1,16 +1,6 @@
-import argparse
-import configparser
-import itertools
-import os
+import argparse, configparser, itertools, os, shutil, re, sys
 from pathlib import Path
-import shutil
-import re
-import sys
 import pandas as pd
-##REMOVE AFTER PACKAGE TESTING#######
-package_path = Path('../climush_py-package/').resolve()
-sys.path.insert(0, str(package_path))
-#####################################
 from climush.config import import_config_as_dict
 
 # command line arguments

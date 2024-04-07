@@ -4,12 +4,7 @@ FIX IDENTIFICATION OF INPUT READS
 
 from mapping import filepath_map as fpm
 
-import argparse
-import sys
-from pathlib import Path
-##REMOVE AFTER PACKAGE TESTING#######
-sys.path.insert(0, str(fpm['package']['main']))
-#####################################
+import argparse, sys
 from climush.constants import *
 from climush.bioinfo import identify_primers, remove_primers
 from climush.utilities import *
@@ -21,7 +16,7 @@ settings = import_config_as_dict(file_path=fpm['config']['main'], file_handle='p
 #####################
 
 # check that there are Illumina reads to pre-filter
-last_output = [dir for dir in fpm['pipeline-output']['prefiltered'].glob('*') if re.search('^no-ambig', dir.stem, re.I)][0]
+last_output = [dir for dir in fpm['pipeline-output']['prefiltered'].glob('*') if re.search('^no-ambig', dir.stem, re.I)]
 is_input, illumina_files = check_for_input(last_output)
 
 if is_input:
@@ -36,11 +31,15 @@ else:
 # first check 'nearest' possible directory for sequences
 # last_output = [dir for dir in fpm['pipeline-output']['prefiltered'].glob('*') if re.search('^no-ambig', dir.stem, re.I)][0]
 # is_input, pacbio_files = check_for_input(last_output)
-#
-# if is_input:
-#     remove_primers(pacbio_files, file_map=fpm, platform='pacbio')
-# else:
-#     pass
+
+# REMOVE AFTER TESTING
+is_input = True
+pacbio_files = fpm['pipeline-output']['demultiplexed'].glob('*.fast*')
+
+if is_input:
+    remove_primers(pacbio_files, file_map=fpm, platform='pacbio', paired_end=False)
+else:
+    pass
 
 #####################
 # SANGER ############

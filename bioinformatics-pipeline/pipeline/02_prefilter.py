@@ -1,12 +1,7 @@
 from mapping import filepath_map as fpm
 
-import argparse
-import sys
-import subprocess
+import argparse, sys, subprocess
 from pathlib import Path
-##REMOVE AFTER PACKAGE TESTING#######
-sys.path.insert(0, str(fpm['package']['main']))
-#####################################
 from climush.constants import *
 from climush.bioinfo import filter_out_phix, prefilter_fastx
 from climush.utilities import *
