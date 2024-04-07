@@ -53,7 +53,7 @@ ENV PATH=/home/$USER:$PATH
 COPY --chown=$USER:users .bashrc /home/$USER/.bashrc
 
 # copy conda env activation to container's bash script so it runs upon entry
-RUN echo "source activate mycoformatics" >> /home/$USER/.bashrc
+RUN echo "conda activate mycoformatics" >> /home/$USER/.bashrc
 ENV PATH $CONDA_DIR/envs/mycoformatics/bin:$PATH
 
 # install the climush Python package with pip after activating the conda env, within .bashrc
