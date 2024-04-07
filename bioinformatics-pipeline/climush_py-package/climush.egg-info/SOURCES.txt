@@ -3,6 +3,7 @@ pyproject.toml
 climush/__init__.py
 climush/binfo_old.py
 climush/bioinfo.py
+climush/config.py
 climush/constants.py
 climush/utilities.py
 climush/viz.py

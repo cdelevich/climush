@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: climush
-Version: 0.0.1
+Version: 0.0.2
 Summary: Tools to run the CliMush bioinformatics pipeline.
 Author-email: Carolyn Delevich <cdelevic@uoregon.edu>
 Project-URL: Homepage, https://github.com/cdelevich/climush/tree/main/bioinformatics-pipeline
@@ -11,13 +11,14 @@ Classifier: License :: OSI Approved :: MIT License
 Classifier: Operating System :: Unix
 Classifier: Development Status :: 3 - Alpha
 Classifier: Topic :: Scientific/Engineering :: Bio-Informatics
+Requires-Python: >=3.10
 Description-Content-Type: text/markdown
-Requires-Dist: pandas==2.2.1
-Requires-Dist: scipy==1.13.0
-Requires-Dist: numpy==1.26.4
-Requires-Dist: matplotlib==3.8.4
-Requires-Dist: seaborn==0.13.2
-Requires-Dist: Bio==1.83
+Requires-Dist: pandas
+Requires-Dist: scipy
+Requires-Dist: numpy
+Requires-Dist: matplotlib
+Requires-Dist: seaborn
+Requires-Dist: Bio
 
 # CliMush Bioinformatics Package
 
