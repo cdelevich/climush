@@ -3,26 +3,32 @@ name: climush
 services:
   climush-bioinformatics:
     platform: linux/amd64
-    image: climush-bioinfo
+    image: cdelevich/climush-bioinfo
+    pull_policy: build
+#    pull_policy: always
+    command: PWD=$(bash -c pwd)
     build:
       context: git@github.com:cdelevich/climush.git#main:/docker-containers/bioinformatics/app/
       ssh:
         - default
       args:
-        - VERSION_NUM=0.1
+        - VERSION_NUM=0.2
         - USER=mycophile
     stdin_open: true
     tty: true
     volumes:
+      - type: bind
+        source: /home/$USER/testdir
+        target: "${PWD}"
 #      - type: bind
 #        source: /home/mycophile/pipeline
-#        target: "$(pwd)"
+#        target: "${PWD}"
 #      - type: bind
 #        source: /home/mycophile/config
-#        target: "$(pwd)"
+#        target: "${PWD}"
 #      - type: bind
 #        source: /home/$USER/sequences
-#        target: "$(pwd)"
+#        target: "${PWD}"
 #      - type: bind
 #        source: /home/$USER/pipeline-output
-#        target: "$(pwd)"
+#        target: "${PWD}"
