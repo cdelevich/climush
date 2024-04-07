@@ -74,4 +74,4 @@ USER $USER
 SHELL ["/bin/bash", "-l", "-c"]
 
 CMD ["source", ".bashrc"]
-RUN ["/bin/bash"]
+ENTRYPOINT ["/bin/bash"]
