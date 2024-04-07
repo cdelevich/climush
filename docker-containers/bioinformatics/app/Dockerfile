@@ -72,4 +72,6 @@ USER $USER
 
 # set bash as entrypoint, want the .bashrc file to be first thing to run
 SHELL ["/bin/bash", "-l", "-c"]
-ENTRYPOINT ["source", ".bashrc"]
+
+CMD ["source", ".bashrc"]
+RUN ["/bin/bash"]
