@@ -1,7 +1,6 @@
 from pathlib import Path
 import sys
-# REMOVE PACKAGE WORKAROUND BELOW
-# from climush.utilities import mkdir_exist_ok
+from climush.utilities import mkdir_exist_ok
 
 # PIPELINE
 try:
@@ -21,9 +20,6 @@ REF_DB = CONFIG / 'reference-db'
 CHIM_DB = REF_DB / 'chimera'
 TAX_DB = REF_DB / 'taxonomy'
 
-# PYTHON PACKAGE
-PACKAGE = ROOT / 'climush_py-package'
-
 # SEQUENCES
 SEQUENCES = ROOT / 'sequences'
 SORT_PACBIO = SEQUENCES / 'pacbio'
@@ -35,10 +31,6 @@ SORT_DEMUX = SEQUENCES / 'needs_demux'
 SORT_UNCLEAR = SEQUENCES / 'needs_clarification'
 
 # PIPELINE-OUTPUT
-##REMOVE AFTER PACKAGE TESTING#######
-sys.path.insert(0, str(PACKAGE))
-from climush.utilities import mkdir_exist_ok
-#####################################
 PIPELINE_OUT = ROOT / 'pipeline-output'
 mkdir_exist_ok(PIPELINE_OUT)  # make the main output dir; will execute if this script is run in any pipeline script
 
@@ -65,7 +57,6 @@ filepath_map = {'root': ROOT,
                 'pipeline': {'main':PIPELINE,
                              'rename':PIPE_RENAME,
                              'demux':PIPE_DEMUX},
-                'package': {'main': PACKAGE},
                 'sequences': {'main': SEQUENCES,
                               'pacbio':SORT_PACBIO,
                               'illumina':SORT_ILLUMINA,
