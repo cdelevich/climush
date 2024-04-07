@@ -16,6 +16,14 @@ classifiers = [
     'Development Status :: 3 - Alpha',
     'Topic :: Scientific/Engineering :: Bio-Informatics',
 ]
+dependencies = [
+    'pandas == 2.2.1',
+    'scipy == 1.13.0',
+    'numpy == 1.26.4',
+    'matplotlib == 3.8.4',
+    'seaborn == 0.13.2',
+    'Bio == 1.83'
+]
 
 [project.urls]
 Homepage = 'https://github.com/cdelevich/climush/tree/main/bioinformatics-pipeline'
