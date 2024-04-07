@@ -18,8 +18,8 @@ services:
     tty: true
     volumes:
       - type: bind
-        source: /home/$USER/testdir
-        target: "${PWD}"
+        source: "${PWD}"
+        target: /home/mycophile/testdir
 #      - type: bind
 #        source: /home/mycophile/pipeline
 #        target: "${PWD}"
