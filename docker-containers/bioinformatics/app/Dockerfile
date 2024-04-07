@@ -27,9 +27,6 @@ RUN apt update --yes && \
 # install the climush Python package, which contains custom functions required for the pipeline
 RUN pip install climush
 
-# REMOVE AFTER TESTING
-RUN echo "just a test" > test.txt
-
 # install conda and give permission to write to the conda folder (for installing other packages?)
 ENV CONDA_DIR /opt/conda
 RUN wget --quiet -O ~/miniconda.sh https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh && \
@@ -68,7 +65,6 @@ WORKDIR /home/$USER
 #COPY --chown=$USER:users config /home/$USER/config
 #COPY --chown=$USER:users pipeline /home/$USER/pipeline
 #COPY --chown=$USER:users $PKG_EXP /home/$USER/config/
-COPY --chown=$USER:users test.txt /home/$USER/testdir/
 
 # Define an environment var to indicate script is running in a container
 ENV CONTAINERIZED=''
