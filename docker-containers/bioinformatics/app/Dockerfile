@@ -24,9 +24,6 @@ RUN apt update --yes && \
     wget && \
     rm -rf /var/lib/apt/lists/*
 
-# install the climush Python package, which contains custom functions required for the pipeline
-RUN pip install climush
-
 # install conda and give permission to write to the conda folder (for installing other packages?)
 ENV CONDA_DIR /opt/conda
 RUN wget --quiet -O ~/miniconda.sh https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh && \
@@ -59,6 +56,9 @@ COPY --chown=$USER:users .bashrc /home/$USER/.bashrc
 RUN echo "source activate mycoformatics" >> /home/$USER/.bashrc
 ENV PATH $CONDA_DIR/envs/mycoformatics/bin:$PATH
 
+# install the climush Python package with pip after activating the conda env, within .bashrc
+RUN echo "pip install climush" >> /home/$USER/.bashrc
+
 # mount volumes for pipeline-specific directories, copy content over
 WORKDIR /home/$USER
 #VOLUME ["/home/$USER/config", "/home/$USER/pipeline"]
@@ -71,4 +71,4 @@ ENV CONTAINERIZED=''
 USER $USER
 
 # set bash as entrypoint, want the .bashrc file to be first thing to run
-ENTRYPOINT ["/bin/bash", "-l", "-c"]
+ENTRYPOINT ["/bin/bash", "-c", "source", ".bashrc"]
