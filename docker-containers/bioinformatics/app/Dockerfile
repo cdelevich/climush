@@ -68,7 +68,7 @@ WORKDIR /home/$USER
 #COPY --chown=$USER:users config /home/$USER/config
 #COPY --chown=$USER:users pipeline /home/$USER/pipeline
 #COPY --chown=$USER:users $PKG_EXP /home/$USER/config/
-COPY --chown=$USER:users text.txt /home/$USER/testdir/
+COPY --chown=$USER:users test.txt /home/$USER/testdir/
 
 # Define an environment var to indicate script is running in a container
 ENV CONTAINERIZED=''
