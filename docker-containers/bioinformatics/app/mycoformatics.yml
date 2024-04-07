@@ -1,23 +1,23 @@
 name: mycoformatics
 channels:
+  - nodefaults
   - bioconda
-#  - qiime2
   - conda-forge
 dependencies:
-  - mothur=1.48.0
-  - vsearch=2.15
-  - blast=2.15
-  - itsx=1.1
-#  - qiime2=2023.7
-  - pandas=2.2
-  - scipy=1.12
-  - numpy=1.26
-  - matplotlib=3.8
-  - seaborn=0.13
-  - biopython=1.83
-  - seqkit=2.7
-  - cutadapt=4.6
-  - lima=2.9
-  - bbmap=39.06
-  - tomlkit=0.12.3
-  - rdp_classifier=2.13
+  - mothur  # bioconda (here to conda-forge comment)
+  - vsearch
+  - blast
+  - itsx
+  - seqkit
+  - cutadapt
+  - lima
+  - bbmap
+  - rdp_classifier
+  - amptk
+  - tomlkit  # conda-forge (here down)
+  - pandas
+  - scipy
+  - numpy
+  - matplotlib
+  - seaborn
+  - biopython
