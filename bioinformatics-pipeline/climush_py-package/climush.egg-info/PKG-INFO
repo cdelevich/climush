@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: climush
-Version: 0.0.3
+Version: 0.0.4
 Summary: Tools to run the CliMush bioinformatics pipeline.
 Author-email: Carolyn Delevich <cdelevic@uoregon.edu>
 Project-URL: Homepage, https://github.com/cdelevich/climush/tree/main/bioinformatics-pipeline
@@ -19,6 +19,7 @@ Requires-Dist: numpy
 Requires-Dist: matplotlib
 Requires-Dist: seaborn
 Requires-Dist: Bio
+Requires-Dist: tomlkit
 
 # CliMush Bioinformatics Package
 
