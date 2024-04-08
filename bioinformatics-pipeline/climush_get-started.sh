@@ -7,11 +7,11 @@ echo "PWD=$(pwd)" >> .env
 #wget -O compose.yaml https://github.com/cdelevich/climush.git#main:/docker-containers/bioinformatics/deploy/compose.yaml
 curl -o . https://github.com/cdelevich/climush.git#main:/docker-containers/bioinformatics/deploy/compose.yaml
 
-# create an empty sequence directory
-mkdir sequences
+# create an empty sequence directory, with full permissions
+mkdir -m 777 sequences
 
-# create a config directory and add configuration file into it
-mkdir config
+# create a config directory with full permissions and add configuration file into it
+mkdir -m 777 config
 #wget -O /config/climush-bioinfo_pipeline-settings.toml https://github.com/cdelevich/climush.git#main:/bioinformatics-pipeline/config/climush-bioinfo_pipeline-settings.toml
 curl -o /config https://github.com/cdelevich/climush.git#main:/bioinformatics-pipeline/config/climush-bioinfo_pipeline-settings.toml
 
