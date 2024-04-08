@@ -4,16 +4,35 @@
 echo "PWD=$(pwd)" >> .env
 
 # pull the compose.yaml file from GitHub to set up Docker image
-#wget -O compose.yaml https://github.com/cdelevich/climush.git#main:/docker-containers/bioinformatics/deploy/compose.yaml
-curl -o . https://github.com/cdelevich/climush.git#main:/docker-containers/bioinformatics/deploy/compose.yaml
+if which wget >/dev/null ; then
+  echo "Downloading via wget."
+  wget -O compose.yaml https://github.com/cdelevich/climush/docker-containers/bioinformatics/deploy/compose.yaml
+elif which curl >/dev/null ; then
+  echo "Downloading via curl."
+  curl -O https://github.com/cdelevich/climush/docker-containers/bioinformatics/deploy/compose.yaml
+else
+  echo "Cannot download, neither wget nor curl is available."
+fi
 
 # create an empty sequence directory, with full permissions
 mkdir -m 777 sequences
 
-# create a config directory with full permissions and add configuration file into it
+# create a config directory with full permissions
 mkdir -m 777 config
-#wget -O /config/climush-bioinfo_pipeline-settings.toml https://github.com/cdelevich/climush.git#main:/bioinformatics-pipeline/config/climush-bioinfo_pipeline-settings.toml
-curl -o /config https://github.com/cdelevich/climush.git#main:/bioinformatics-pipeline/config/climush-bioinfo_pipeline-settings.toml
+
+# download the configuration file to this directory
+cd config
+if which wget >/dev/null ; then
+  echo "Downloading via wget."
+  wget -O https://github.com/cdelevich/climush/bioinformatics-pipeline/config/climush-bioinfo_pipeline-settings.toml
+elif which curl >/dev/null ; then
+  echo "Downloading via curl."
+  curl -O https://github.com/cdelevich/climush/bioinformatics-pipeline/config/climush-bioinfo_pipeline-settings.toml
+else
+  echo "Cannot download, neither wget nor curl is available."
+fi
+# had to do this annoying way where I change directory, would not work otherwise
+cd ../
 
 # run Docker container from Docker image via compose.yaml
 docker compose run climush-bioinformatics
