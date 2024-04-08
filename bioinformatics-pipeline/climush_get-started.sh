@@ -36,3 +36,7 @@ cd ../
 
 # run Docker container from Docker image via compose.yaml
 docker compose run climush-bioinformatics
+
+# if on HPC cluster
+#module load apptainer
+#apptainer run docker://cdelevich/climush-bioinfo:latest
