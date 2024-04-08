@@ -6,7 +6,7 @@ services:
     image: cdelevich/climush-bioinfo
     pull_policy: build
 #    pull_policy: always
-    command: PWD=$(bash -c pwd)
+#    command: PWD=$(bash -c pwd)
     build:
       context: git@github.com:cdelevich/climush.git#main:/docker-containers/bioinformatics/app/
       ssh:
@@ -18,7 +18,7 @@ services:
     tty: true
     volumes:
       - type: bind
-        source: "${PWD}"
+        source: "$(pwd)"
         target: /home/mycophile/testdir
 #      - type: bind
 #        source: /home/mycophile/pipeline
