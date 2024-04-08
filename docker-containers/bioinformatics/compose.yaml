@@ -16,10 +16,10 @@ services:
         - USER=mycophile
     stdin_open: true
     tty: true
-    volumes:
-      - type: bind
-        source: "$(pwd)"
-        target: /home/mycophile/testdir
+#    volumes:
+#      - type: bind
+#        source: "$(pwd)"
+#        target: /home/mycophile/testdir
 #      - type: bind
 #        source: /home/mycophile/pipeline
 #        target: "${PWD}"
