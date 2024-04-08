@@ -71,7 +71,9 @@ ENV CONTAINERIZED=''
 USER $USER
 
 # set bash as entrypoint, want the .bashrc file to be first thing to run
-SHELL ["/bin/bash", "-l", "-c"]
+#SHELL ["/bin/bash", "-c"]
 
-CMD ["source", ".bashrc"]
 ENTRYPOINT ["/bin/bash"]
+#CMD ["source", ".bashrc"]
+#ENTRYPOINT ["source", ".bashrc"]
+#ENTRYPOINT ["source /home/$USER/.bashrc"]

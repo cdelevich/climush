@@ -5,10 +5,9 @@ services:
     platform: linux/amd64
     image: cdelevich/climush-bioinfo
     pull_policy: build
-#    pull_policy: always
-#    command: PWD=$(bash -c pwd)
     build:
-      context: git@github.com:cdelevich/climush.git#main:/docker-containers/bioinformatics/app/
+#      context: git@github.com:cdelevich/climush.git#main:/docker-containers/bioinformatics/app/
+      context: ./app
       ssh:
         - default
       args:
