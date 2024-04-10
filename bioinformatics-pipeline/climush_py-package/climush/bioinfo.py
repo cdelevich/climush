@@ -606,18 +606,18 @@ def remove_primers(input_files, file_map, platform, paired_end=True):
             run_subprocess(cutadapt_cmd, dest_dir=trim_primers_parent)
 
     # quantify proportion untrimmed
-    with open((trim_primers_parent / 'cutadapt.out'), 'r') as fin:
-        cutadapt_df = pd.read_table(fin)
-        sum_in = cutadapt_df['in_reads'].sum(0)
-        sum_out = cutadapt_df['out_reads'].sum(0)
-        percent_lost = ((sum_in - sum_out) / (sum_in)) * 100
-        if percent_lost > max_untrimmed:
-            msg = f'After primer trimming, {percent_lost:.2f}% of the input reads were lost, which is ' \
-                  f'above the user-defined maximum threshold of {max_untrimmed}%.\n'
-            exit_process(message=msg)
-        else:
-            print(f'{percent_lost:.2f}% of input reads were lost to primer trimming. This is above the user-provided '
-                  f'input of {max_untrimmed}%, so proceeding to next step...\n')
+    # with open((trim_primers_parent / 'cutadapt.out'), 'r') as fin:
+    #     cutadapt_df = pd.read_table(fin)
+    #     sum_in = cutadapt_df['in_reads'].sum(0)
+    #     sum_out = cutadapt_df['out_reads'].sum(0)
+    #     percent_lost = ((sum_in - sum_out) / (sum_in)) * 100
+    #     if percent_lost > max_untrimmed:
+    #         msg = f'After primer trimming, {percent_lost:.2f}% of the input reads were lost, which is ' \
+    #               f'above the user-defined maximum threshold of {max_untrimmed}%.\n'
+    #         exit_process(message=msg)
+    #     else:
+    #         print(f'{percent_lost:.2f}% of input reads were lost to primer trimming. This is above the user-provided '
+    #               f'input of {max_untrimmed}%, so proceeding to next step...\n')
 
     return None
 

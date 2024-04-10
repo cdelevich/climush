@@ -1,8 +1,8 @@
-import subprocess, re, sys, pathlib, tomlkit
+import subprocess, re, sys, pathlib, shutil, json
+# import tomlkit
 from pathlib import Path
 from datetime import datetime
 from functools import wraps
-import shutil
 import pandas as pd
 from climush.constants import *
 
@@ -117,6 +117,20 @@ def continue_to_next(this_script, config_dict):
             return None
         else:
             return print(f'\n\nExiting the completed step, {current_script}.\n')
+
+# log progress of bioinformatics pipeline
+def log_progress(file_map, run_name):
+    log_file = file_map['pipeline-output']['summary'] / f'log_{run_name}.json'
+
+    log_dict = {'run_name': run_name,
+                'error': {'script':'04_quality-filtering',
+                          'function':''}
+                }
+
+    with open(log_file, 'at') as log_out:
+        log_out.write(json.dumps(log_dict))
+
+
 
 # exit current script due to error, save script and timestamp of where error occurred
 def exit_process(message, config_section='error.message'):
