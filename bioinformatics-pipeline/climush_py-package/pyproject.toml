@@ -4,7 +4,7 @@ build-backend = 'setuptools.build_meta'
 
 [project]
 name = 'climush'
-version = '0.0.4'
+version = '0.0.5'
 authors = [
     { name='Carolyn Delevich', email='cdelevic@uoregon.edu' }]
 description = 'Tools to run the CliMush bioinformatics pipeline.'
