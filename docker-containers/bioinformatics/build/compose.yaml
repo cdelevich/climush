@@ -6,7 +6,7 @@ services:
     image: cdelevich/climush-bioinfo
     pull_policy: build
     build:
-#      context: git@github.com:cdelevich/climush.git#main:/docker-containers/bioinformatics/app/
+#      context: git@github.com:cdelevich/climush.git#main:/docker-containers/bioinformatics/build/app/
       context: ./app
       ssh:
         - default
@@ -15,19 +15,3 @@ services:
         - USER=mycophile
     stdin_open: true
     tty: true
-#    volumes:
-#      - type: bind
-#        source: "$(pwd)"
-#        target: /home/mycophile/testdir
-#      - type: bind
-#        source: /home/mycophile/pipeline
-#        target: "${PWD}"
-#      - type: bind
-#        source: /home/mycophile/config
-#        target: "${PWD}"
-#      - type: bind
-#        source: /home/$USER/sequences
-#        target: "${PWD}"
-#      - type: bind
-#        source: /home/$USER/pipeline-output
-#        target: "${PWD}"
