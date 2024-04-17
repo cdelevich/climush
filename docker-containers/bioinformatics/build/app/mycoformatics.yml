@@ -13,7 +13,7 @@ dependencies:
   - lima
   - bbmap
   - rdp_classifier
-  - amptk
+  - amptk  # CAUSING ERROR - LIBMAMBA
   - tomlkit  # conda-forge (here down)
   - pandas
   - scipy
