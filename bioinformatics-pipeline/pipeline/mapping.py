@@ -47,6 +47,7 @@ DEREP02 = PIPELINE_OUT / 'derep-subregions'
 CLUSTER = PIPELINE_OUT / 'otus-clustered'
 TAX = PIPELINE_OUT / 'taxonomy-assigned'
 OTU_TAB = PIPELINE_OUT / 'otu-table'
+SUMMARY = PIPELINE_OUT / 'summary'
 
 filepath_map = {'root': ROOT,
                 'config': {'main':CONFIG,
@@ -76,4 +77,6 @@ filepath_map = {'root': ROOT,
                                     'derep-subregions': DEREP02,
                                     'otus-clustered': CLUSTER,
                                     'taxonomy': TAX,
-                                    'otu-table': OTU_TAB}}
+                                    'otu-table': OTU_TAB,
+                                    'summary': SUMMARY}
+                }
