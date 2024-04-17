@@ -572,8 +572,8 @@ def remove_primers(input_files, file_map, platform, paired_end=True):
 
         for file in paired_dict.keys():
 
-            fwd_read_out = add_prefix(file_path=file, prefix=TRIMMED_PREFIX, dest_dir=trim_path, action='None')
-            rev_read_out = add_prefix(file_path=paired_dict[file], prefix=TRIMMED_PREFIX, dest_dir=trim_path, action='None')
+            fwd_read_out = add_prefix(file_path=file, prefix=TRIMMED_PREFIX, dest_dir=trim_path, action=None)
+            rev_read_out = add_prefix(file_path=paired_dict[file], prefix=TRIMMED_PREFIX, dest_dir=trim_path, action=None)
 
             cutadapt_cmd = ['cutadapt', '--report=minimal',
                             '-a', fwd_primer, '-A', rev_primer,
@@ -587,11 +587,11 @@ def remove_primers(input_files, file_map, platform, paired_end=True):
 
         for file in input_files:
 
-            trim_out = add_prefix(file_path=file, prefix=TRIMMED_PREFIX, dest_dir=trim_path, action='None')
+            trim_out = add_prefix(file_path=file, prefix=TRIMMED_PREFIX, dest_dir=trim_path, action=None)
 
             if cutadapt_settings['keep_untrimmed']:
                 notrim_out = add_prefix(file_path=file, prefix=flip_prefix(TRIMMED_PREFIX),
-                                        dest_dir=notrim_path, action='None')
+                                        dest_dir=notrim_path, action=None)
                 untrim_cmd = f'--untrimmed-output={notrim_out}'
             else:
                 untrim_cmd = ''
@@ -682,9 +682,9 @@ def quality_filter(input_files, platform, file_map):
     if premerged:
         for file in input_files:
             qfilt_out = add_prefix(file_path=file, prefix=QUALFILT_PREFIX,
-                                           dest_dir=qfilt_path, action='None')
+                                           dest_dir=qfilt_path, action=None)
             nofilt_out = add_prefix(file_path=file, prefix=flip_prefix(QUALFILT_PREFIX),
-                                        dest_dir=nofilt_path, action='None')
+                                        dest_dir=nofilt_path, action=None)
 
             vsearch_filt_cmd = ['vsearch', '--fastq_filter', file,
                                 '--fastqout', qfilt_out,
@@ -698,14 +698,14 @@ def quality_filter(input_files, platform, file_map):
         for file in paired_dict.keys():
 
             qfilt_fwd_out = add_prefix(file_path=file, prefix=QUALFILT_PREFIX,
-                                       dest_dir=qfilt_path, action='None')
+                                       dest_dir=qfilt_path, action=None)
             nofilt_fwd_out = add_prefix(file_path=file, prefix=flip_prefix(QUALFILT_PREFIX),
-                                        dest_dir=nofilt_path, action='None')
+                                        dest_dir=nofilt_path, action=None)
 
             qfilt_rev_out = add_prefix(file_path=paired_dict[file], prefix=QUALFILT_PREFIX,
-                                       dest_dir=qfilt_path, action='None')
+                                       dest_dir=qfilt_path, action=None)
             nofilt_rev_out = add_prefix(file_path=paired_dict[file], prefix=flip_prefix(QUALFILT_PREFIX),
-                                        dest_dir=nofilt_path, action='None')
+                                        dest_dir=nofilt_path, action=None)
 
             vsearch_filt_cmd = ['vsearch', '--fastq_filter', file, '--reverse', paired_dict[file],
                                 '--fastqout', qfilt_fwd_out, '--fastqout_rev', qfilt_rev_out,
@@ -767,7 +767,7 @@ def separate_subregions(input_files, file_map):
 
     for file in input_files:
 
-        itsx_output_basename = add_prefix(file_path=file, prefix=ITSX_PREFIX, dest_dir=itsx_path).with_suffix('')
+        itsx_output_basename = add_prefix(file_path=file, prefix=ITSX_PREFIX, dest_dir=itsx_path, action=None).with_suffix('')
 
         itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'F', '--multi_thread', 'T',
                         '--save_regions', 'all']
