@@ -1,3 +1,6 @@
+export PYTHONPATH="${PYTHONPATH}:~/vsearch-2.27.1-macos-aarch64/bin"
+
+alias python3='sudo /Library/Frameworks/Python.framework/Versions/3.11/bin/python3'
 
 alias sort_files='python3 pipeline/00_sort-files.py'
 alias demux='python3 pipeline/01_demultiplex.py'
