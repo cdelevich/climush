@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: climush
-Version: 0.0.6
+Version: 0.0.7
 Summary: Tools to run the CliMush bioinformatics pipeline.
 Author-email: Carolyn Delevich <cdelevic@uoregon.edu>
 Project-URL: Homepage, https://github.com/cdelevich/climush/tree/main/bioinformatics-pipeline
