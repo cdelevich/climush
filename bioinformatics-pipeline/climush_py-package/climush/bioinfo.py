@@ -27,7 +27,7 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
     mapping_files = list(mapping_dir.glob('*'))  # get mapping files, as list (will reuse + exhaust)
 
     # ACCESS USER SETTINGS FROM CONFIG ##############################################################
-    run_name = settings['run_details']['run_name']  # name to use for this bioinformatics run
+    run_name = settings_dict['run_details']['run_name']  # name to use for this bioinformatics run
 
     # CONSTRUCT REGEX CONSTANTS #####################################################################
     # column name regex; column names vary among mapping files
