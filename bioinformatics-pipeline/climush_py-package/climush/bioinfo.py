@@ -304,7 +304,7 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
                 pool_num = input()
 
             # define prefix to use for lima output files; include path to the output directory for this seq run
-            out_prefix = seq_run_output / f'lima-demux_{seq_run}_pool{pool_num}'
+            out_prefix = (seq_run_output / f'lima-demux_{seq_run}_pool{pool_num}').with_suffix('.fasta')
 
             # assemble list of commands required to run lima demultiplexing
             lima_cmd = ['lima', pool, barcode_fasta, out_prefix, '--min-score', '93', '--hifi-preset', 'ASYMMETRIC']
