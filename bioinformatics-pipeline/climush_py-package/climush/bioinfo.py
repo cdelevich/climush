@@ -389,9 +389,6 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
     # for each sequencing run...
     for qid in read_barcodes:
 
-        # get the name of the sequencing run for labeling the output and read headers
-        seq_run = settings['pacbio_demultiplexing']['multiplex'][qid]
-
         # for each pool in this sequencing run...
         for p in ['pool1', 'pool2']:
 
