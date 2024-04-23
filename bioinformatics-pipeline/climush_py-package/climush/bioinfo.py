@@ -414,7 +414,7 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
                     sample_id = sample_ids[0]
 
                     # create read ID header from sequencing run, sample ID, and last part of original read header
-                    full_sample_id = '_'.join([seq_run, sample_id])
+                    full_sample_id = '_'.join([seq_run, str(sample_id)])  # sample ID is int (?) debugging...
                     read_id = '_'.join([full_sample_id, r.split('/')[-2]])
 
                     # get the barcode-free sequence for this read
