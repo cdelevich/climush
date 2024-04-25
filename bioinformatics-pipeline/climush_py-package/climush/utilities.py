@@ -799,37 +799,15 @@ def import_config_as_dict(file_path, file_handle, config_section='all'):
             correct_header = prompt_print_options(list(config_dict.keys()))
             return config_dict[correct_header]
 
-# write or update settings to the configuration file
-# NOT WORKING RIGHT NOW
-# def write_to_config(config_section, output_path, update_obj=False, overwrite=True, **kwargs):
-#     # import the pipeline configuration file directly
-#     config_section = 'error_message'
-#     config_dict = import_config_as_dict(output_path, file_handle)
-#
-#     # confirm that the provided section is in the configuration file
-#     if not config_section in config_dict.keys():
-#         msg = f'ERROR: Could not locate the provided section \'{config_section}\' in the pipeline configuration '\
-#               f'file.'
-#         print(msg)
-#         return exit_process(message=msg)
-#
-#     # update the configuration file with the provided key-value pairs
-#     for k, v in kwargs.items():
-#         if k in config_dict[config_section].keys():  # if there's already a key for this kwarg...
-#             if (config_dict[config_section][k] == '') or overwrite:  # if it has no value or if we want to overwrite...
-#                 config_dict[config_section][k] == v  # update/overwrite current key with new key value pair
-#             else:  # if there is something already there and we do not want to overwrite it...
-#                 continue  # continue to next key-value pair
-#         else:  # if there's no key matching in this section, add key-value pair without further inspection
-#             config_dict[config_section][k] == v
-#
-#     # write out this updated configuration dict to replace the previous configuration file
-#     config_filename = flag_multiple_files(output_path, search_for=f'*{PIPELINE_CONFIG_HANDLE}*{CONFIG_FILETYPE}')
-#
-#     with open(config_filename, 'wt') as fout:
-#         fout.write(tomlkit.dumps(config_dict))
-#
-#     return None
+# create a default run name w/ date if user run name not provided
+def get_run_name(file_map, settings_dict):
+    '''
+    Create run name string based on user or default configuration settings.
+
+    :param file_map: file map for the pipeline that is a dictionary of file paths to
+    all directories, subdirectory, scripts, and configuration files.
+    :return:
+    '''
 
 # locate relevant mapping file for demultiplexing
 # moved down because it requires the import_config_as_dict function
