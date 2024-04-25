@@ -1,0 +1,84 @@
+# This is the configuration file for the CliMush bioinformatics pipeline for users.
+
+title = 'CliMush Bioinformatics Pipeline Configuration for Users'
+
+
+[user_info]
+name =            ''  # [!REQUIRED] string: name of user running the pipeline
+email =           ''  # [!REQUIRED] string: contact email of user running the pipeline
+institution =     ''  # [!REQUIRED] string: home institution of user running the pipeline
+globus_endpoint = ''  # [!REQUIRED] string: the Globus endpoint ID of your HPC cluster or Globus personal connect
+
+
+[run_details]
+run_name = ''  # string: name to use when referencing this collection of samples
+
+
+[automate]
+run_all =       ''  # true/false: when set to 'true', the entire pipeline will run from start to finish automatically
+run_some =      []  # integer(s): list of integers corresponding to the steps of the pipeline to run, e.g., [1,2,3]
+save_all =      ''  # true/false: when set to 'true', will save all logs from the pipeline run; otherwise saves none
+exit_on_error = ''  # true/false: when set to 'true', automated pipeline will stop if error/warning shown
+auto_respond =  ''  # true/false: if automated, set to 'true' to respond 'yes' to prompts; otherwise, respond 'no'
+
+
+[primers]
+fwd.sequence.custom =   ''  # string: sequence of a custom forward primer
+fwd.name = { custom = '' }  # string: key-value pair of fwd primer name
+
+rev.sequence.custom =   ''  # string: sequence of a custom reverse primer
+rev.name = { custom = '' }  # string: name of custom reverse primer
+
+
+[demultiplex]
+mapping_file_path = ''                          # file path: path to mapping file if outside file structure
+min_precision =     { 'fwd' = '', 'rev' = '' }  # integer: barcode precision minimum score (93 = 93%)
+
+
+[remove_primers]
+max_error_rate =   { 'fwd' = '', 'rev' = '' }    # float: maximum error rate used by cutadapt for fwd and rev primer match
+linked_adapters =  ''                            # true/false: if true, primers are linked (e.g., read must have fwd + rev)
+require_adapters = { 'fwd' = '', 'rev' = '' }    # true/false: if true, fwd/rev primer is required in order to trim
+keep_untrimmed =   ''                            # true/false: save untrimmed reads to an untrimmed folder
+max_untrimmed =    ''                            # integer: the maximum allowed percentage of total reads to remain
+                                                 #          untrimmed (10 = 10% of total input reads not trimmed)
+
+
+[quality_filtering]
+pacbio.qscore =  ''    # 20/30/40: quality score folder to use in pipeline
+pacbio.min_len = ''    # integer: minimum sequence length (bp) of post-primer removal reads
+pacbio.max_len = ''    # integer: maximum sequence length (bp) of post-primer removal reads
+
+illumina.merge_reads = ''  # true/false: if true, all forward and reverse reads will be merged
+illumina.max_error =   ''  # float: maximum expected error
+illumina.min_len =     ''  # integer: minimum sequence length (bp) of post-primer removal reads
+illumina.max_len =     ''  # integer: maximum sequence length (bp) of post-primer removal reads
+
+
+[dereplicate]
+pacbio.min_count.derep01 = ''    # integer: minimum number of identical full-length reads (or %); must be at least 1
+pacbio.min_count.derep02 = ''    # integer: minimum number of identical reads after derep of subregion reads (or %)
+
+illumina.min_count.derep01 = ''  # integer: minimum number of identical full-length reads (or %)
+illumina.min_count.derep02 = ''  # integer: minimum number of identical reads after derep of subregion reads (or %)
+
+
+[separate_subregions]
+fungi_only =    ''  # optional: if true, compares only to fungi reference sequences; if false, searches all (time-consuming)
+which_regions = ''  # optional: region or subregion to output; options are SSU, ITS1, 5.8S, ITS2, LSU, all (default), none
+
+
+[chimera_check]
+method =        ''  # 'reference'/'denovo': whether to use uchime denovo or reference-based using UNITE's chim ref dataset
+keep_chimeras = ''  # true/false: keep reads that are chimeras, separated into a directory of chimeras
+
+
+[otu_clustering]
+min_threshold = ''    # integer: minimum percent identity to cluster reads into OTUs
+method =        ''    # 'average': method used to align reads prior to clustering
+group_by =      ''    # 'community'/'sample: what pool of reads to consider when clustering
+choose_rep_by = ''    # 'read count'/'read_size': how to chose the representative read for each OTU
+choose_top_by = ''    # 'read count'/'read_size': how to chose the top OTU per sample;
+                      #           only relevant for sporocarp samples
+
+
