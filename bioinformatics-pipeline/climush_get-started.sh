@@ -24,10 +24,10 @@ mkdir -m 777 config
 cd config
 if which wget >/dev/null ; then
   echo "Downloading via wget."
-  wget -O https://github.com/cdelevich/climush/bioinformatics-pipeline/config/climush-bioinfo_pipeline-settings.toml
+  wget -O https://github.com/cdelevich/climush/bioinformatics-pipeline/config/climush-bioinfo_user-settings.toml
 elif which curl >/dev/null ; then
   echo "Downloading via curl."
-  curl -O https://github.com/cdelevich/climush/bioinformatics-pipeline/config/climush-bioinfo_pipeline-settings.toml
+  curl -O https://github.com/cdelevich/climush/bioinformatics-pipeline/config/climush-bioinfo_user-settings.toml
 else
   echo "Cannot download, neither wget nor curl is available."
 fi
