@@ -22,17 +22,17 @@ exit_on_error = ''  # true/false: when set to 'true', automated pipeline will st
 auto_respond =  ''  # true/false: if automated, set to 'true' to respond 'yes' to prompts; otherwise, respond 'no'
 
 
+[demultiplex]
+mapping_file_path = ''                          # file path: path to mapping file if outside file structure
+min_precision =     { 'fwd' = '', 'rev' = '' }  # integer: barcode precision minimum score (93 = 93%)
+
+
 [primers]
 fwd.sequence.custom =   ''  # string: sequence of a custom forward primer
 fwd.name = { custom = '' }  # string: key-value pair of fwd primer name
 
 rev.sequence.custom =   ''  # string: sequence of a custom reverse primer
 rev.name = { custom = '' }  # string: name of custom reverse primer
-
-
-[demultiplex]
-mapping_file_path = ''                          # file path: path to mapping file if outside file structure
-min_precision =     { 'fwd' = '', 'rev' = '' }  # integer: barcode precision minimum score (93 = 93%)
 
 
 [remove_primers]
