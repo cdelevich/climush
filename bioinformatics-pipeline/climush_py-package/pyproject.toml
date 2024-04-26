@@ -12,19 +12,27 @@ readme = 'README.md'
 classifiers = [
     'Programming Language :: Python :: 3',
     'License :: OSI Approved :: MIT License',
-#    'Operating System :: Unix',
+#    'Operating System :: Unix',  # unsure whether I want to include; also not 100% there's a Unix-only restriction
     'Development Status :: 3 - Alpha',
     'Topic :: Scientific/Engineering :: Bio-Informatics',
 ]
 requires-python = ">=3.10"
 dependencies = [
     'pandas',
-    'scipy',
-    'numpy',
-    'matplotlib',
+#    'scipy',  # included in optional dependencies for pandas (see project.optional-dependencies below)
+#    'numpy',  # included in optional dependencies for pandas (see project.optional-dependencies below)
+#    'matplotlib',  # included in optional dependencies for pandas (see project.optional-dependencies below)
     'seaborn',
     'Bio',
     'tomlkit',
+]
+
+[project.optional-dependencies]
+pandas = [
+    "pandas[excel]",  # includes openpyxl
+    "pandas[computation]",  # includes numpy, scipy
+    "pandas[visualization]",  # includes matplotlib
+    "pandas[performance]",  # recommended out of optional dependencies
 ]
 
 [project.urls]
