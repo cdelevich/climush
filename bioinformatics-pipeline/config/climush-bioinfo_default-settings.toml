@@ -35,13 +35,13 @@ min_precision =  { 'fwd' = 93, 'rev' = 93 }   # integer: barcode precision minim
 [primers]
 fwd.sequence.pacbio =   'ACCWGCGGARGGATCATTA'       # sequence of the pacbio forward primer
 fwd.sequence.illumina = 'CTTGGTCATTTAGAGGAAGTAA'    # sequence of the illumina forward primer
-fwd.sequence.sanger =   ''                          # sequence of the sanger forward primer
-fwd.name = { pacbio = 'ITS1catta', illumina = 'ITS1F', sanger = '' }  # key-value pairs of fwd primer names
+fwd.sequence.sanger =   'CTTGGTCATTTAGAGGAAGTAA'    # sequence of the sanger forward primer
+fwd.name = { pacbio = 'ITS1catta', illumina = 'ITS1F', sanger = 'ITS1F' }  # key-value pairs of fwd primer names
 
 rev.sequence.pacbio =   'TCCTGAGGGAAACTTCG'         # sequence of the pacbio reverse primer
 rev.sequence.illumina = 'GCTGCGTTCTTCATCGATGC'      # sequence of the illumina reverse primer
-rev.sequence.sanger =   ''                          # sequence of the sanger reverse primer
-rev.name = { pacbio = 'LR5', illumina = 'ITS2', sanger = '' }  # key-value pairs of rev primer names
+rev.sequence.sanger =   'TCCTCCGCTTATTGATATGC'                          # sequence of the sanger reverse primer
+rev.name = { pacbio = 'LR5', illumina = 'ITS2', sanger = 'ITS4' }  # key-value pairs of rev primer names
 
 
 [remove_primers]
