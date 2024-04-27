@@ -749,65 +749,148 @@ def escape_path_special(file_path):
 #######################
 
 # define function to simplify import of configuration files
-def import_config_as_dict(file_path, file_handle, config_section='all'):
+def get_settings(file_map, default_only=True, config_section='all'):
     '''
-    Import a configuration file and return as a dictionary.
+    ***TEMPORARILY ONLY ACCEPTS THE DEFAULT CONFIG FILE.***
 
-    Checks the input path to ensure that the filepath exists; if
-    not, it will stop the process and exit the entire script.
-    Uses a custom parser to preserve the case of the text in the
-    configuration file (i.e., uppercase letters remain uppercase,
-    lowercase remain lowercase). Creates a dictionary where the
-    sections of the configuration file are the primary keys, if it
-    is a nested dictionary. If not a nested dictionary, will be
-    returned as an un-nested dictionary where the keys are the
-    section's keys.
-    :param file_handle: standard file handle used for the config file; will
-    default to the constants that work if the file structure of the container
-    is maintained
+    Imports user and default settings from .toml to a dictionary.
+
+    Looks for a default and a user configuration file in the config directory of
+    the bioinformatics pipeline. Reads in the information from the user configuration
+    file with priority. If a given field is empty in the user configuration, indicating
+    no user preference was provided for that setting, then the value for that field will
+    be searched for in the default configuration file.
+    :param file_map: file map describing the file organization of directories and
+    subdirectories in the pipeline; this file map is contained within the
+    mapping.py script and is typically the first item loaded into each pipeline
+    script
+    :param default_only: True; inserted this *TEMPORARY* parameter so that it will
+    only read in the default configuration file, rather than compiling the user
+    and default configuration
     :param config_section: option to output only one section of the configuration
     file.
-    :return: dictionary of values in the configuration file
+    :return: dictionary of settings, with keys as configuration file settings and
+    values as parameters chosen by the user (priority) or default settings.
     '''
-    path_to_file_abs = flag_if_not_path_exists(file_path, absolute=True)
 
-    config_file_list = list(path_to_file_abs.glob(f'*{file_handle}*'))
+    ##########################
+    # REMOVE AFTER TESTING ###
+    ##########################
+    # import tomlkit
+    # from mapping import filepath_map as file_map
+    # default_only = True
+    # config_section = 'all'
+    # ACTIVATE RETURN STATEMENTS (done)
+    ##########################
 
-    if len(config_file_list) > 1:
-        msg = f'\nERROR. Multiple configuration files matching the provided file handle, {file_handle}, were located '\
-              f'in this directory:\n'\
-              f'\t{[file.name for file in config_file_list]}\n'\
-              f'Please include more information in the file handle input, then retry.\n'
-        print(msg)
-        # return exit_process(message=msg)
+    if default_only:
+        config_path_default = list(file_map['config']['main'].glob('*default-settings.toml'))
+
+        # confirm that only one of each type exists in the config directory
+        if len(config_path_default) > 1:
+            msg = f'\nERROR. Multiple default configuration files were located '\
+                  f'in the /config directory:\n'\
+                  f'\t{[file.name for file in config_path_default]}\n'\
+                  f'Please remove any extraneous default configuration files, then retry.\n'
+            return exit_process(message=msg)
+        else:  # update dict so that path is single path and not in list form
+            config_path = config_path_default[0]
+
+        # read in the config files as a new dict, with primary keys being user or default
+        with open(config_path, 'rt') as fin:
+            compiled_config = tomlkit.parse(fin.read())
+
+        # add the date to the default run name
+        date_obj = datetime.today()
+        date_tag = date_obj.strftime('%y%m%d')  # format is YYMMDD
+        compiled_config['run_details']['run_name'] = (compiled_config['run_details']['run_name'] + date_tag)
+
     else:
-        config_file = config_file_list[0]
+        print(f'ERROR. Compilation of pipeline settings from both the user and default configuration files is '
+              f'still under construction. If you see message, ensure that default_only=True for the function '
+              f'get_settings().\n')
+        # get path to the configuration files (/config) from the mapping.py file input
+        config_path_user = list(file_map['config']['main'].glob('*user-settings.toml'))
+        config_path_default = list(file_map['config']['main'].glob('*default-settings.toml'))
 
-    with open(config_file, 'rt') as fin:
-        config_dict = tomlkit.parse(fin.read())
+        # create a dictionary for a config file description (i.e., user/default) and its file path
+        config_paths = {k:v for k,v in zip(['user', 'default'], [config_path_user, config_path_default])}
 
+        # confirm that only one of each type exists in the config directory
+        for t in config_paths:
+            if len(config_paths[t]) > 1:
+                msg = f'\nERROR. Multiple {t} configuration files were located '\
+                      f'in the /config directory:\n'\
+                      f'\t{[file.name for file in config_paths[t]]}\n'\
+                      f'Please remove any extraneous {t} configuration files, then retry.\n'
+                return exit_process(message=msg)
+            else:  # update dict so that path is single path and not in list form
+                config_paths[t] = config_paths[t][0]
+
+        # read in the config files as a new dict, with primary keys being user or default
+        configs = {k:{} for k in config_paths}
+        for p in config_paths:
+            with open(config_paths[p], 'rt') as fin:
+                configs[p] = tomlkit.parse(fin.read())
+
+        # get a set of config dictionary keys for each type
+
+        # generator that produces all keys, even nested ones
+        def find_config_keys(type_dict):
+            '''
+            Find primary and nested sections of a .toml file.
+
+            :param type_dict: sectioned dictionary containing configuration values only
+            for the default or only for the user settings, e.g., configs['user']
+            :return: a set of unique keys in the given config
+            file
+            '''
+
+            for key,val in type_dict.items():
+                # if section is nested...
+                if isinstance(val, dict):
+                    # check this nested portion for more keys
+                    yield from find_config_keys(val)
+                # if section is not nested...
+                else:
+                    # return key
+                    yield key
+
+        # go through each dict and create a set of keys for each, save into another dict
+        unique_keys = {k:{} for k in configs}
+        for t in configs:
+            unique_keys[t] = set(k for k in find_config_keys(configs[t]))
+
+        # using the set of keys, compile settings from user (priority) then default
+        shared_keys = unique_keys['default'].union(unique_keys['user'])
+        default_keys = unique_keys['default'].difference(unique_keys['user'])
+        user_keys = unique_keys['user'].difference(unique_keys['default'])
+
+        compiled_config = {}
+        for s in shared_keys:
+            # if the entry in the user config is not empty...
+            if not configs['user'][s] == '':
+                # add this setting to the final config dict
+                compiled_config[s] = configs['user'][s]
+            # if the entry is empty in the user config, then use the default
+            else:
+                compiled_config[s] = configs['default'][s]
+
+
+
+    # return the compiled dictionary; return only specific section, if specified in function args
     if config_section == 'all':
-        return config_dict
+        return compiled_config
     else:
-        if config_section in config_dict.keys():
-            return config_dict[config_section]
+        if config_section in compiled_config.keys():
+            return compiled_config[config_section]
         else:
             msg = f'The provided configuration file section header, {config_section}, is not a valid header for ' \
-                  f'the {file_handle} configuration file. Please enter the number of the correct header that you ' \
+                  f'the configuration file. Please enter the number of the correct header that you ' \
                   f'want:'
             print(msg)
-            correct_header = prompt_print_options(list(config_dict.keys()))
-            return config_dict[correct_header]
-
-# create a default run name w/ date if user run name not provided
-def get_run_name(file_map, settings_dict):
-    '''
-    Create run name string based on user or default configuration settings.
-
-    :param file_map: file map for the pipeline that is a dictionary of file paths to
-    all directories, subdirectory, scripts, and configuration files.
-    :return:
-    '''
+            correct_header = prompt_print_options(list(compiled_config.keys()))
+            return compiled_config[correct_header]
 
 # locate relevant mapping file for demultiplexing
 # moved down because it requires the import_config_as_dict function
