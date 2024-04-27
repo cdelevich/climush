@@ -5,3 +5,5 @@ sequences*/
 subsample_pacbio_raw.py
 /pipeline/test.py
 /.env
+/pipeline/xero_concat.py
+/climush_py-package/climush/mapping.py
