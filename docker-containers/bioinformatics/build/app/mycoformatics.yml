@@ -4,21 +4,15 @@ channels:
   - bioconda
   - conda-forge
 dependencies:
-  - mothur  # bioconda (here to conda-forge comment)
-  - vsearch
-  - blast
-  - itsx
-  - seqkit
-  - cutadapt
-  - lima
-  - bbmap
-  - rdp_classifier
-  - amptk  # CAUSING ERROR - LIBMAMBA
-  - tomlkit  # conda-forge (here down)
-  - pandas
-  - scipy
-  - numpy
-  - matplotlib
-  - seaborn
-  - biopython
-  - pip
+  - bioconda::mothur  # bioconda (here to conda-forge comment)
+  - bioconda::vsearch
+  - bioconda::blast
+  - bioconda::itsx
+  - bioconda::seqkit
+  - bioconda::cutadapt
+  - bioconda::lima  # might take out, if no one but me will use
+  - bioconda::bbmap
+  - bioconda::rdp_classifier
+  - bioconda::amptk  # will not work with strict channel priority
+  - conda-forge::tomlkit  # conda-forge (here down)
+  - conda-forge::pip
