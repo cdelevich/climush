@@ -96,15 +96,6 @@ def continue_to_next(this_script, config_dict):
         print(f'\n\nRunning next step, {next_script.name}...\n')
         subprocess.run(['python3', next_script])
         return None
-    elif (current_num + 1) in to_exclude:
-        i = 2
-        while (current_num + i) in to_exclude:
-            i += 1
-        next_num_search = format_num_for_search(current_num + 1)
-        next_wanted = flag_multiple_files(file_path=this_script.parent, search_for=f'{next_num_search}')
-        print(f'\n\nRunning next step, {next_wanted.name}...\n')
-        subprocess.run(['python3'], next_wanted)
-        return None
     else:
         to_next = input(f'The script {current_script} has completed. Would you like to continue '
                         f'to the next step in the pipeline, {next_script.stem}?[Y/N]\n'
