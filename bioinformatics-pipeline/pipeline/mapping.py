@@ -37,6 +37,8 @@ mkdir_exist_ok(PIPELINE_OUT)  # make the main output dir; will execute if this s
 # don't make these directories unless they produce output (so mkdir in their pipeline script, otherwise don't create)
 DEMUX = PIPELINE_OUT / 'demultiplexed'
 PREFILTER = PIPELINE_OUT / 'prefiltered'
+PREFILTER_01 = 'prefilt01_no-phix'
+PREFILTER_02 = 'prefilt02_no-ambig'
 PRIMER_TRIM = PIPELINE_OUT / 'primers-trimmed'
 DEREP01 = PIPELINE_OUT / 'derep-full-length'
 QFILT = PIPELINE_OUT / 'quality-filtered'
@@ -67,7 +69,9 @@ filepath_map = {'root': ROOT,
                               'unclear':SORT_UNCLEAR},
                 'pipeline-output': {'main': PIPELINE_OUT,
                                     'demultiplexed': DEMUX,
-                                    'prefiltered': PREFILTER,
+                                    'prefiltered': {'main': PREFILTER,
+                                                    PREFILTER_01: PREFILTER / PREFILTER_01,
+                                                    PREFILTER_02: PREFILTER / PREFILTER_02},
                                     'primers-trimmed': PRIMER_TRIM,
                                     'derep-full-length': DEREP01,
                                     'quality-filtered': QFILT,
