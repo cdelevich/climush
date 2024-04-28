@@ -6,7 +6,7 @@ from climush.constants import *
 from climush.bioinfo import filter_out_phix, prefilter_fastx
 from climush.utilities import *
 
-settings = import_config_as_dict(file_path=fpm['config']['main'], file_handle='pipeline-settings')
+settings = get_settings(fpm)
 
 # divided into sections instead of looping through each platform to maintain a similar structure among all scripts, as
 # sometimes (like in prefiltering) there are different processes based on the platform

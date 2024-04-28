@@ -8,7 +8,7 @@ import pandas as pd
 from climush.constants import NOPHIX_PREFIX, SEQ_FILE_GLOB, TRIMMED_PREFIX, DEREP_PREFIX, QUALFILT_PREFIX
 from climush.utilities import *
 
-def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio'):
+def demultiplex(file_map, multiplexed_files, seq_platform='pacbio'):
 
     # REMOVE AFTER TESTING ############
     # DON'T FORGET TO UNCOMMENT THE RUN_SUBPROCESS LINE WHERE LIMA ACTUALLY RUNS!!! #################
@@ -27,7 +27,8 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
     mapping_files = list(mapping_dir.glob('*'))  # get mapping files, as list (will reuse + exhaust)
 
     # ACCESS USER SETTINGS FROM CONFIG ##############################################################
-    run_name = settings_dict['run_details']['run_name']  # name to use for this bioinformatics run
+    settings = get_settings(file_map)
+    run_name = settings['run_details']['run_name']  # name to use for this bioinformatics run
 
     # CONSTRUCT REGEX CONSTANTS #####################################################################
     # column name regex; column names vary among mapping files
@@ -54,7 +55,7 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
         # get the sequencing core's queue ID from multiplexed seq file and corresponding climush sample ID for this queue ID
         qid = re.search('^(\d{4})', mp_file.name).group(0)  # get queue ID from file name
         queue_ids.add(qid)  # add the qid to the set of all queue ids requiring demux
-        cid = settings_dict['pacbio_demultiplexing']['multiplex'][qid]  # get climush - queue ID pairing from config
+        cid = settings['demultiplex']['multiplex'][qid]  # get climush - queue ID pairing from config
         qid_files = [f for f in mapping_files if
                      re.search(f'^{cid}', f.name)]  # all files in mapping files dir that match climush id
 
@@ -190,8 +191,8 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
 
     # get the fwd/rev primers, since they are sometimes included in the barcode sequence and need to be removed
     primer_dict = {}
-    primer_dict['fwd_primer'] = settings_dict['primers']['fwd']['sequence']['pacbio']
-    primer_dict['rev_primer'] = settings_dict['primers']['rev']['sequence']['pacbio']
+    primer_dict['fwd_primer'] = settings['primers']['fwd']['sequence']['pacbio']
+    primer_dict['rev_primer'] = settings['primers']['rev']['sequence']['pacbio']
 
     # create a dict to add all barcodes to; will be used to create the unique barcode fasta
     unique_barcodes = {'fwd_bc': set(),
@@ -275,7 +276,7 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
     for qid in queue_ids:
 
         # get the climush sequencing run ID that corresponds to this queue ID
-        seq_run = settings_dict['pacbio_demultiplexing']['multiplex'][qid]
+        seq_run = settings['demultiplex']['multiplex'][qid]
 
         # create an output directory for this sequencing run using the climush sequencing run ID
         seq_run_output = mkdir_exist_ok(new_dir=seq_run, parent_dir=lima_output) # create an output dir for each seq run
@@ -360,7 +361,7 @@ def demultiplex(file_map, multiplexed_files, settings_dict, seq_platform='pacbio
 
         # get the queue ID from the name of the multiplexed sequencing file; need it to find key in sample_barcodes
         cid = re.search('^pacbio.+', subdir.name).group(0)  # get climush ID, which will be in name of file
-        mp_dict = settings_dict['pacbio_demultiplexing']['multiplex']  # make shorter for list comp below
+        mp_dict = settings['demultiplex']['multiplex']  # make shorter for list comp below
         qid = [k for k in mp_dict if cid in mp_dict[k]][0]  # convert to qid to match dict
 
         for p in ['pool1', 'pool2']:
@@ -445,8 +446,7 @@ def filter_out_phix(input_files, file_map, kmer=31, hdist=1, keep_log=True, keep
 
     prefilt_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['prefiltered'])
 
-    run_name = import_config_as_dict(file_path=file_map['config']['main'], file_handle='pipeline-settings',
-                                     config_section='run_details')['run_name']
+    run_name = get_settings(file_map=file_map, config_section='run_details')['run_name']
 
     nophix_path = mkdir_exist_ok(new_dir=f'./{NOPHIX_PREFIX}_{run_name}', parent_dir=prefilt_parent)
     phix_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(NOPHIX_PREFIX)}_{run_name}', parent_dir=prefilt_parent)
@@ -498,8 +498,7 @@ def pair_reads(input_files):
 def prefilter_fastx(input_files, file_map, maxn=0):
     prefilt_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['prefiltered'])
 
-    run_name = import_config_as_dict(file_path=file_map['config']['main'], file_handle='pipeline-settings',
-                                     config_section='run_details')['run_name']
+    run_name = get_settings(file_map, config_section='run_details')['run_name']
 
     noambig_path = mkdir_exist_ok(new_dir=f'./{NOAMBIG_PREFIX}_{run_name}', parent_dir=prefilt_parent)
     ambig_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(NOAMBIG_PREFIX)}_{run_name}', parent_dir=prefilt_parent)
@@ -543,7 +542,7 @@ def identify_primers(platform, config_dict):
 def remove_primers(input_files, file_map, platform, paired_end=True):
     trim_primers_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['primers-trimmed'])
 
-    settings = import_config_as_dict(file_path=file_map['config']['main'], file_handle='pipeline-settings')
+    settings = get_settings(file_map)
     run_name = settings['run_details']['run_name']
 
     # get the forward and reverse primers
@@ -557,7 +556,7 @@ def remove_primers(input_files, file_map, platform, paired_end=True):
     trim_path = mkdir_exist_ok(new_dir=f'./{TRIMMED_PREFIX}_{run_name}', parent_dir=trim_primers_parent)
     notrim_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(TRIMMED_PREFIX)}_{run_name}', parent_dir=trim_primers_parent)
 
-    cutadapt_settings = settings['cutadapt']
+    cutadapt_settings = settings['remove_primers']
     fwd_max_err = int(cutadapt_settings['max_error_rate']['fwd'])
     rev_max_err = int(cutadapt_settings['max_error_rate']['rev'])
     if fwd_max_err == rev_max_err:
@@ -603,23 +602,23 @@ def remove_primers(input_files, file_map, platform, paired_end=True):
             run_subprocess(cutadapt_cmd, dest_dir=trim_primers_parent)
 
     # quantify proportion untrimmed
-    # with open((trim_primers_parent / 'cutadapt.out'), 'r') as fin:
-    #     cutadapt_df = pd.read_table(fin)
-    #     sum_in = cutadapt_df['in_reads'].sum(0)
-    #     sum_out = cutadapt_df['out_reads'].sum(0)
-    #     percent_lost = ((sum_in - sum_out) / (sum_in)) * 100
-    #     if percent_lost > max_untrimmed:
-    #         msg = f'After primer trimming, {percent_lost:.2f}% of the input reads were lost, which is ' \
-    #               f'above the user-defined maximum threshold of {max_untrimmed}%.\n'
-    #         exit_process(message=msg)
-    #     else:
-    #         print(f'{percent_lost:.2f}% of input reads were lost to primer trimming. This is above the user-provided '
-    #               f'input of {max_untrimmed}%, so proceeding to next step...\n')
+    with open((trim_primers_parent / 'cutadapt.out'), 'r') as fin:
+        cutadapt_df = pd.read_table(fin)
+        sum_in = cutadapt_df['in_reads'].sum(0)
+        sum_out = cutadapt_df['out_reads'].sum(0)
+        percent_lost = ((sum_in - sum_out) / (sum_in)) * 100
+        if percent_lost > max_untrimmed:
+            msg = f'After primer trimming, {percent_lost:.2f}% of the input reads were lost, which is ' \
+                  f'above the user-defined maximum threshold of {max_untrimmed}%.\n'
+            exit_process(message=msg)
+        else:
+            print(f'{percent_lost:.2f}% of input reads were lost to primer trimming. This is above the user-provided '
+                  f'input of {max_untrimmed}%, so proceeding to next step...\n')
 
     return None
 
 def merge_reads(input_files, file_map):
-    settings = import_config_as_dict(file_path=file_map['config']['main'], file_handle='pipeline-settings')
+    settings = get_settings(file_map)
     run_name = settings['run_details']['run_name']
 
     if settings['quality_filtering']['illumina']['merge_reads']:
@@ -659,7 +658,7 @@ def merge_reads(input_files, file_map):
 
 def quality_filter(input_files, platform, file_map):
 
-    settings = import_config_as_dict(file_path=file_map['config']['main'], file_handle='pipeline-settings')
+    settings = get_settings(file_map)
     run_name = settings['run_details']['run_name']
     qfilt_dict = settings['quality_filtering'][platform]
     min_len = qfilt_dict['min_len']
@@ -723,9 +722,9 @@ def dereplicate(input_files, derep_step, platform, file_map):
     else:
         out_tag = 'derep-subregions'
 
-    settings = import_config_as_dict(file_path=file_map['config']['main'], file_handle='pipeline-settings')
+    settings = get_settings(file_map)
     run_name = settings['run_details']['run_name']
-    min_unique = settings['quality_filtering'][platform]['min_count'][f'derep0{derep_step}']
+    min_unique = settings['dereplicate'][platform]['min_count'][f'derep0{derep_step}']
     premerged = settings['quality_filtering']['illumina']['merge_reads']
 
     derep_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output'][out_tag])
@@ -755,7 +754,7 @@ def dereplicate(input_files, derep_step, platform, file_map):
 
 def separate_subregions(input_files, file_map):
 
-    settings = import_config_as_dict(file_path=file_map['config']['main'], file_handle='pipeline-settings')
+    settings = get_settings(file_map)
     run_name = settings['run_details']['run_name']
 
     itsx_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['separate-subregions'])
@@ -772,6 +771,58 @@ def separate_subregions(input_files, file_map):
         run_subprocess(itsx_command, dest_dir=itsx_parent)
 
     return None
+
+def rename_read_header(fasta_file, header_delim=';'):
+    # fasta_file = next(post_itsx.glob('*.fast*'))
+    parent_dir = fasta_file.parent.name
+
+    if re.search('itsx', parent_dir, re.I):  # if they are post-itsx reads...
+
+        READ_COUNT_RE = '(?<=size=)[0-9]{1,}'
+        READ_LEN_RE = '[0-9]{1,}(?=\sbp)'
+        READ_ID_RE = '[0-9]{1,}(?=\/ccs)'
+        READ_REGION_RE = '(?<=\|\w\|).+(?=\sExtracted)'
+        SAMPLE_ID_RE = '(?<=\w_)(pacbio|sanger|illumina).+?(?=\.)'
+
+        # REPLACE WITH REMOVE PREFIX??
+        sample_id = re.search(SAMPLE_ID_RE, fasta_file.name).group(0)
+
+        updated_records = []
+        no_update_count = 0
+        for record in SeqIO.parse(fasta_file, 'fasta'):
+            header = record.description
+            try:
+                read_id = re.search(READ_ID_RE, header).group(0)
+                region = re.search(READ_REGION_RE, header).group(0)
+                read_count = re.search(READ_COUNT_RE, header).group(0)
+                read_length = re.search(READ_LEN_RE, header).group(0)
+
+                updated_header = header_delim.join([f'{sample_id}_{read_id}', region, f'region_len={read_length}bp',
+                                                    f'full-len_copies={read_count}'])
+
+                record.id = updated_header
+                record.name = f'{sample_id}_{read_id}'
+                record.description = ''
+                updated_records.append(record)
+            except:
+                no_update_count += 1
+                updated_records.append(record)
+
+        SeqIO.write(updated_records, fasta_file, 'fasta')
+
+        if no_update_count == 0:
+            return print(f'SUCCESS. All reads ({len(updated_records)}) were renamed '
+                         f'in {fasta_file.name}.\n')
+        elif no_update_count == len(updated_records):
+            return print(f'FAILURE. None of the reads were renamed in {fasta_file.name}. This can '
+                         f'happen if the fasta file has already been renamed by this function, '
+                         f'so open the fasta file to check.\n')
+        else:  # if some reads were renamed, but not all
+            return print(f'FAILURE. {no_update_count} sequence headers could not be renamed due to '
+                         f'a missing data field for reads in {fasta_file.name}.\n')
+    else:
+        return print(f'UNDER CONSTRUCTION. I haven\'t yet updated this function to work with any other '
+                     f'fasta files than those produced after ITSx.\n')
 
 def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_delim=';', **kwargs):
     '''
@@ -1070,7 +1121,7 @@ def check_itsx_output(itsx_dir, full_len_dir, num_bp_compare, write_to_log=True,
 def check_chimeras(input_files, file_map, ref=None):
     chim_ref_files = file_map['config']['reference-db']['chimera'].glob(SEQ_FILE_GLOB)
 
-    settings = import_config_as_dict(file_path=file_map['config']['main'], file_handle='pipeline-settings')
+    settings = get_settings(file_map)
     run_name = settings['run_details']['run_name']
 
     chim_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['chimera-checked'])
@@ -1121,7 +1172,7 @@ def check_chimeras(input_files, file_map, ref=None):
 
 def combine_all_reads(input_files, file_map):
 
-    settings = import_config_as_dict(file_path=file_map['config']['main'], file_handle='pipeline-settings')
+    settings = get_settings(file_map)
     run_name = settings['run_details']['run_name']
 
     total_record_list = []
@@ -1136,10 +1187,11 @@ def combine_all_reads(input_files, file_map):
     return combined_out
 
 def cluster_reads(input_files, file_map):
-    settings = import_config_as_dict(file_path=file_map['config']['main'], file_handle='pipeline-settings')
+
+    settings = get_settings(file_map)
     run_name = settings['run_details']['run_name']
 
-    min_threshold = settings['clustering']['min_threshold']
+    min_threshold = settings['otu_clustering']['min_threshold']
 
     clust_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['otus-clustered'])
 
@@ -1160,99 +1212,99 @@ def cluster_reads(input_files, file_map):
     return None
 
 
-def create_blast_db(config_dict, file_map, taxa_list=None):
-    '''
-    Create a reference dataset for BLAST+ search.
-
-    :param config_dict: configuration file dictionary; required to get the list
-    of reference databases to use, as defined by user in the configuration file.
-    :param file_map: file mapping, from mapping.py
-    :param taxa_list: option; list of taxa to include if wanting to limit search
-    to a specific taxonomic group
-    :return: returns path to the newly created db for blastn search; creates a custom
-    database using BLAST+ makeblastdb from the command line
-    '''
-    tax_settings = config_dict['taxonomy']
-    db_dir = file_map['config']['reference-db']
-
-    include_genbank = tax_settings['refdb']['genbank']['include']
-    include_unite = tax_settings['refdb']['unite']['include']
-    include_custom = tax_settings['refdb']['custom']['include']
-    include_maarjam = tax_settings['refdb']['maarjam']['include']
-
-    included_tag = ''
-    db_include_list = []
-    if include_genbank:
-        genbank_fasta = db_dir.glob('*genbank*')
-        db_include_list.append(genbank_fasta)
-        included_tag += 'G'
-
-    if include_unite:
-        unite_fasta = db_dir.glob('*unite*')
-        db_include_list.append(unite_fasta)
-        included_tag += 'U'
-
-    if include_custom:
-        custom_fasta = db_dir.glob('*custom*')
-        db_include_list.append(custom_fasta)
-        included_tag += 'C'
-
-    if include_maarjam:
-        maarjam_fasta = db_dir.glob('*maarjam*')
-        db_include_list.append(maarjam_fasta)
-        included_tag += 'M'
-
-    custom_search_records = []
-    for db in db_include_list:
-        for record in SeqIO.parse(db, 'fasta'):
-            if taxa_list is None:
-                custom_search_records.append(record)
-            else:
-                pass  # NEED TO SEE HOW TO GET ONLY SPECIFIC TAXONOMY, NOT SURE HOW FORMATTED
-
-    tax_out_dir = file_map['pipeline-output']['taxonomy']
-
-    search_date = datetime.today.strftime('%Y-%M-%d')
-    output_basename = f'custom-ref-{included_tag}_{search_date}'
-    output_path = (tax_out_dir / output_basename).with_suffix('.fasta')
-
-    SeqIO.write(custom_search_records, output_path, 'fasta')
-
-    output_db = tax_out_dir / f'{output_basename}_blast'
-    blast_cmd = ['makeblastdb', '-in', output_path, '-title', output_db, '-dbtype', 'nucl',
-                 output_db]
-
-    run_subprocess(blast_cmd, dest_dir = output_db)
-
-    return output_db
-
-def assign_taxonomy(config_dict, file_map, taxa_list=None):
-    '''
-    Assign taxonomy to sequences.
-
-    :param config_dict:
-    :param file_map:
-    :return:
-    '''
-    tax_output = file_map['pipeline-output']['taxonomy']
-
-    run_name = config_dict['run_details']['run_name']
-
-    if config_dict['taxonomy']['algorithm'] == 'blastn':
-        ref_db = create_blast_db(config_dict, file_map, taxa_list=None)
-
-        blast_out = (tax_output / f'{run_name}').with_suffix('.txt')
-        blast_cmd = ['blastn', '-query', ref_db, '-out', blast_out]
-
-        run_subprocess(blast_cmd, dest_dir = tax_output)
-
-    elif config_dict['taxonomy']['algorithm'] == 'rdp':
-        print(f'Not sure how to set up RDP yet...')
-        rdp_cmd = []
-
-        run_subprocess(rbp_cmd, dest_dir = tax_output)
-
-    else:
-        print(f'I don\'t yet have an option for that algorithm.')
-
-    return None
+# def create_blast_db(config_dict, file_map, taxa_list=None):
+#     '''
+#     Create a reference dataset for BLAST+ search.
+#
+#     :param config_dict: configuration file dictionary; required to get the list
+#     of reference databases to use, as defined by user in the configuration file.
+#     :param file_map: file mapping, from mapping.py
+#     :param taxa_list: option; list of taxa to include if wanting to limit search
+#     to a specific taxonomic group
+#     :return: returns path to the newly created db for blastn search; creates a custom
+#     database using BLAST+ makeblastdb from the command line
+#     '''
+#     tax_settings = config_dict['taxonomy']
+#     db_dir = file_map['config']['reference-db']
+#
+#     include_genbank = tax_settings['refdb']['genbank']['include']
+#     include_unite = tax_settings['refdb']['unite']['include']
+#     include_custom = tax_settings['refdb']['custom']['include']
+#     include_maarjam = tax_settings['refdb']['maarjam']['include']
+#
+#     included_tag = ''
+#     db_include_list = []
+#     if include_genbank:
+#         genbank_fasta = db_dir.glob('*genbank*')
+#         db_include_list.append(genbank_fasta)
+#         included_tag += 'G'
+#
+#     if include_unite:
+#         unite_fasta = db_dir.glob('*unite*')
+#         db_include_list.append(unite_fasta)
+#         included_tag += 'U'
+#
+#     if include_custom:
+#         custom_fasta = db_dir.glob('*custom*')
+#         db_include_list.append(custom_fasta)
+#         included_tag += 'C'
+#
+#     if include_maarjam:
+#         maarjam_fasta = db_dir.glob('*maarjam*')
+#         db_include_list.append(maarjam_fasta)
+#         included_tag += 'M'
+#
+#     custom_search_records = []
+#     for db in db_include_list:
+#         for record in SeqIO.parse(db, 'fasta'):
+#             if taxa_list is None:
+#                 custom_search_records.append(record)
+#             else:
+#                 pass  # NEED TO SEE HOW TO GET ONLY SPECIFIC TAXONOMY, NOT SURE HOW FORMATTED
+#
+#     tax_out_dir = file_map['pipeline-output']['taxonomy']
+#
+#     search_date = datetime.today.strftime('%Y-%M-%d')
+#     output_basename = f'custom-ref-{included_tag}_{search_date}'
+#     output_path = (tax_out_dir / output_basename).with_suffix('.fasta')
+#
+#     SeqIO.write(custom_search_records, output_path, 'fasta')
+#
+#     output_db = tax_out_dir / f'{output_basename}_blast'
+#     blast_cmd = ['makeblastdb', '-in', output_path, '-title', output_db, '-dbtype', 'nucl',
+#                  output_db]
+#
+#     run_subprocess(blast_cmd, dest_dir = output_db)
+#
+#     return output_db
+#
+# def assign_taxonomy(config_dict, file_map, taxa_list=None):
+#     '''
+#     Assign taxonomy to sequences.
+#
+#     :param config_dict:
+#     :param file_map:
+#     :return:
+#     '''
+#     tax_output = file_map['pipeline-output']['taxonomy']
+#
+#     run_name = config_dict['run_details']['run_name']
+#
+#     if config_dict['taxonomy']['algorithm'] == 'blastn':
+#         ref_db = create_blast_db(config_dict, file_map, taxa_list=None)
+#
+#         blast_out = (tax_output / f'{run_name}').with_suffix('.txt')
+#         blast_cmd = ['blastn', '-query', ref_db, '-out', blast_out]
+#
+#         run_subprocess(blast_cmd, dest_dir = tax_output)
+#
+#     elif config_dict['taxonomy']['algorithm'] == 'rdp':
+#         print(f'Not sure how to set up RDP yet...')
+#         rdp_cmd = []
+#
+#         run_subprocess(rbp_cmd, dest_dir = tax_output)
+#
+#     else:
+#         print(f'I don\'t yet have an option for that algorithm.')
+#
+#     return None

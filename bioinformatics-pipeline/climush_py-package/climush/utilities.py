@@ -78,7 +78,6 @@ def continue_to_next(this_script, config_dict):
     automate_dict = config_dict['automate']
     auto = automate_dict['run_all']
     to_run = automate_dict['run_some']
-    to_exclude = automate_dict['exclude']
 
     current_script = Path(this_script).stem
     current_num = int(current_script.split('_')[0])
@@ -894,72 +893,72 @@ def get_settings(file_map, default_only=True, config_section='all'):
 
 # locate relevant mapping file for demultiplexing
 # moved down because it requires the import_config_as_dict function
-def find_mapping_file(path_to_mapping, path_to_plex, path_to_config, **kwargs):
-    '''
-    Locate the barcode mapping file(s) for demultiplexing.
-
-    Attempts to automatically detect the location of the mapping file
-    corresponding to the multiplexed files located in the sorted
-    directory of sequences to demultiplex. It inspects the name of the files
-    that were sorted into the needs_demux folder of the sequences folder, and
-    identifies the name of the sequencing run. It then will go into the mapping
-    file directory in the config folder, mapping-files, and looks for the mapping
-    file that shares that same sequencing run name. If multiple mapping files
-    are detected for a single sequencing run, the user will be prompted to select
-    the file that should be used. If no matching mapping file is detected, it
-    will throw an error and exit the pipeline.
-    :param path_to_mapping: defaults to expected location within structured
-    file directories; otherwise can specify the path as a Path object
-    :param path_to_plex: defaults to expected location within structured
-    file directories; otherwise can specify the path to the mapping file(s) as
-    a Path object
-    :param kwargs: specify the bioinfo-settings configuration file dictionary
-    if one is already loaded into the environment; if none is provided, the
-    function will open the configuration file to create a new instance of the
-    dictionary; adding a dictionary, if available, will likely be quicker so it
-    is recommended to do so if possible
-    :return: if found, returns mapping file(s) as a list
-    '''
-    assert is_pathclass(path_to_mapping)
-    assert is_pathclass(path_to_plex)
-
-    # get the multiplexed file's queue ID, which the UO sequencing core uses as the seq run identifier in the filename
-    multiplex_ids = [file.stem.split('.')[0] for file in path_to_plex.glob('*.fast*')]
-
-    # look up the multiplex IDs in the bioinfo-settings configuration file for its corresponding CliMush run name
-    kwargs_keys = list(kwargs.keys())
-    if kwargs_keys > 0:
-        if kwargs_keys > 1:
-            msg = f'ERROR: Too many keyword arguments (**kwargs) used. Only one kwarg is accepted and should have the '\
-                  f'name of the configuration dictionary as the value to a key with any name.\n'
-            print(msg)
-            return exit_process(message=msg)
-        else:
-            config_multiplex_dict = kwargs[kwargs_keys[0]]['pacbio-multiplex-ids']
-    else:
-        config_multiplex_dict = import_config_as_dict(file_handle=path_to_config)['pacbio-multiplex-ids']
-
-    # get the CliMush run name(s) and create regex to search for any of these at start of mapping file name
-    climush_ids = [config_multiplex_dict[q] for q in multiplex_ids]
-
-    # find the corresponding barcode mapping files for the run name(s) in the barcode-mapping dir in config
-    mapping_file_names = []
-    for id in climush_ids:
-        match = list(path_to_mapping.glob(f'*{id}*'))
-        if len(match) == 1:
-            mapping_file_names.append(match[0])
-        elif len(match) == 0:
-            msg = f'ERROR: No mapping files matching the CliMush run name {id} were located in {path_to_mapping}. ' \
-                  f'Check the mapping-files directory in the config folder, then retry.\n'
-            print(msg)
-            return exit_process(message=msg)
-        else:
-            msg = f'ERROR: {len(match)} mapping files were located for CliMush run name {id}. Please select the number ' \
-                  f'of the correctly corresponding barcode mapping file for this sample:\n'
-            print(msg)
-            mapping_file_names.append(prompt_print_options(match))
-
-    return mapping_file_names
+# def find_mapping_file(path_to_mapping, path_to_plex, path_to_config, **kwargs):
+#     '''
+#     Locate the barcode mapping file(s) for demultiplexing.
+#
+#     Attempts to automatically detect the location of the mapping file
+#     corresponding to the multiplexed files located in the sorted
+#     directory of sequences to demultiplex. It inspects the name of the files
+#     that were sorted into the needs_demux folder of the sequences folder, and
+#     identifies the name of the sequencing run. It then will go into the mapping
+#     file directory in the config folder, mapping-files, and looks for the mapping
+#     file that shares that same sequencing run name. If multiple mapping files
+#     are detected for a single sequencing run, the user will be prompted to select
+#     the file that should be used. If no matching mapping file is detected, it
+#     will throw an error and exit the pipeline.
+#     :param path_to_mapping: defaults to expected location within structured
+#     file directories; otherwise can specify the path as a Path object
+#     :param path_to_plex: defaults to expected location within structured
+#     file directories; otherwise can specify the path to the mapping file(s) as
+#     a Path object
+#     :param kwargs: specify the bioinfo-settings configuration file dictionary
+#     if one is already loaded into the environment; if none is provided, the
+#     function will open the configuration file to create a new instance of the
+#     dictionary; adding a dictionary, if available, will likely be quicker so it
+#     is recommended to do so if possible
+#     :return: if found, returns mapping file(s) as a list
+#     '''
+#     assert is_pathclass(path_to_mapping)
+#     assert is_pathclass(path_to_plex)
+#
+#     # get the multiplexed file's queue ID, which the UO sequencing core uses as the seq run identifier in the filename
+#     multiplex_ids = [file.stem.split('.')[0] for file in path_to_plex.glob('*.fast*')]
+#
+#     # look up the multiplex IDs in the bioinfo-settings configuration file for its corresponding CliMush run name
+#     kwargs_keys = list(kwargs.keys())
+#     if kwargs_keys > 0:
+#         if kwargs_keys > 1:
+#             msg = f'ERROR: Too many keyword arguments (**kwargs) used. Only one kwarg is accepted and should have the '\
+#                   f'name of the configuration dictionary as the value to a key with any name.\n'
+#             print(msg)
+#             return exit_process(message=msg)
+#         else:
+#             config_multiplex_dict = kwargs[kwargs_keys[0]]['pacbio-multiplex-ids']
+#     else:
+#         config_multiplex_dict = get_settings(file_handle=path_to_config)['pacbio-multiplex-ids']
+#
+#     # get the CliMush run name(s) and create regex to search for any of these at start of mapping file name
+#     climush_ids = [config_multiplex_dict[q] for q in multiplex_ids]
+#
+#     # find the corresponding barcode mapping files for the run name(s) in the barcode-mapping dir in config
+#     mapping_file_names = []
+#     for id in climush_ids:
+#         match = list(path_to_mapping.glob(f'*{id}*'))
+#         if len(match) == 1:
+#             mapping_file_names.append(match[0])
+#         elif len(match) == 0:
+#             msg = f'ERROR: No mapping files matching the CliMush run name {id} were located in {path_to_mapping}. ' \
+#                   f'Check the mapping-files directory in the config folder, then retry.\n'
+#             print(msg)
+#             return exit_process(message=msg)
+#         else:
+#             msg = f'ERROR: {len(match)} mapping files were located for CliMush run name {id}. Please select the number ' \
+#                   f'of the correctly corresponding barcode mapping file for this sample:\n'
+#             print(msg)
+#             mapping_file_names.append(prompt_print_options(match))
+#
+#     return mapping_file_names
 
 def sort_input_files(filepath_dict, to_sort='main'):
     '''

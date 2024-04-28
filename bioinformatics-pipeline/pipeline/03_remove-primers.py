@@ -9,7 +9,7 @@ from climush.constants import *
 from climush.bioinfo import identify_primers, remove_primers
 from climush.utilities import *
 
-settings = import_config_as_dict(file_path=fpm['config']['main'], file_handle='pipeline-settings')
+settings = get_settings(fpm)
 
 #####################
 # ILLUMINA ##########
@@ -34,7 +34,8 @@ else:
 
 # REMOVE AFTER TESTING
 is_input = True
-pacbio_files = fpm['pipeline-output']['demultiplexed'].glob('*.fast*')
+pacbio_files = fpm['pipeline-output']['prefiltered'].glob('*.fast*')
+####################
 
 if is_input:
     remove_primers(pacbio_files, file_map=fpm, platform='pacbio', paired_end=False)

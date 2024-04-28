@@ -6,15 +6,14 @@ from climush.constants import *
 from climush.bioinfo import check_chimeras
 from climush.utilities import *
 
-settings = import_config_as_dict(file_path=fpm['config']['main'], file_handle='pipeline-settings')
-run_name = settings['run_details']['run_name']
+settings = get_settings(fpm)
 
 #####################
 # ILLUMINA ##########
 #####################
 
 # check that there are Illumina reads to dereplicate
-last_output = [dir for dir in fpm['pipeline-output']['chimera-checked'].glob('*') if re.search(f'^{CHIM}_{run_name}', dir.stem, re.I)][0]
+last_output = [dir for dir in fpm['pipeline-output']['separated-subregions'].glob('*') if re.search(f'^{ITSX_PREFIX}', dir.stem, re.I)][0]
 is_input, illumina_files = check_for_input(last_output)
 
 if is_input:

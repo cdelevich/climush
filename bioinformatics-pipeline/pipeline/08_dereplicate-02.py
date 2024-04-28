@@ -6,7 +6,7 @@ from climush.constants import *
 from climush.bioinfo import dereplicate
 from climush.utilities import *
 
-settings = import_config_as_dict(file_path=fpm['config']['main'], file_handle='pipeline-settings')
+settings = get_settings(fpm)
 
 #####################
 # ILLUMINA ##########

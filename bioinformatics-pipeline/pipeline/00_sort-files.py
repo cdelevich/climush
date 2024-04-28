@@ -4,7 +4,7 @@ import argparse, sys, re, subprocess
 from climush.constants import *
 from climush.utilities import *
 
-config_dict = import_config_as_dict(fpm['config']['main'], file_handle='pipeline-settings', config_section='all')
+settings = get_settings(fpm)
 
 parser = argparse.ArgumentParser(prog=Path(__file__).stem,
                                  description='Identifies sequencing platform of sequencing files '
@@ -89,5 +89,5 @@ for dir in dir_requires_action:
 mkdir_exist_ok(fpm['pipeline-output']['main'])
 
 # go to next step of the pipeline (demultiplexing) if no other step was chosen from the CLI
-continue_to_next(Path(__file__), config_dict)
+continue_to_next(Path(__file__), settings)
 

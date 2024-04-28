@@ -5,8 +5,9 @@ from pathlib import Path
 import pandas as pd
 from climush.constants import *
 from climush.utilities import *
+from climush.bioinfo import demultiplex
 
-settings = import_config_as_dict(fpm['config']['main'], file_handle='pipeline-settings', config_section='all')
+settings = get_settings(fpm)
 
 # set variable that will only switch to True if files requiring demultiplexing are detected
 files_demuxed = False
@@ -41,7 +42,7 @@ if is_input:
     mkdir_exist_ok(new_dir = fpm['pipeline-output']['demultiplexed'])
 
     # demultiplex input files
-    demultiplex(file_map=fpm, multiplexed_files=pacbio_files, settings_dict=settings)
+    demultiplex(file_map=fpm, multiplexed_files=pacbio_files)
 else:
     pass
 
