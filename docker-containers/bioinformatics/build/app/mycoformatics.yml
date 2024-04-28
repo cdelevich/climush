@@ -14,5 +14,4 @@ dependencies:
   - bioconda::bbmap
   - bioconda::rdp_classifier
   - bioconda::amptk  # will not work with strict channel priority
-  - conda-forge::tomlkit  # conda-forge (here down)
-  - conda-forge::pip
+  - conda-forge::pip  # conda-forge
