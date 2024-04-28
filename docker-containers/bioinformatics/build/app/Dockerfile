@@ -37,14 +37,15 @@ ENV PATH=$CONDA_DIR/bin:$PATH
 COPY mycoformatics.yml /tmp/mycoformatics.yml
 RUN conda env create -f /tmp/mycoformatics.yml
 
-# export a list of packages and versions in this environment
-ENV PKG_EXP=climush-packages_docker$VERSION_NUM.txt
-RUN conda list --export > $PKG_EXP
-
 # We don't want the container to run as root, so make a user account
 # (the -m option makes the user's home directory as well).
 ARG USER
 RUN useradd -m $USER
+
+# export a list of packages and versions in this environment
+# include path to config directory in PKG_EXP (bind mount dir)
+ENV PKG_EXP=/home/$USER/config/climush-packages_docker$VERSION_NUM.txt
+RUN conda list --export > $PKG_EXP
 
 # add the home folder to PATH:
 ENV PATH=/home/$USER:$PATH
@@ -58,6 +59,12 @@ ENV PATH $CONDA_DIR/envs/mycoformatics/bin:$PATH
 
 # install the climush Python package with pip after activating the conda env, within .bashrc
 RUN echo "pip install climush" >> /home/$USER/.bashrc
+
+# install globus Python package in the same way
+RUN echo "pip install globus" >> /home/$USER/.bashrc
+
+# add the tab completion option for globus to the user .bashrc file
+# probably need to source fr
 
 # mount volumes for pipeline-specific directories, copy content over
 WORKDIR /home/$USER
@@ -73,7 +80,7 @@ USER $USER
 # set bash as entrypoint, want the .bashrc file to be first thing to run
 #SHELL ["/bin/bash", "-c"]
 
-ENTRYPOINT ["/bin/bash"]
+ENTRYPOINT "/bin/bash"
 #CMD ["source", ".bashrc"]
 #ENTRYPOINT ["source", ".bashrc"]
-#ENTRYPOINT ["source /home/$USER/.bashrc"]
+ENTRYPOINT ["source /home/$USER/.bashrc"]
