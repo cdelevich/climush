@@ -10,10 +10,10 @@ services:
     volumes:
       - type: bind
         source: /home/mycophile/config
-        target: '${PWD}'
+        target: ${PWD}
       - type: bind
         source: /home/$USER/sequences
-        target: '${PWD}'
+        target: ${PWD}
       - type: bind
         source: /home/$USER/pipeline-output
-        target: '${PWD}'
+        target: ${PWD}  # try without quotes to see if it works; try without braces
