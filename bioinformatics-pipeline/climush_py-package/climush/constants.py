@@ -31,6 +31,7 @@ ANY_PLATFORM_REGEX = '^illumina|^pacbio|^sanger'
 SEQ_FILE_GLOB = '*.fast*'
 
 # PIPELINE FILE PREFIXES
+DEMUX_PREFIX = 'demux'
 NOPHIX_PREFIX = 'no-phix'
 NOAMBIG_PREFIX = 'no-ambig'
 TRIMMED_PREFIX = 'trim'

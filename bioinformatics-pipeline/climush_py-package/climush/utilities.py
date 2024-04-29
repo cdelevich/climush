@@ -1,4 +1,4 @@
-import subprocess, re, sys, pathlib, shutil, json, tomlkit
+import subprocess, re, sys, pathlib, shutil, json, tomlkit, gzip
 from pathlib import Path
 from datetime import datetime
 from functools import wraps
@@ -119,8 +119,6 @@ def log_progress(file_map, run_name):
     with open(log_file, 'at') as log_out:
         log_out.write(json.dumps(log_dict))
 
-
-
 # exit current script due to error, save script and timestamp of where error occurred
 def exit_process(message, config_section='error.message'):
     script_name = sys.argv[0]  # unsure if will get name of script it is executed in or the one it is compiled in
@@ -207,7 +205,7 @@ def print_indented_list(print_list):
     return print(formatted_list)
 
 # run shell command and save stdout and stderr to file
-def run_subprocess(cli_command_list, dest_dir):
+def run_subprocess(cli_command_list, dest_dir, auto_respond=False):
     '''
     Run a subprocess, saving the output and error to a log file.
 
@@ -255,15 +253,18 @@ def run_subprocess(cli_command_list, dest_dir):
     if len(run_cmd.stderr) == 0:
         pass
     else:
-        if not temp_file.is_file():
-            continue_ok = input(f'Running {program} produced an error. Please review the output in {err_path.name}. '
-                                f'Would like to continue despite this error? [Y/N]')
-            if re.search(continue_ok, AFFIRM_REGEX, re.I):
-                with open(temp_file, 'wt') as fout:
-                    fout.write('stop_prompt')
-                return None
-            else:
-                return exit_process(message=f'Running {program} produced an error. See {err_path.name} for details.')
+        if auto_respond:
+            pass
+        else:
+            if not temp_file.is_file():
+                continue_ok = input(f'Running {program} produced an error. Please review the output in {err_path.name}. '
+                                    f'Would like to continue despite this error? [Y/N]')
+                if re.search(continue_ok, AFFIRM_REGEX, re.I):
+                    with open(temp_file, 'wt') as fout:
+                        fout.write('stop_prompt')
+                    pass
+                else:
+                    return exit_process(message=f'Running {program} produced an error. See {err_path.name} for details.')
 
     return None
 
@@ -477,8 +478,6 @@ def move_file(source_path, dest_path):
     else:
         return print(f'The file {source_path.name} was not properly copied to its new destination: {dest_path}.')
 
-# sort the sequences provided in the 'sequences' input directory
-
 # count the number of files in a directory
 def count_files(file_path, search_for='*'):
     '''
@@ -493,7 +492,6 @@ def count_files(file_path, search_for='*'):
     flag_if_not_path_exists(file_path, absolute=False, exit_if_false=False)
 
     return len(list(file_path.glob(search_for)))
-
 
 def check_for_input(file_dir, seq_platform=None, file_ext=SEQ_FILE_GLOB):
     '''
@@ -546,6 +544,84 @@ def check_for_input(file_dir, seq_platform=None, file_ext=SEQ_FILE_GLOB):
         return False, file_list  # return false and empty list
 
 # get name of previous script
+
+# compress a fastq file to .fastq.gzip format
+# DOES NOT WORK, WILL NOT COMPRESS A .FASTQ FORMAT BECAUSE IT CAN'T DETECT BYTES
+def gzip_compress(uncompressed_path, delete_uncompressed=True, **kwargs):
+    '''
+    Compress an input file to the gzip compression format.
+
+    :param uncompressed_path: Path object describing path to the uncompressed
+    file that requires compression
+    :param delete_uncompressed: True (default), False; whether to remove the
+    uncompressed version of the file after successfully compressing it
+    :param kwargs: compressed_path may be provided, which should be a Path object
+    that is used as the output path for the compressed version of the input file; if
+    one is not provided, then the input uncompressed Path is used as the basis for
+    the compressed file name
+    :return: None; saves the gzip version
+    '''
+
+    # confirm that the input uncompressed file is a Path object
+    if is_pathclass(uncompressed_path):
+        pass
+    else:
+        try:  # try to create a Path object from the input
+            uncompressed_path = Path(uncompressed_path)
+        except:  # if it can't be converted to a Path object, then print error and exit
+            msg = (f'The path provided, {uncompressed_path}, was not originally a Path object, and could not be '
+                   f'automatically converted to a Path object. Please provide a Path object to '
+                   f'the parameter \'uncompressed_path\' to continue.\n')
+            return exit_process(message=msg)
+
+    # if the compressed path is provided as a keyword argument...
+    if 'compressed_path' in kwargs.keys():
+        # confirm that it is a Path object
+        if is_pathclass(kwargs['compressed_path']):
+            # write in to variable
+            compressed_path = kwargs['compressed_path']
+        # if it is not a Path object...
+        else:
+            try:  # try to create a Path object from the input
+                compressed_path = Path(kwargs['compressed_path'])
+            except:  # if it can't be converted to a Path object, then print error and exit
+                msg = (f'The path provided, {kwargs["compressed_path"]}, was not originally a Path object, '
+                       f'and could not be automatically converted to a Path object. Please provide a Path '
+                       f'object to the keyword \'compressed_path\' to continue.\n')
+                return exit_process(message=msg)
+    # if no keyword argument for compressed path is included...
+    else:
+        # create compressed path by adding .gz to input uncompressed path
+        compressed_path = uncompressed_path.with_suffix('.'.join([uncompressed_path.suffix, 'gz']))
+
+    # first open the uncompressed file to read content
+    with open(uncompressed_path, 'rb') as uncomp_in:
+        # then open the compressed file to write uncompressed content to
+        with gzip.open(compressed_path, 'wb') as comp_out:
+            # read uncompressed content and write to the gzip output file
+            shutil.copyfileobj(uncomp_in, comp_out)
+
+    # check that the compressed file isn't empty
+    if compressed_path.stat().st_size == 0:
+        msg = (f'ERROR. The uncompressed file, {uncompressed_path.name}, was not successfully written to the '
+               f'compressed file {compressed_path.name}, as the compressed file size is zero (0).\n')
+        return exit_process(message=msg)
+
+    # check that the compressed file is properly compressed
+    with open(compressed_path, 'r') as comp_in:
+        try:
+            comp_in.read(1)
+        except gzip.BadGzipFile:
+            msg = (f'ERROR. The uncompressed file, {uncompressed_path.name}, was not successfully written to the '
+                   f'compressed file {compressed_path.name}, as the compressed filee was flagged as BadGzipFile '
+                   f'by the gzip Python library.\n')
+            return exit_process(message=msg)
+
+    # remove uncompressed file, if delete_uncompressed set to True (default)
+    if delete_uncompressed:
+        uncompressed_path.unlink()
+
+    return None
 
 #######################
 # TEXT MANIPULATION ###
@@ -734,6 +810,48 @@ def escape_path_special(file_path):
 
     return file_path
 
+def get_sample_id(file_path, platform):
+    '''
+    Return the sample ID as a string from a file path.
+
+    :param file_path: Path object, whose .name attribute contains
+    the sample ID
+    :param platform: illumina, pacbio, sanger, or a custom platform
+    prefix used in the file name
+    :return: the sample ID of the input file, as a string
+    '''
+
+    SAMPLE_ID_RE = f'(?<=_{platform.lower()}_).+?_0[1-9]'
+
+    try:
+        sample_id = re.search(SAMPLE_ID_RE, file_path.name, re.I).group(0)
+        return sample_id
+    except AttributeError:
+        msg = (f'ERROR. The provided file name, {file_path.name}, does not follow the expected '
+               f'naming convention, so the sample ID cannot be inferred from the file name. '
+               f'This will affect the logging of summary data to output files.\n')
+        return exit_process(message=msg)
+
+def get_read_orient(file_path):
+    '''
+    Return the read orientation in file name as string (R1/R2).
+
+    :param file_path: Path object, whose .name attribute contains
+    the read orientation (R1 or R2)
+    :return: the sample ID of the input file, as a string
+    '''
+
+    ORIENT_RE = '(?<=_0[1-9]_)R[1,2](?=\.)'
+
+    try:
+        read_orient = re.search(ORIENT_RE, file_path.name, re.I).group(0)
+        return read_orient
+    except AttributeError:
+        msg = (f'ERROR. The provided file name, {file_path.name}, does not follow the expected '
+               f'naming convention, so the read direction cannot be inferred from the file name. '
+               f'This will affect the logging of summary data to output files.\n')
+        return exit_process(message=msg)
+
 #######################
 # CONFIGURATION #######
 #######################
@@ -882,75 +1000,7 @@ def get_settings(file_map, default_only=True, config_section='all'):
             correct_header = prompt_print_options(list(compiled_config.keys()))
             return compiled_config[correct_header]
 
-# locate relevant mapping file for demultiplexing
-# moved down because it requires the import_config_as_dict function
-# def find_mapping_file(path_to_mapping, path_to_plex, path_to_config, **kwargs):
-#     '''
-#     Locate the barcode mapping file(s) for demultiplexing.
-#
-#     Attempts to automatically detect the location of the mapping file
-#     corresponding to the multiplexed files located in the sorted
-#     directory of sequences to demultiplex. It inspects the name of the files
-#     that were sorted into the needs_demux folder of the sequences folder, and
-#     identifies the name of the sequencing run. It then will go into the mapping
-#     file directory in the config folder, mapping-files, and looks for the mapping
-#     file that shares that same sequencing run name. If multiple mapping files
-#     are detected for a single sequencing run, the user will be prompted to select
-#     the file that should be used. If no matching mapping file is detected, it
-#     will throw an error and exit the pipeline.
-#     :param path_to_mapping: defaults to expected location within structured
-#     file directories; otherwise can specify the path as a Path object
-#     :param path_to_plex: defaults to expected location within structured
-#     file directories; otherwise can specify the path to the mapping file(s) as
-#     a Path object
-#     :param kwargs: specify the bioinfo-settings configuration file dictionary
-#     if one is already loaded into the environment; if none is provided, the
-#     function will open the configuration file to create a new instance of the
-#     dictionary; adding a dictionary, if available, will likely be quicker so it
-#     is recommended to do so if possible
-#     :return: if found, returns mapping file(s) as a list
-#     '''
-#     assert is_pathclass(path_to_mapping)
-#     assert is_pathclass(path_to_plex)
-#
-#     # get the multiplexed file's queue ID, which the UO sequencing core uses as the seq run identifier in the filename
-#     multiplex_ids = [file.stem.split('.')[0] for file in path_to_plex.glob('*.fast*')]
-#
-#     # look up the multiplex IDs in the bioinfo-settings configuration file for its corresponding CliMush run name
-#     kwargs_keys = list(kwargs.keys())
-#     if kwargs_keys > 0:
-#         if kwargs_keys > 1:
-#             msg = f'ERROR: Too many keyword arguments (**kwargs) used. Only one kwarg is accepted and should have the '\
-#                   f'name of the configuration dictionary as the value to a key with any name.\n'
-#             print(msg)
-#             return exit_process(message=msg)
-#         else:
-#             config_multiplex_dict = kwargs[kwargs_keys[0]]['pacbio-multiplex-ids']
-#     else:
-#         config_multiplex_dict = get_settings(file_handle=path_to_config)['pacbio-multiplex-ids']
-#
-#     # get the CliMush run name(s) and create regex to search for any of these at start of mapping file name
-#     climush_ids = [config_multiplex_dict[q] for q in multiplex_ids]
-#
-#     # find the corresponding barcode mapping files for the run name(s) in the barcode-mapping dir in config
-#     mapping_file_names = []
-#     for id in climush_ids:
-#         match = list(path_to_mapping.glob(f'*{id}*'))
-#         if len(match) == 1:
-#             mapping_file_names.append(match[0])
-#         elif len(match) == 0:
-#             msg = f'ERROR: No mapping files matching the CliMush run name {id} were located in {path_to_mapping}. ' \
-#                   f'Check the mapping-files directory in the config folder, then retry.\n'
-#             print(msg)
-#             return exit_process(message=msg)
-#         else:
-#             msg = f'ERROR: {len(match)} mapping files were located for CliMush run name {id}. Please select the number ' \
-#                   f'of the correctly corresponding barcode mapping file for this sample:\n'
-#             print(msg)
-#             mapping_file_names.append(prompt_print_options(match))
-#
-#     return mapping_file_names
-
+# sort the sequences provided in the 'sequences' input directory
 def sort_input_files(filepath_dict, to_sort='main'):
     '''
     Sort the input sequencing files in their respective sequence
@@ -1029,4 +1079,74 @@ def sort_input_files(filepath_dict, to_sort='main'):
             move_file(source_path=file, dest_path=mkdir_exist_ok(new_dir=filepath_dict['sequences']['unclear']))
 
     return None
+
+# locate relevant mapping file for demultiplexing
+# moved down because it requires the import_config_as_dict function
+# def find_mapping_file(path_to_mapping, path_to_plex, path_to_config, **kwargs):
+#     '''
+#     Locate the barcode mapping file(s) for demultiplexing.
+#
+#     Attempts to automatically detect the location of the mapping file
+#     corresponding to the multiplexed files located in the sorted
+#     directory of sequences to demultiplex. It inspects the name of the files
+#     that were sorted into the needs_demux folder of the sequences folder, and
+#     identifies the name of the sequencing run. It then will go into the mapping
+#     file directory in the config folder, mapping-files, and looks for the mapping
+#     file that shares that same sequencing run name. If multiple mapping files
+#     are detected for a single sequencing run, the user will be prompted to select
+#     the file that should be used. If no matching mapping file is detected, it
+#     will throw an error and exit the pipeline.
+#     :param path_to_mapping: defaults to expected location within structured
+#     file directories; otherwise can specify the path as a Path object
+#     :param path_to_plex: defaults to expected location within structured
+#     file directories; otherwise can specify the path to the mapping file(s) as
+#     a Path object
+#     :param kwargs: specify the bioinfo-settings configuration file dictionary
+#     if one is already loaded into the environment; if none is provided, the
+#     function will open the configuration file to create a new instance of the
+#     dictionary; adding a dictionary, if available, will likely be quicker so it
+#     is recommended to do so if possible
+#     :return: if found, returns mapping file(s) as a list
+#     '''
+#     assert is_pathclass(path_to_mapping)
+#     assert is_pathclass(path_to_plex)
+#
+#     # get the multiplexed file's queue ID, which the UO sequencing core uses as the seq run identifier in the filename
+#     multiplex_ids = [file.stem.split('.')[0] for file in path_to_plex.glob('*.fast*')]
+#
+#     # look up the multiplex IDs in the bioinfo-settings configuration file for its corresponding CliMush run name
+#     kwargs_keys = list(kwargs.keys())
+#     if kwargs_keys > 0:
+#         if kwargs_keys > 1:
+#             msg = f'ERROR: Too many keyword arguments (**kwargs) used. Only one kwarg is accepted and should have the '\
+#                   f'name of the configuration dictionary as the value to a key with any name.\n'
+#             print(msg)
+#             return exit_process(message=msg)
+#         else:
+#             config_multiplex_dict = kwargs[kwargs_keys[0]]['pacbio-multiplex-ids']
+#     else:
+#         config_multiplex_dict = get_settings(file_handle=path_to_config)['pacbio-multiplex-ids']
+#
+#     # get the CliMush run name(s) and create regex to search for any of these at start of mapping file name
+#     climush_ids = [config_multiplex_dict[q] for q in multiplex_ids]
+#
+#     # find the corresponding barcode mapping files for the run name(s) in the barcode-mapping dir in config
+#     mapping_file_names = []
+#     for id in climush_ids:
+#         match = list(path_to_mapping.glob(f'*{id}*'))
+#         if len(match) == 1:
+#             mapping_file_names.append(match[0])
+#         elif len(match) == 0:
+#             msg = f'ERROR: No mapping files matching the CliMush run name {id} were located in {path_to_mapping}. ' \
+#                   f'Check the mapping-files directory in the config folder, then retry.\n'
+#             print(msg)
+#             return exit_process(message=msg)
+#         else:
+#             msg = f'ERROR: {len(match)} mapping files were located for CliMush run name {id}. Please select the number ' \
+#                   f'of the correctly corresponding barcode mapping file for this sample:\n'
+#             print(msg)
+#             mapping_file_names.append(prompt_print_options(match))
+#
+#     return mapping_file_names
+
 

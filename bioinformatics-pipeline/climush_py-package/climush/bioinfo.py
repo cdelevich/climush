@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from Bio.Seq import Seq
 from datetime import datetime
@@ -5,7 +6,7 @@ import re
 from Bio import SeqIO
 from Bio.SeqRecord import SeqRecord
 import pandas as pd
-from climush.constants import NOPHIX_PREFIX, SEQ_FILE_GLOB, TRIMMED_PREFIX, DEREP_PREFIX, QUALFILT_PREFIX
+from climush.constants import *
 from climush.utilities import *
 
 def demultiplex(file_map, multiplexed_files, seq_platform='pacbio'):
@@ -385,7 +386,7 @@ def demultiplex(file_map, multiplexed_files, seq_platform='pacbio'):
     # COMPARE LIMA BARCODE COMBINATIONS TO MAPPING FILE BARCODE COMBINATIONS
 
     # create an output subdirectory in demultiplexed dir for all demultiplexed reads in this bioinformatics run
-    demux_dir = mkdir_exist_ok(new_dir = f'demux_{run_name}', parent_dir=file_map['pipeline-output']['demultiplexed'])
+    demux_dir = mkdir_exist_ok(new_dir = f'{DEMUX_PREFIX}_{run_name}', parent_dir=file_map['pipeline-output']['demultiplexed'])
 
     # for each sequencing run...
     for qid in read_barcodes:
@@ -422,7 +423,7 @@ def demultiplex(file_map, multiplexed_files, seq_platform='pacbio'):
                     read_seq = seq_subdict[r]
 
                     # write the read ID and read sequence to the sample ID demultiplexed fasta file
-                    sample_fasta = (demux_dir / f'demux_{full_sample_id}').with_suffix('.fasta')
+                    sample_fasta = (demux_dir / f'{DEMUX_PREFIX}_{full_sample_id}').with_suffix('.fasta')
                     with open(sample_fasta, 'a') as fout:
                         fout.write(f'>{read_id}\n')
                         fout.write(f'{read_seq}\n')
@@ -444,14 +445,17 @@ def demultiplex(file_map, multiplexed_files, seq_platform='pacbio'):
 
 def filter_out_phix(input_files, file_map, kmer=31, hdist=1, keep_log=True, keep_removed_seqs=True):
 
-    prefilt_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['prefiltered'])
+    # make sure parent directory exists/is created before making child
+    mkdir_exist_ok(new_dir=file_map['pipeline-output']['prefiltered']['main'])
+    phix_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['prefiltered']['prefilt01_no-phix'])
 
-    run_name = get_settings(file_map=file_map, config_section='run_details')['run_name']
+    settings = get_settings(file_map=file_map)
+    run_name = settings['run_details']['run_name']
 
-    nophix_path = mkdir_exist_ok(new_dir=f'./{NOPHIX_PREFIX}_{run_name}', parent_dir=prefilt_parent)
-    phix_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(NOPHIX_PREFIX)}_{run_name}', parent_dir=prefilt_parent)
+    nophix_path = mkdir_exist_ok(new_dir=f'./{NOPHIX_PREFIX}_{run_name}', parent_dir=phix_parent)
+    phix_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(NOPHIX_PREFIX)}_{run_name}', parent_dir=phix_parent)
 
-    bbduk_log = make_log_file(file_name=Path('bbduk'), dest_path=prefilt_parent)
+    bbduk_log = make_log_file(file_name=Path('bbduk'), dest_path=phix_parent)
 
     for file in input_files:
 
@@ -464,10 +468,10 @@ def filter_out_phix(input_files, file_map, kmer=31, hdist=1, keep_log=True, keep
         # and this didn't help it work either...
 
         bbduk_cmd = ['bbduk.sh', f'in={file}', f'out={nophix_out}', f'out={phix_out}',
-                     'ref=phix.fa', f'k={kmer}', f'hdist={hdist}', f'stats={bbduk_log}']
+                     'ref=phix', f'k={kmer}', f'hdist={hdist}', f'stats={bbduk_log}']
 
         try:
-            run_subprocess(bbduk_cmd, dest_dir=prefilt_parent)
+            run_subprocess(bbduk_cmd, dest_dir=phix_parent, auto_respond=settings['automate']['auto_respond'])
         except:
             continue
 
@@ -477,6 +481,54 @@ def filter_out_phix(input_files, file_map, kmer=31, hdist=1, keep_log=True, keep
             add_prefix(file_path=file, prefix=NOPHIX_PREFIX, action='copy', dest_dir=nophix_path)
 
     return nophix_path
+
+def prefilter_fastx(input_files, file_map, maxn=0):
+    # make sure parent directory exists/is created before making child
+    mkdir_exist_ok(new_dir=file_map['pipeline-output']['prefiltered']['main'])
+    noambig_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['prefiltered']['prefilt02_no-ambig'])
+
+    settings = get_settings(file_map=file_map)
+    run_name = settings['run_details']['run_name']
+
+    noambig_path = mkdir_exist_ok(new_dir=f'./{NOAMBIG_PREFIX}_{run_name}', parent_dir=noambig_parent)
+    ambig_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(NOAMBIG_PREFIX)}_{run_name}', parent_dir=noambig_parent)
+
+    fastq_maxns_log = make_log_file(file_name=Path('fastq_maxns'), dest_path=noambig_parent)
+
+    # must provide pair of forward and reverse:
+    pairs_dict = pair_reads(input_files)
+
+    for file in pairs_dict.keys():
+
+        # file paths post-compression, with .fastq.gz file extension
+        noambig_out_fwd_gzip = add_prefix(file_path=file, prefix=NOAMBIG_PREFIX, action=None, dest_dir=noambig_path)
+        noambig_out_rev_gzip = add_prefix(file_path=pairs_dict[file], prefix=NOAMBIG_PREFIX, action=None,
+                                          dest_dir=noambig_path)
+
+        ambig_out_fwd_gzip = add_prefix(file_path=file, prefix=flip_prefix(NOAMBIG_PREFIX), action=None,
+                                        dest_dir=ambig_path)
+        ambig_out_rev_gzip = add_prefix(file_path=pairs_dict[file], prefix=flip_prefix(NOAMBIG_PREFIX), action=None,
+                                        dest_dir=ambig_path)
+
+        # file paths pre-compression, with .fastq file extension, to use for VSEARCH cmd output paths
+        noambig_out_fwd = noambig_out_fwd_gzip.with_suffix('')
+        noambig_out_rev = noambig_out_rev_gzip.with_suffix('')
+
+        ambig_out_fwd = ambig_out_fwd_gzip.with_suffix('')
+        ambig_out_rev = ambig_out_rev_gzip.with_suffix('')
+
+        # compile CLI command for VSEARCH filtering of reads with any ambiguous bases
+        vsearch_cmd = ['vsearch', '--fastq_filter', file, '--reverse', pairs_dict[file], '--fastq_maxns', str(maxn),
+                       '--fastqout', noambig_out_fwd, '--fastqout_rev', noambig_out_rev, '--fastqout_discarded',
+                       ambig_out_fwd, '--fastqout_discarded_rev', ambig_out_rev]
+
+        # run CLI VSEARCH command
+        run_subprocess(vsearch_cmd, dest_dir=noambig_parent, auto_respond=settings['automate']['auto_respond'])
+
+        # compress the .fastq output from VSEARCH to .fastq.gz format; required for cutadapt input
+        # UNDER CONSTRUCTION
+
+    return noambig_path
 
 def pair_reads(input_files):
     pairs_dict = {}
@@ -495,38 +547,7 @@ def pair_reads(input_files):
 
     return pairs_dict
 
-def prefilter_fastx(input_files, file_map, maxn=0):
-    prefilt_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['prefiltered'])
-
-    run_name = get_settings(file_map, config_section='run_details')['run_name']
-
-    noambig_path = mkdir_exist_ok(new_dir=f'./{NOAMBIG_PREFIX}_{run_name}', parent_dir=prefilt_parent)
-    ambig_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(NOAMBIG_PREFIX)}_{run_name}', parent_dir=prefilt_parent)
-
-    fastq_maxns_log = make_log_file(file_name=Path('fastq_maxns'), dest_path=prefilt_parent)
-
-    # must provide pair of forward and reverse:
-    pairs_dict = pair_reads(input_files)
-
-    for file in pairs_dict.keys():
-
-        noambig_out_fwd = add_prefix(file_path=file, prefix=NOAMBIG_PREFIX, action=None, dest_dir=noambig_path)
-        noambig_out_rev = add_prefix(file_path=pairs_dict[file], prefix=NOAMBIG_PREFIX, action=None,
-                                     dest_dir=noambig_path)
-        ambig_out_fwd = add_prefix(file_path=file, prefix=flip_prefix(NOAMBIG_PREFIX), action=None,
-                                   dest_dir=ambig_path)
-        ambig_out_rev = add_prefix(file_path=pairs_dict[file], prefix=flip_prefix(NOAMBIG_PREFIX), action=None,
-                                   dest_dir=ambig_path)
-
-        vsearch_cmd = ['vsearch', '--fastq_filter', file, '--reverse', pairs_dict[file], '--fastq_maxns', str(maxn),
-                       '--fastqout', noambig_out_fwd, '--fastqout_rev', noambig_out_rev, '--fastqout_discarded',
-                       ambig_out_fwd, '--fastqout_discarded_rev', ambig_out_rev]
-
-        run_subprocess(vsearch_cmd, dest_dir=prefilt_parent)
-
-    return noambig_path
-
-def identify_primers(platform, config_dict):
+def identify_primers(platform, config_dict, verbose=True):
     primer_dict = config_dict['primers']
 
     target_primers = {}
@@ -535,15 +556,130 @@ def identify_primers(platform, config_dict):
         target_primers[d] = primer_dict[d]['sequence'][platform]
         primer_names.append(primer_dict[d]['name'][platform])
 
-    print(f'Searching for {primer_names[0]} and {primer_names[1]} in {platform.title()} reads...\n')
+    # add the reverse complement of each primer to this dict
+    target_primers['fwd_rc'] = str(Seq(target_primers['fwd']).reverse_complement())
+    target_primers['rev_rc'] = str(Seq(target_primers['rev']).reverse_complement())
+
+    if verbose:
+        print(f'Searching for {primer_names[0]} and {primer_names[1]} in {platform.title()} reads...\n')
 
     return target_primers
 
-def remove_primers(input_files, file_map, platform, paired_end=True):
-    trim_primers_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['primers-trimmed'])
+def confirm_no_primers(input_files, file_map, platform):
 
+    # if directory path provided, create generator of file paths
+    if input_files.is_dir():
+        input_files = input_files.glob(SEQ_FILE_GLOB)
+
+    # read in settings from the configuration file
     settings = get_settings(file_map)
     run_name = settings['run_details']['run_name']
+
+    # create a regex from fwd, rev, fwd_rc, and rev_rc primer sequences, to confirm no primer remains
+    primer_dict = identify_primers(platform, config_dict=settings, verbose=False)  # read in primer dict for this platform
+    # join the primer seq strings together with the 'or' pipe for regex search
+    PRIMER_RE = '|'.join(list(primer_dict.values()))  # will search for any of these primers/orients
+
+    # record read lengths to an output .json file
+    seq_len_json = (file_map['pipeline-output']['main'] / f'{run_name}_seq-lens').with_suffix('.json')
+
+    # record primer detections to a .json log file
+    primer_detected_json = (file_map['pipeline-output']['primers-trimmed'] / f'{run_name}_bad-trim').with_suffix('.json')
+
+    # create an empty dictionary, whose contents will later be writen out to .json log
+    seq_len_dict = {}  # for recording read count and read lengths per sample
+    p_detect_dict = {}  # for recording detection of primers in seqs
+    primers_detected = 0  # keep track of how many reads had primers detected
+    err_samples = set()  # keep track of how many samples had primers detected
+    total_samples = 0  # counter for total number of samples, since input_files is a generator, can't get len later
+    # go through each input file
+    for file in input_files:
+        total_samples += 1
+        # get the sample ID and add it to the .json dict as key, with empty values for read count + len
+        sample_id = get_sample_id(file, platform=platform)
+        # get the read orientation, i.e., R1 is fwd and R2 is rev
+        orient = get_read_orient(file)
+
+        # check if there are entries yet for these values; if not, add
+        if sample_id in seq_len_dict.keys():  # if the sample_id is already in dict...
+            if orient in seq_len_dict[sample_id]:  # and the orientation is too...
+                update = True  # set update var to True to inform how to add info for each read
+            else:  # if the sample_id is in dict, but the orient is not...
+                # add a nested dict for that orient
+                seq_len_dict[sample_id].update({orient: {'read_count': '',
+                                                         'read_length': []}})
+        else:  # if the sample_id is NOT in dict...
+            # add it to the dict, with the subdict for the orientation
+            seq_len_dict[sample_id] = {orient: {'read_count': '',
+                                                'read_length': []}}
+
+        # go through each read in this sample...
+        for seq in SeqIO.parse(file, 'fastq'):
+
+            # append the sequence length to the .json output
+            # ?? WILL THIS OVERWRITE, OR BECAUSE EMPTY LIST ALWAYS EXISTS THIS IS FINE?
+            seq_len_dict[sample_id][orient]['read_length'].append(len(seq))
+
+            # confirm that the primers in all orientations are not detected in the read
+            found = re.search(PRIMER_RE, str(seq), re.I)
+            if found:  # if a primer is detected..
+
+                primers_detected += 1  # add to error reads counter
+                err_samples.add(sample_id)  # add error sample id to err sample set
+
+                # first, create dict for just this read
+                err_read_dict = {'read_id': seq.id,
+                                 'primer_id': [v[0] for v in primer_dict.items() if v[1] == found.group()][0],
+                                 'primer_seq': found.group(),
+                                 'pos_start': found.span()[0],
+                                 'pos_end': found.span()[1]}
+
+                # then check whether to create new entry, or update existing one
+                # if this sample already has an entry in the primer detect dict...
+                if sample_id in p_detect_dict.keys():
+                    # check if this read orientation (R1/R2) is already in primer detect dict...
+                    if orient in p_detect_dict[sample_id]:
+                        # if it is, update with the error info for this read
+                        p_detect_dict[sample_id][orient].update(err_read_dict)
+                    else:
+                        # if not, then add as new entry
+                        p_detect_dict[sample_id][orient] = err_read_dict
+                # if sample not yet in dict, add sample_id and orient together
+                else:
+                    p_detect_dict[sample_id] = {orient: err_read_dict}
+
+    # dump the contents of both dictionaries to their output files
+    # always write out the sequence length
+    with open(seq_len_json, 'w') as len_out:
+        json.dump(seq_len_dict, len_out)
+
+    # check whether there are errors to write out, then write out and print summary
+    if len(p_detect_dict) > 0:
+        perc_samples = (len(err_samples) / (total_samples/2))*100  # divide by 2 to account for R1/R2
+        print(f'WARNING. {primers_detected} reads from {len(err_samples)} samples ({perc_samples:.2}% of all samples) '
+              f'contained a primer sequence after trimming primers with cutadapt. Please consult the '
+              f'details in the summary file {primer_detected_json} for details.\n')
+        with open(primer_detected_json, 'w') as err_out:
+                json.dump(p_detect_dict, err_out)
+
+    return None
+
+def remove_primers(input_files, file_map, platform, paired_end=True, verbose=False):
+
+    # make the main directory for output from primer removal
+    trim_primers_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['primers-trimmed'])
+
+    # read in settings from the configuration file
+    settings = get_settings(file_map)
+    run_name = settings['run_details']['run_name']
+
+    # access cutadapt settings from the configuration
+    cutadapt_settings = settings['remove_primers']
+    fwd_max_err = cutadapt_settings['max_error_rate']['fwd']
+    rev_max_err = cutadapt_settings['max_error_rate']['rev']
+    if fwd_max_err == rev_max_err:
+        max_err = fwd_max_err
+    max_untrimmed = cutadapt_settings['max_untrimmed']
 
     # get the forward and reverse primers
     primer_dict = identify_primers(platform, config_dict=settings)
@@ -553,16 +689,17 @@ def remove_primers(input_files, file_map, platform, paired_end=True):
     fwd_revcomp_primer = str(Seq(fwd_primer).reverse_complement())
     rev_revcomp_primer = str(Seq(rev_primer).reverse_complement())
 
+    # create trimmed and untrimmed read directories
     trim_path = mkdir_exist_ok(new_dir=f'./{TRIMMED_PREFIX}_{run_name}', parent_dir=trim_primers_parent)
     notrim_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(TRIMMED_PREFIX)}_{run_name}', parent_dir=trim_primers_parent)
 
-    cutadapt_settings = settings['remove_primers']
-    fwd_max_err = int(cutadapt_settings['max_error_rate']['fwd'])
-    rev_max_err = int(cutadapt_settings['max_error_rate']['rev'])
-    if fwd_max_err == rev_max_err:
-        max_err = fwd_max_err
-    max_untrimmed = int(cutadapt_settings['max_untrimmed'])
+    # if verbose, then print full report
+    if verbose:  # best for troubleshooting
+        report = 'full'
+    else:  # best for large runs
+        report = 'minimal'
 
+    # compose and execute the command line command to run cutadapt for paired-end reads
     if paired_end:
         paired_dict = pair_reads(input_files)
 
@@ -571,7 +708,7 @@ def remove_primers(input_files, file_map, platform, paired_end=True):
             fwd_read_out = add_prefix(file_path=file, prefix=TRIMMED_PREFIX, dest_dir=trim_path, action=None)
             rev_read_out = add_prefix(file_path=paired_dict[file], prefix=TRIMMED_PREFIX, dest_dir=trim_path, action=None)
 
-            cutadapt_cmd = ['cutadapt', '--report=minimal',
+            cutadapt_cmd = ['cutadapt', f'--report={report}',
                             '-a', fwd_primer, '-A', rev_primer,
                             '-n', '2', '-e', str(max_err),
                             '-o', fwd_read_out, '-p', rev_read_out,
@@ -579,6 +716,7 @@ def remove_primers(input_files, file_map, platform, paired_end=True):
 
             run_subprocess(cutadapt_cmd, dest_dir=trim_primers_parent)
 
+    # compose and execute the command line command to run cutadapt for single-end reads
     else:
 
         for file in input_files:
@@ -593,7 +731,7 @@ def remove_primers(input_files, file_map, platform, paired_end=True):
                 untrim_cmd = ''
 
 
-            cutadapt_cmd = ['cutadapt', '--report=minimal',
+            cutadapt_cmd = ['cutadapt', f'--report={report}',
                             '-a', f'^{fwd_primer}...{rev_revcomp_primer}$',
                             '-a', f'^{rev_primer}...{fwd_revcomp_primer}$',
                             '-n', '2', '-e', str(max_err), untrim_cmd, '-o', trim_out, file]
@@ -601,21 +739,27 @@ def remove_primers(input_files, file_map, platform, paired_end=True):
             # create or append to cutadapt stderr/stdout, all output goes to one file (not one per sample)
             run_subprocess(cutadapt_cmd, dest_dir=trim_primers_parent)
 
-    # quantify proportion untrimmed
-    with open((trim_primers_parent / 'cutadapt.out'), 'r') as fin:
-        cutadapt_df = pd.read_table(fin)
-        sum_in = cutadapt_df['in_reads'].sum(0)
-        sum_out = cutadapt_df['out_reads'].sum(0)
-        percent_lost = ((sum_in - sum_out) / (sum_in)) * 100
-        if percent_lost > max_untrimmed:
-            msg = f'After primer trimming, {percent_lost:.2f}% of the input reads were lost, which is ' \
-                  f'above the user-defined maximum threshold of {max_untrimmed}%.\n'
-            exit_process(message=msg)
-        else:
-            print(f'{percent_lost:.2f}% of input reads were lost to primer trimming. This is above the user-provided '
-                  f'input of {max_untrimmed}%, so proceeding to next step...\n')
+    # also helpful to see the command that is run during troubleshooting
+    if verbose:
+        print(f'cutadapt command: {cutadapt_cmd}\n')
+        print(f'WARNING. Currently, the max proportion of untrimmed reads cannot be analyzed '
+              f'with verbose set to True. To have the max proportion check, turn verbose to False.\n')
+    else:
+        # quantify proportion untrimmed; only works if not verbose
+        with open((trim_primers_parent / 'cutadapt.out'), 'r') as fin:
+            cutadapt_df = pd.read_table(fin)
+            sum_in = cutadapt_df['in_reads'].sum(0)
+            sum_out = cutadapt_df['out_reads'].sum(0)
+            percent_lost = ((sum_in - sum_out) / (sum_in)) * 100
+            if percent_lost > max_untrimmed:
+                msg = f'After primer trimming, {percent_lost:.2f}% of the input reads were lost, which is ' \
+                      f'above the user-defined maximum threshold of {max_untrimmed}%.\n'
+                exit_process(message=msg)
+            else:
+                print(f'{percent_lost:.2f}% of input reads were lost to primer trimming. This is below the user-provided '
+                      f'input of {max_untrimmed}%, so proceeding to next step...\n')
 
-    return None
+    return trim_path
 
 def merge_reads(input_files, file_map):
     settings = get_settings(file_map)
