@@ -89,5 +89,5 @@ for dir in dir_requires_action:
 mkdir_exist_ok(fpm['pipeline-output']['main'])
 
 # go to next step of the pipeline (demultiplexing) if no other step was chosen from the CLI
-continue_to_next(Path(__file__), settings)
+continue_to_next(__file__, settings)
 

@@ -16,7 +16,7 @@ parser = argparse.ArgumentParser(prog=Path(__file__).stem,
                                              'sequences to be demultiplexed.',
                                  epilog='')
 
-parser.add_argument('-i', '--seq-path', default=fpm['sequences'],
+parser.add_argument('-i', '--input', default=fpm['sequences'],
                     help='The path to the sequencing files. Will default to the location that is '
                          'expected with the Docker container\'s native file structure.')
 
@@ -31,10 +31,10 @@ args = vars(parser.parse_args())
 platform = 'illumina'
 
 # if no user-input sequence file path is provided, then look in pipeline directory
-if isinstance(args['seq_path'], dict):
-    input_path = args['seq_path'][platform]
+if isinstance(args['input'], dict):
+    input_path = args['input'][platform]
 else:
-    input_path = Path(args['seq_path'])
+    input_path = Path(args['input'])
 
 # check that there are Illumina reads to pre-filter
 is_input, illumina_files = check_for_input(input_path)
@@ -59,10 +59,10 @@ platform = 'sanger'
 # unfamiliar with whether any prefiltering necessary for Sanger reads, any PhiX spike-in?
 
 # if no user-input sequence file path is provided, then look in pipeline directory
-if isinstance(args['seq_path'], dict):
-    input_path = args['seq_path'][platform]
+if isinstance(args['input'], dict):
+    input_path = args['input'][platform]
 else:
-    input_path = Path(args['seq_path'])
+    input_path = Path(args['input'])
 
 is_input, sanger_files = check_for_input(input_path)
 
@@ -74,6 +74,6 @@ else:
     pass
 
 # when all are prefiltered, continue to next
-continue_to_next(Path(__file__), settings)
+continue_to_next(__file__, settings)
 
 

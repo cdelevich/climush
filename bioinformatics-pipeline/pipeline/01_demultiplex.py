@@ -66,4 +66,4 @@ else:
 # when all are demultiplexed (if possible), continue to the next script
 if not files_demuxed:  # print if no demultiplexing was carried out
     print(f'No sequencing files were detected in the /sequences directory that require demultiplexing.\n')
-continue_to_next(Path(__file__), settings)
+continue_to_next(__file__, settings)

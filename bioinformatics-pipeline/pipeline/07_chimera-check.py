@@ -38,4 +38,4 @@ else:
 #####################
 
 # continue to next
-continue_to_next(Path(__file__), settings)
+continue_to_next(__file__, settings)
