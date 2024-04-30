@@ -1,11 +1,11 @@
-import json
+import json, re
 from pathlib import Path
 from Bio.Seq import Seq
 from datetime import datetime
-import re
 from Bio import SeqIO
 from Bio.SeqRecord import SeqRecord
 import pandas as pd
+import numpy as np
 from climush.constants import *
 from climush.utilities import *
 
@@ -584,13 +584,13 @@ def confirm_no_primers(input_files, file_map, platform):
     PRIMER_RE = '|'.join(list(primer_dict.values()))  # will search for any of these primers/orients
 
     # record read lengths to an output .json file
-    seq_len_json = (file_map['pipeline-output']['main'] / f'{run_name}_seq-lens').with_suffix('.json')
+    read_info_json = (file_map['pipeline-output']['main'] / f'{run_name}_read-info').with_suffix('.json')
 
     # record primer detections to a .json log file
     primer_detected_json = (file_map['pipeline-output']['primers-trimmed'] / f'{run_name}_bad-trim').with_suffix('.json')
 
     # create an empty dictionary, whose contents will later be writen out to .json log
-    seq_len_dict = {}  # for recording read count and read lengths per sample
+    read_info_dict = {}  # for recording read count and read lengths per sample
     p_detect_dict = {}  # for recording detection of primers in seqs
     primers_detected = 0  # keep track of how many reads had primers detected
     err_samples = set()  # keep track of how many samples had primers detected
@@ -598,44 +598,50 @@ def confirm_no_primers(input_files, file_map, platform):
     # go through each input file
     for file in input_files:
         total_samples += 1
+
         # get the sample ID and add it to the .json dict as key, with empty values for read count + len
         sample_id = get_sample_id(file, platform=platform)
+
         # get the read orientation, i.e., R1 is fwd and R2 is rev
         orient = get_read_orient(file)
 
         # check if there are entries yet for these values; if not, add
-        if sample_id in seq_len_dict.keys():  # if the sample_id is already in dict...
-            if orient in seq_len_dict[sample_id]:  # and the orientation is too...
+        if sample_id in read_info_dict.keys():  # if the sample_id is already in dict...
+            if orient in read_info_dict[sample_id]:  # and the orientation is too...
                 update = True  # set update var to True to inform how to add info for each read
             else:  # if the sample_id is in dict, but the orient is not...
                 # add a nested dict for that orient
-                seq_len_dict[sample_id].update({orient: {'read_count': '',
-                                                         'read_length': []}})
+                read_info_dict[sample_id].update({orient: {}})
         else:  # if the sample_id is NOT in dict...
             # add it to the dict, with the subdict for the orientation
-            seq_len_dict[sample_id] = {orient: {'read_count': '',
-                                                'read_length': []}}
+            read_info_dict[sample_id] = {orient: {}}
+
+        # create an empty list to append read lengths to for this sample
+        # easier to append vals to an empty list than an empty array
+        read_lens = []
 
         # go through each read in this sample...
         for seq in SeqIO.parse(file, 'fastq'):
 
             # append the sequence length to the .json output
-            # ?? WILL THIS OVERWRITE, OR BECAUSE EMPTY LIST ALWAYS EXISTS THIS IS FINE?
-            seq_len_dict[sample_id][orient]['read_length'].append(len(seq))
+            read_lens.append(len(seq))
 
             # confirm that the primers in all orientations are not detected in the read
             found = re.search(PRIMER_RE, str(seq), re.I)
+
             if found:  # if a primer is detected..
 
                 primers_detected += 1  # add to error reads counter
                 err_samples.add(sample_id)  # add error sample id to err sample set
 
                 # first, create dict for just this read
-                err_read_dict = {'read_id': seq.id,
-                                 'primer_id': [v[0] for v in primer_dict.items() if v[1] == found.group()][0],
-                                 'primer_seq': found.group(),
-                                 'pos_start': found.span()[0],
-                                 'pos_end': found.span()[1]}
+                err_read_dict = {seq.id.split(':')[-1]:{'seq_id': seq.id,  # full read ID
+                                                        'primer_id': [v[0] for v in primer_dict.items() if v[1] == found.group()][0],  # whether fwd/rev/fwd_rc/rev_rc primer
+                                                        'primer_seq': found.group(),  # sequence of detected primer
+                                                        'pos_start': found.span()[0],  # pos of primer start in seq
+                                                        'pos_end': found.span()[1],  # pos of primer end in seq
+                                                        'read_len': len(seq)}  # total len of read
+                                 }
 
                 # then check whether to create new entry, or update existing one
                 # if this sample already has an entry in the primer detect dict...
@@ -651,10 +657,29 @@ def confirm_no_primers(input_files, file_map, platform):
                 else:
                     p_detect_dict[sample_id] = {orient: err_read_dict}
 
+        # calculate summary information for each sample based on the lengths of each read
+        read_len_arr = np.array(read_lens)
+
+        # calculate all read metrics for this sample based on this array
+        # cannot have np values written to JSON, so convert to regular non-numpy int/float
+        sample_read_summary = {'read_count': int(read_len_arr.shape[0]),
+                               'read_len_mean': float(np.mean(read_len_arr).round(2)),
+                               'read_len_std': float(np.std(read_len_arr).round(2)),
+                               'read_len_min': int(np.min(read_len_arr)),
+                               'read_len_max': int(np.max(read_len_arr)),
+                               'read_len_q25': float(np.quantile(read_len_arr, 0.25).round(2)),
+                               'read_len_q50': float(np.quantile(read_len_arr, 0.50).round(2)),
+                               'read_len_q75': float(np.quantile(read_len_arr, 0.75).round(2)),
+                               'read_len_q100': float(np.quantile(read_len_arr, 1).round(2))
+                               }
+
+        # add this to the overall read dictionary
+        read_info_dict[sample_id][orient] = sample_read_summary
+
     # dump the contents of both dictionaries to their output files
     # always write out the sequence length
-    with open(seq_len_json, 'w') as len_out:
-        json.dump(seq_len_dict, len_out)
+    with open(read_info_json, 'w') as info_out:
+        json.dump(read_info_dict, info_out)
 
     # check whether there are errors to write out, then write out and print summary
     if len(p_detect_dict) > 0:
