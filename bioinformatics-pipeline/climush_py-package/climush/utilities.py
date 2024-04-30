@@ -25,9 +25,8 @@ def is_pathclass(file_path, exit_if_false=True):
     if isinstance(file_path, pathlib.PurePath):
         return True
     else:
-        msg = f'The provided path, {file_path}, is not a valid Path object.\n'
-        print(msg)
         if exit_if_false:
+            msg = f'The provided path, {file_path}, is not a valid Path object.\n'
             return exit_process(message=msg)
         else:
             return False
@@ -35,7 +34,7 @@ def is_pathclass(file_path, exit_if_false=True):
 # alert if multiple files matching the search pattern in the file path are returned
 # prompt for user input if multiple or no files matching the pattern are returned
 # moved here because used in continue_to_next()
-def flag_multiple_files(file_path, search_for):
+def flag_multiple_files(file_path, search_for, auto_respond=False):
     assert is_pathclass(file_path, exit_if_false=False)
 
     result = list(file_path.glob(search_for))
@@ -46,7 +45,7 @@ def flag_multiple_files(file_path, search_for):
         all_files = file_path.glob('*')
         print(f'No files matching the pattern \'{search_for}\' were detected in the file path: {file_path}. Do '
               f'you mean any of these files in this directory?')
-        which_file = prompt_print_options([all_files, 'none of these (exit)'])
+        which_file = prompt_print_options([all_files, 'none of these (exit)'], auto_respond=auto_respond)
         if which_file in all_files:
             return which_file
         else:
@@ -55,57 +54,13 @@ def flag_multiple_files(file_path, search_for):
     else:
         print(f'{len(result)} files matching the pattern \'{search_for}\' were detected in the file path: '
               f'{file_path}. Please type the number corresponding to the correct file to use:')
-        which_file = prompt_print_options([result, 'none of these (exit)'])
+        which_file = prompt_print_options([result, 'none of these (exit)'], auto_respond=auto_respond)
         if which_file == 'none of these (exit)':
             return exit_process(message=f'The response \'none of these\' was chosen when searching for the correct'
                                         f'file matching the pattern: {search_for}.')
         else:
             return which_file
 
-# activate next script in python
-def continue_to_next(this_script, config_dict):
-    '''
-    Continue to the next step of the pipeline.
-
-    Will activate the script from the CLI with default
-    parameters. If you do not want to use the default
-    parameters, opt out of automated continuation by
-    responding to the CLI prompt that precedes the use
-    of this function.
-    :param this_script: use __file__ always
-    :return: None, assembles and runs a shell command.
-    '''
-    automate_dict = config_dict['automate']
-    auto = automate_dict['run_all']
-    to_run = automate_dict['run_some']
-
-    current_script = Path(this_script).stem
-    current_num = int(current_script.split('_')[0])
-
-    def format_num_for_search(current_script_number):
-        if current_script_number > 9:
-            next_num_search = str(current_script_number + 1)
-        else:
-            next_num_search = '0' + str(current_script_number + 1)
-        return next_num_search
-
-    next_num_search = format_num_for_search(current_num)
-    next_script = flag_multiple_files(file_path=this_script.parent, search_for=f'{next_num_search}*')
-
-    if (auto) or ((current_num + 1) in to_run):
-        print(f'\n\nRunning next step, {next_script.name}...\n')
-        subprocess.run(['python3', next_script])
-        return None
-    else:
-        to_next = input(f'The script {current_script} has completed. Would you like to continue '
-                        f'to the next step in the pipeline, {next_script.stem}?[Y/N]\n'
-                        f'\n')
-        if re.search(AFFIRM_REGEX, to_next, re.I):
-            print(f'\n\nRunning next step, {next_script.name}...\n')
-            subprocess.run(['python3', next_script])
-            return None
-        else:
-            return print(f'\n\nExiting the completed step, {current_script}.\n')
 
 # log progress of bioinformatics pipeline
 def log_progress(file_map, run_name):
@@ -128,7 +83,7 @@ def exit_process(message, config_section='error.message'):
     return sys.exit()
 
 # recursive function that will seek out yes/no/quit response continuously until achieved
-def prompt_yes_no_quit(message):
+def prompt_yes_no_quit(message, auto_respond=False):
     '''
     User prompt accepting specific responses.
 
@@ -148,6 +103,9 @@ def prompt_yes_no_quit(message):
 
     print(f'{message} [yes/no/quit]\n')
 
+    if auto_respond:
+        return print(f'\tauto response: yes\n')
+
     response = input()
 
     if re.search(YES_RE, response, re.I):
@@ -161,9 +119,15 @@ def prompt_yes_no_quit(message):
         return prompt_yes_no_quit(message)
 
 # print out list of options for option-based prompts
-def prompt_print_options(option_list):
+def prompt_print_options(option_list, auto_respond=False):
+
     option_list.sort()  # sort option list for easier user experience
     option_list.append('quit')  # add option to quit, listed last
+
+    if auto_respond:
+        print(f'options: {option_list}\n')
+        print(f'\tauto response: quit\n')
+        return sys.exit()
 
     for o,opt in enumerate(option_list):
         if (o+1) < len(option_list):
@@ -179,18 +143,19 @@ def prompt_print_options(option_list):
         return result
 
 # print a CLI prompt when multiple files are detected when only one is expected
-def prompt_multiple_files(file_path):
+def prompt_multiple_files(file_path, auto_respond=False):
     print(f'\nWARNING: Multiple files were detected in the '
           f'{file_path.stem} folder. Please type the number '
           f'corresponding to the correct file to use:')
     file_list = [file.stem for file in file_path.glob('*') if not re.search(HIDDEN_FILE_REGEX, file.stem)]
-    return prompt_print_options(file_list)
+    return prompt_print_options(file_list, auto_respond=auto_respond)
 
 # provide options for the sequencing platform if it cannot be otherwise detected
-def prompt_sequencing_platform(sample_id):
+def prompt_sequencing_platform(sample_id, auto_respond=False):
     print(f'\nWARNING: The sequencing platform could not be inferred from the sample: {sample_id}. Please type '
           f'the number corresponding to the correct sequencing platform from the options below. ')
-    platform = prompt_print_options([SEQ_PLATFORM_OPTS, 'multiple'])
+    platform = prompt_print_options([SEQ_PLATFORM_OPTS, 'multiple'],
+                                    auto_respond=auto_respond)
     if platform == 'multiple':
         print(f'If you have a combination of sequences from multiple platforms, you will need to either:\n'
               f'(1) manually sort the files into their sequencing platform directories\n'
@@ -253,16 +218,18 @@ def run_subprocess(cli_command_list, dest_dir, auto_respond=False):
     if len(run_cmd.stderr) == 0:
         pass
     else:
-        if auto_respond:
-            pass
-        else:
-            if not temp_file.is_file():
-                continue_ok = input(f'Running {program} produced an error. Please review the output in {err_path.name}. '
-                                    f'Would like to continue despite this error? [Y/N]')
+        if not temp_file.is_file():  # if the temp_file does not exist (i.e., prompt already responded to)
+            print(f'Running {program} produced an error. Please review the output in {err_path.name}. '
+                  f'Would like to continue despite this error? [yes/no]')
+            if auto_respond:
+                print(f'\tauto response: yes\n')
+                with open(temp_file, 'wt') as fout:  # still want to write to this file so it stops asking
+                    fout.write('stop_prompt')
+            else:
+                continue_ok = input()
                 if re.search(continue_ok, AFFIRM_REGEX, re.I):
                     with open(temp_file, 'wt') as fout:
                         fout.write('stop_prompt')
-                    pass
                 else:
                     return exit_process(message=f'Running {program} produced an error. See {err_path.name} for details.')
 
@@ -295,7 +262,7 @@ def get_seq_platform(fastx_file, delim):
     else:
         pass
 
-def import_mapping_df(df_path):
+def import_mapping_df(df_path, auto_respond=False):
     '''
     Import .csv, .txt, or .xlsx table as a dictionary.
 
@@ -309,6 +276,9 @@ def import_mapping_df(df_path):
     handled in the same way, regardless of file type (e.g., loop through tabs
     even if a .csv, which will have a single tab).
     :param df_path: path to the dataframe
+    :param auto_respond: True/False; whether to automatically respond to the prompt
+    within or not; this value should be provided from the settings read in from the
+    configuration file, within ['automate']['auto_respond']
     :return: dictionary, where the key is 'pool1' or 'pool2', and the value is the
     dataframe belonging to that tab, or in the case of a .csv or .txt file, the
     entirety of that dataframe file.
@@ -325,7 +295,7 @@ def import_mapping_df(df_path):
             except AttributeError:
                 print(f'The pool number could not be inferred from tab {tab} in the mapping file {df_path.name}. '
                       f'Please type the correct pool number for this file: ')
-                pool_num = prompt_print_options(['1', '2'])  # choose from 1 or 2 (or quit, built into function)
+                pool_num = prompt_print_options(['1', '2'], auto_respond=auto_respond)  # choose from 1 or 2 (or quit, built into function)
             mapping_tabs[f'pool{pool_num}'] = mapping_tabs.pop(tab)  # replace old tab (key) with reformatted one
     elif re.search('^\.c|^\.txt$', df_path.suffix):  # I think you can read in .txt and .csv files the same way?
         try:  # try to get the pool number from the file name
@@ -333,7 +303,7 @@ def import_mapping_df(df_path):
         except AttributeError:  # if there's no detected pool number in the name, prompt user to specify one
             print(f'The pool number could not be inferred from the file name of the mapping file {df_path.name}. '
                   f'Please type the correct pool number for this file: ')
-            pool_num = prompt_print_options(['1', '2'])  # choose from 1 or 2 (or quit, built into function)
+            pool_num = prompt_print_options(['1', '2'], auto_respond=auto_respond)  # choose from 1 or 2 (or quit, built into function)
         mapping_tabs = {f'pool{pool_num}': pd.read_csv(df_path)}  # make dict to match format from .xlsx
     else:
         print(f'ERROR. The file format {df_path.suffix} of the mapping file {df_path.name} is not a recognized '
@@ -342,6 +312,100 @@ def import_mapping_df(df_path):
 
     return mapping_tabs
 
+# activate next script in python
+def continue_to_next(this_script, config_dict):
+    '''
+    Continue to the next step of the pipeline.
+
+    Will activate the script from the CLI with default
+    parameters. If you do not want to use the default
+    parameters, opt out of automated continuation by
+    responding to the CLI prompt that precedes the use
+    of this function.
+    :param this_script: use __file__ always
+    :return: None, assembles and runs a shell command.
+    '''
+
+    # if the input is not a Path class, make it a Path class
+    if is_pathclass(this_script, exit_if_false=False):
+        pass
+    else:
+        this_script = Path(this_script)
+
+    # read in automation details from the configuration file
+    automate_dict = config_dict['automate']
+    auto = automate_dict['run_all']
+    to_run = automate_dict['run_some']
+
+    # get the number of the current script from its prefix, cast as int for comparison
+    current_num = int(this_script.name.split('_')[0])
+
+    # using the current script's number, create search string for next script to run
+    def format_num_for_search(current_script_number, consecutive=True):
+
+        # get int of next script based on configuration settings
+        if consecutive:  # if automate = True, run the next consecutive script
+            next_int = current_script_number + 1
+        else:  # if automate = False and len(run_sum) > 0, determine next script to run
+            if len(to_run) > 0:
+                # get the index of this current script in the to_run list
+                current_script_runlist_i = to_run.index(current_script_number)
+                # if it is the last int in this list...
+                if current_script_runlist_i == (len(to_run) - 1):
+                    # return None, which will trigger a print/exit in the parent function
+                    return None
+                # if there are more items in the scripts to run...
+                else:
+                    # next_int will be the next number in that list
+                    next_int = to_run[current_script_runlist_i + 1]
+
+        # format the next script int as a string, w/ (0-9) or w/o (10+) leading zero
+        if next_int >= 10:  # if in double-digits, don't add a leading zero
+            next_num_search = str(next_int)
+        else:  # if single digit, add leading zero
+            next_num_search = '0' + str(next_int)
+
+        return next_num_search
+
+    # give priority to numbered scripts to run, even if auto left on True
+    if len(to_run) > 0:  # if there are entries in to_run...
+
+        # find the next value in this list (*not* consecutive, but based on to_run settings)
+        next_num_search = format_num_for_search(current_num, consecutive=False)
+
+        # if there are none (i.e., current script is last one in this list)
+        if next_num_search is None:
+            # print that steps are completed, and exit
+            print(f'\nThe pipeline has run all steps designated in the run_some section of the configuration '
+                  f'settings. Exiting the pipeline...\n')
+            return sys.exit()
+
+        # if there are scripts after this current one to run
+        else:
+            # find the file of the next script, based on format_num_for_search output
+            next_script = flag_multiple_files(file_path=this_script.parent, search_for=f'{next_num_search}*',
+                                              auto_respond=config_dict['automate']['auto_respond'])
+
+    # if no specific scripts specified...
+    else:
+
+        # find the next consecutive script
+        next_num_search = format_num_for_search(current_num, consecutive=True)
+        next_script = flag_multiple_files(file_path=this_script.parent, search_for=f'{next_num_search}*',
+                                          auto_respond=config_dict['automate']['auto_respond'])
+
+        # if set to automatically run, then continue to last print/return statement
+        if auto:
+            pass
+
+        # if not set to auto-run, prompt user to determine whether to continue
+        else:
+            msg = f'The script {current_script} has completed. Would you like to continue '\
+                  f'to the next step in the pipeline, {next_script.stem}?'
+            prompt_yes_no_quit(msg, auto_respond=config_dict['automate']['auto_respond'])  # if response is yes, it will continue to next line; if no, will exit here
+
+    print(f'\n\nRunning next step, {next_script.name}...\n')
+    return subprocess.run(['python3', next_script])
 
 #######################
 # FILE PATHS ##########
@@ -531,16 +595,16 @@ def check_for_input(file_dir, seq_platform=None, file_ext=SEQ_FILE_GLOB):
             if len(file_list) > 0:
                 return True, file_list  # return true if files matching criteria are found
             else:
-                print(f'The directory {file_dir} contains files, but none that match the platform-specific search '
-                      f'criteria: {seq_platform}.')
+                # print(f'The directory {file_dir} contains files, but none that match the platform-specific search '
+                #       f'criteria: {seq_platform}.')
                 return False, file_list  # return false if not
         else:
             file_list = []  # if input is a directory, but it is empty...
-            print(f'The directory {file_dir} exists, but is empty.\n')
+            # print(f'The directory {file_dir} exists, but is empty.\n')
             return False, file_list  # return false and empty list
     else:
         file_list = []  # if input is not a directory
-        print(f'The directory {file_dir} does not exist.\n')
+        # print(f'The directory {file_dir} does not exist.\n')
         return False, file_list  # return false and empty list
 
 # get name of previous script
@@ -680,7 +744,8 @@ def add_prefix(file_path, prefix, dest_dir, action='rename', f_delim='_'):
     elif file_path.is_file():
         return prefix_single(file_path)
     else:
-        msg = f'FAILURE. Unrecognized input file; cannot recognize as either a directory or file.\n'
+        msg = (f'FAILURE. Unrecognized '
+               f' file; cannot recognize as either a directory or file.\n')
         return exit_process(msg)
 
     # filename_start = file_name.name.split('_')[0]
@@ -997,7 +1062,8 @@ def get_settings(file_map, default_only=True, config_section='all'):
                   f'the configuration file. Please enter the number of the correct header that you ' \
                   f'want:'
             print(msg)
-            correct_header = prompt_print_options(list(compiled_config.keys()))
+            correct_header = prompt_print_options(list(compiled_config.keys()),
+                                                  auto_respond=compiled_config['automate']['auto_respond'])
             return compiled_config[correct_header]
 
 # sort the sequences provided in the 'sequences' input directory
