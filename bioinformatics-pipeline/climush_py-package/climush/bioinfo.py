@@ -445,42 +445,60 @@ def demultiplex(file_map, multiplexed_files, seq_platform='pacbio'):
                     with open(barcode_error, 'a') as fout:
                         fout.write(f'{seq_run}\t{p}\t{", ".join(sample_ids)}\t{r}\t{", ".join(bc_list)}\n')
 
+def pair_reads(input_files):
+    pairs_dict = {}
+    rev_reads = []
+    for file in input_files:
+        if re.search('R1', file.stem, re.I):
+            pairs_dict.update({file:''})
+        else:
+            rev_reads.append(file)
+
+    for rev in rev_reads:
+        sample_id = re.search('.+?(?=_R2)', rev.stem).group(0)
+        for k in pairs_dict.keys():
+            if re.search(sample_id, k.stem, re.I):
+                pairs_dict[k] = rev
+
+    return pairs_dict
+
 def filter_out_phix(input_files, file_map, kmer=31, hdist=1, keep_log=True, keep_removed_seqs=True):
 
     # make sure parent directory exists/is created before making child
     mkdir_exist_ok(new_dir=file_map['pipeline-output']['prefiltered']['main'])
     phix_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['prefiltered']['prefilt01_no-phix'])
 
+    # load in the configuration settings
     settings = get_settings(file_map=file_map)
     run_name = settings['run_details']['run_name']
 
+    # create a parent directory to sort reads w/ and reads w/o PhiX into
     nophix_path = mkdir_exist_ok(new_dir=f'./{NOPHIX_PREFIX}_{run_name}', parent_dir=phix_parent)
     phix_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(NOPHIX_PREFIX)}_{run_name}', parent_dir=phix_parent)
 
-    bbduk_log = make_log_file(file_name=Path('bbduk'), dest_path=phix_parent)
+    # create a log file
+    # bbduk_log = make_log_file(file_name=Path('bbduk'), dest_path=phix_parent)
 
-    for file in input_files:
+    # create pairs of R1/R2 reads in order to detect PhiX pair-wise (required)
+    pairs_dict = pair_reads(input_files)
 
-        nophix_out = add_prefix(file_path=file, prefix=NOPHIX_PREFIX, action=None, dest_dir=nophix_path)
-        phix_out = add_prefix(file_path=file, prefix=flip_prefix(NOPHIX_PREFIX), action=None, dest_dir=phix_path)
+    for input_fwd, input_rev in pairs_dict.items():
 
-        # bbduk does not like special characters in file path
-        # nophix_out_str = escape_path_special(nophix_out)
-        # phix_out_str = escape_path_special(phix_out)
-        # and this didn't help it work either...
+        # format the output files based on the input files
+        # fwd (R1)
+        nophix_fwd_out = add_prefix(file_path=input_fwd, prefix=NOPHIX_PREFIX, action=None, dest_dir=nophix_path)
+        phix_fwd_out = add_prefix(file_path=input_fwd, prefix=flip_prefix(NOPHIX_PREFIX), action=None, dest_dir=phix_path)
 
-        bbduk_cmd = ['bbduk.sh', f'in={file}', f'out={nophix_out}', f'out={phix_out}',
-                     'ref=phix', f'k={kmer}', f'hdist={hdist}', f'stats={bbduk_log}']
+        # rev (R2)
+        nophix_rev_out = add_prefix(file_path=input_rev, prefix=NOPHIX_PREFIX, action=None, dest_dir=nophix_path)
+        phix_rev_out = add_prefix(file_path=input_rev, prefix=flip_prefix(NOPHIX_PREFIX), action=None, dest_dir=phix_path)
 
-        try:
-            run_subprocess(bbduk_cmd, dest_dir=phix_parent, auto_respond=settings['automate']['auto_respond'])
-        except:
-            continue
+        bbduk_cmd = ['bbduk.sh',
+                     f'in1={input_fwd}', f'out1={nophix_fwd_out}', f'outm1={phix_fwd_out}',
+                     f'in2={input_rev}', f'out2={nophix_rev_out}', f'outm2={phix_rev_out}',
+                     'ref=phix', f'k={kmer}', f'hdist={hdist}']
 
-
-    if not check_for_input(nophix_path)[0]:  # this is a temporary work around to make copies that look like output while there's a curernt issue with Java
-        for file in input_files:
-            add_prefix(file_path=file, prefix=NOPHIX_PREFIX, action='copy', dest_dir=nophix_path)
+        run_subprocess(bbduk_cmd, dest_dir=phix_parent, auto_respond=settings['automate']['auto_respond'])
 
     return nophix_path
 
@@ -531,23 +549,6 @@ def prefilter_fastx(input_files, file_map, maxn=0):
         # UNDER CONSTRUCTION
 
     return noambig_path
-
-def pair_reads(input_files):
-    pairs_dict = {}
-    rev_reads = []
-    for file in input_files:
-        if re.search('R1', file.stem, re.I):
-            pairs_dict.update({file:''})
-        else:
-            rev_reads.append(file)
-
-    for rev in rev_reads:
-        sample_id = re.search('.+?(?=_R2)', rev.stem).group(0)
-        for k in pairs_dict.keys():
-            if re.search(sample_id, k.stem, re.I):
-                pairs_dict[k] = rev
-
-    return pairs_dict
 
 def identify_primers(platform, config_dict, verbose=True):
     primer_dict = config_dict['primers']
