@@ -974,9 +974,10 @@ def get_settings(file_map, default_only=True, config_section='all'):
             compiled_config = tomlkit.parse(fin.read())
 
         # add the date to the default run name
-        date_obj = datetime.today()
-        date_tag = date_obj.strftime('%y%m%d')  # format is YYMMDD
-        compiled_config['run_details']['run_name'] = (compiled_config['run_details']['run_name'] + date_tag)
+        # NO THIS CREATES A MESS, FIGURE OUT SOMETHING ELSE AT SOME POINT
+        # date_obj = datetime.today()
+        # date_tag = date_obj.strftime('%y%m%d')  # format is YYMMDD
+        # compiled_config['run_details']['run_name'] = (compiled_config['run_details']['run_name'] + date_tag)
 
     else:
         print(f'ERROR. Compilation of pipeline settings from both the user and default configuration files is '

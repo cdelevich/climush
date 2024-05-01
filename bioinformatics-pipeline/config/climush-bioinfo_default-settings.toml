@@ -9,15 +9,15 @@ climush_endpoint = 'ba6d86af-0b0d-46b7-a56a-bb4ebadec1b9'  # string: the Globus 
                                                            #    group collection
 
 [run_details]
-run_name = 'climush-'  # string: date that pipeline ran will follow the hyphen, climush-YYMMDD
+run_name = 'climush-test'  # string: generic name for now
 
 
 [automate]
-run_all =       false  # true/false: when set to 'true', the entire pipeline will run from start to finish automatically
+run_all =       true  # true/false: when set to 'true', the entire pipeline will run from start to finish automatically
 run_some =      []     # integer(s): list of integers corresponding to the steps of the pipeline to run, e.g., [1,2,3]
 save_all =      true   # true/false: when set to 'true', will save all logs from the pipeline run; otherwise saves none
 exit_on_error = true   # true/false: when set to 'true', automated pipeline will stop if error/warning shown
-auto_respond =  true   # true/false: if automated, set to 'true' to respond 'yes' to prompts; otherwise, respond 'no'
+auto_respond =  false   # true/false: if automated, set to 'true' to respond 'yes' to prompts; otherwise, respond 'no'
 
 
 [demultiplex]
