@@ -584,10 +584,10 @@ def confirm_no_primers(input_files, file_map, platform):
     PRIMER_RE = '|'.join(list(primer_dict.values()))  # will search for any of these primers/orients
 
     # record read lengths to an output .json file
-    read_info_json = (file_map['pipeline-output']['main'] / f'{run_name}_read-info').with_suffix('.json')
+    read_info_json = (file_map['pipeline-output']['primers-trimmed'] / f'{run_name}_read-info').with_suffix('.json')
 
     # record primer detections to a .json log file
-    primer_detected_json = (file_map['pipeline-output']['primers-trimmed'] / f'{run_name}_bad-trim').with_suffix('.json')
+    primer_detected_json = (file_map['pipeline-output']['primers-trimmed'] / f'{run_name}_detected-primers').with_suffix('.json')
 
     # create an empty dictionary, whose contents will later be writen out to .json log
     read_info_dict = {}  # for recording read count and read lengths per sample
@@ -678,7 +678,7 @@ def confirm_no_primers(input_files, file_map, platform):
 
     # dump the contents of both dictionaries to their output files
     # always write out the sequence length
-    with open(read_info_json, 'w') as info_out:
+    with open(read_info_json, 'w+') as info_out:
         json.dump(read_info_dict, info_out)
 
     # check whether there are errors to write out, then write out and print summary
@@ -687,8 +687,8 @@ def confirm_no_primers(input_files, file_map, platform):
         print(f'WARNING. {primers_detected} reads from {len(err_samples)} samples ({perc_samples:.1}% of all samples) '
               f'contained a primer sequence after trimming primers with cutadapt. Please consult the '
               f'details in the summary file {primer_detected_json} for details.\n')
-        with open(primer_detected_json, 'w') as err_out:
-                json.dump(p_detect_dict, err_out)
+        with open(primer_detected_json, 'w+') as err_out:
+            json.dump(p_detect_dict, err_out)
 
     return None
 
@@ -713,9 +713,8 @@ def remove_primers(input_files, file_map, platform, paired_end=True, verbose=Fal
     primer_dict = identify_primers(platform, config_dict=settings)
     fwd_primer = primer_dict['fwd']
     rev_primer = primer_dict['rev']
-
-    fwd_revcomp_primer = str(Seq(fwd_primer).reverse_complement())
-    rev_revcomp_primer = str(Seq(rev_primer).reverse_complement())
+    fwd_revcomp_primer = primer_dict['fwd_rc']
+    rev_revcomp_primer = primer_dict['rev_rc']
 
     # create trimmed and untrimmed read directories
     trim_path = mkdir_exist_ok(new_dir=f'./{TRIMMED_PREFIX}_{run_name}', parent_dir=trim_primers_parent)
@@ -736,8 +735,63 @@ def remove_primers(input_files, file_map, platform, paired_end=True, verbose=Fal
             fwd_read_out = add_prefix(file_path=file, prefix=TRIMMED_PREFIX, dest_dir=trim_path, action=None)
             rev_read_out = add_prefix(file_path=paired_dict[file], prefix=TRIMMED_PREFIX, dest_dir=trim_path, action=None)
 
+            # this will only work on half the reads
+            # cutadapt_cmd = ['cutadapt', f'--report={report}',
+            #                 '-a', fwd_primer, '-A', rev_primer,
+            #                 '-n', '2', '-e', str(max_err),
+            #                 '-o', fwd_read_out, '-p', rev_read_out,
+            #                 file, paired_dict[file]]
+
+            # from the DADA2 cutadapt step; this will only work on half the reads
+            # cutadapt_cmd = ['cutadapt', f'--report={report}',
+            #                 '-g', fwd_primer, '-a', rev_revcomp_primer,
+            #                 '-G', rev_primer, '-A', fwd_revcomp_primer,
+            #                 '-n', '2', '-e', str(max_err),
+            #                 '-o', fwd_read_out, '-p', rev_read_out,
+            #                 file, paired_dict[file]]
+            #
+            # this worked on pacbio, does not work at all on Illumina paired-end
+            # cutadapt_cmd = ['cutadapt', f'--report={report}',
+            #                 '-a', f'^{fwd_primer}...{rev_revcomp_primer}$',
+            #                 '-a', f'^{rev_primer}...{fwd_revcomp_primer}$',
+            #                 '-n', '2', '-e', str(max_err),
+            #                 '-o', fwd_read_out, '-p', rev_read_out,
+            #                 file, paired_dict[file]]
+
+            # some combination of all, where it will search for both combos in both reads?
+            # does not work at all
+            # cutadapt_cmd = ['cutadapt', f'--report={report}',
+            #                 '-g', f'^{fwd_primer}...{rev_revcomp_primer}$',
+            #                 '-a', f'^{rev_primer}...{fwd_revcomp_primer}$',
+            #                 '-G', f'^{fwd_primer}...{rev_revcomp_primer}$',
+            #                 '-A', f'^{rev_primer}...{fwd_revcomp_primer}$',
+            #                 '-n', '2', '-e', str(max_err),
+            #                 '-o', fwd_read_out, '-p', rev_read_out,
+            #                 file, paired_dict[file]]
+
+            # DADA2 cutadapt but with --interleaved to do two passes to account for mixed R1/R2 orientation
+            # doesn't work; also tried again with remove -n 2 from both
+            # cutadapt_cmd = ['cutadapt', f'--report={report}',
+            #                 '-g', fwd_primer, '-a', rev_revcomp_primer,
+            #                 '-G', rev_primer, '-A', fwd_revcomp_primer,
+            #                 '-n', '2', '-e', str(max_err),
+            #                 '--interleaved',
+            #                 file, paired_dict[file],
+            #                 '|',
+            #                 'cutadapt', f'--report={report}',
+            #                 '-g', rev_primer, '-a', fwd_revcomp_primer,
+            #                 '-G', fwd_primer, '-A', rev_revcomp_primer,
+            #                 '-n', '2', '-e', str(max_err),
+            #                 '--interleaved',
+            #                 '-o', fwd_read_out, '-p', rev_read_out,
+            #                 '-']
+
+            # WORKS!
             cutadapt_cmd = ['cutadapt', f'--report={report}',
-                            '-a', fwd_primer, '-A', rev_primer,
+                            '-g', fwd_primer, '-a', rev_revcomp_primer,
+                            '-g', rev_primer, '-a', fwd_revcomp_primer,
+                            '-G', rev_primer, '-A', fwd_revcomp_primer,
+                            '-G', fwd_primer, '-A', rev_revcomp_primer,
                             '-n', '2', '-e', str(max_err),
                             '-o', fwd_read_out, '-p', rev_read_out,
                             file, paired_dict[file]]
@@ -790,46 +844,6 @@ def remove_primers(input_files, file_map, platform, paired_end=True, verbose=Fal
                       f'input of {max_untrimmed}%, so proceeding to next step...\n')
 
     return trim_path
-
-def merge_reads(input_files, file_map):
-    settings = get_settings(file_map)
-    run_name = settings['run_details']['run_name']
-
-    if settings['quality_filtering']['illumina']['merge_reads']:
-
-        qfilt_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['quality-filtered'])
-        merge_path = mkdir_exist_ok(new_dir=f'./{MERGED_PREFIX}_{run_name}', parent_dir=qfilt_parent)
-        nomerge_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(MERGED_PREFIX)}_{run_name}', parent_dir=qfilt_parent)
-
-        merge_summary = qfilt_parent / 'vsearch_merged.log'
-
-        paired_dict = pair_reads(input_files)
-
-        output_list = []
-        for file in paired_dict.keys():
-
-            nomerge_fwd_out = add_prefix(file_path=file, prefix=MERGED_PREFIX,
-                                         dest_dir=nomerge_path, action=None)
-            nomerge_rev_out = add_prefix(file_path=paired_dict[file], prefix=flip_prefix(MERGED_PREFIX),
-                                         dest_dir=nomerge_path, action=None)
-
-            merge_out_base = add_prefix(file_path=file, prefix=MERGED_PREFIX, dest_dir=merge_path, action=None)
-            sample_id = re.search('.+?(?=_R1)', merge_out_base.stem).group(0)
-            merge_output = (merge_out_base.parent / sample_id).with_suffix('.fastq')
-            output_list.append(merge_output)
-
-            vsearch_merge_cmd = ['vsearch', '--fastq_mergepairs', file, '--reverse', paired_dict[file],
-                                 '--fastqout', merge_output,
-                                 '--fastqout_notmerged_fwd', nomerge_fwd_out,
-                                 '--fastqout_notmerged_rev', nomerge_rev_out,
-                                 '--eetabbedout', merge_summary]
-
-            run_subprocess(vsearch_merge_cmd, dest_dir=qfilt_parent,
-                           auto_respond=settings['automate']['auto_respond'])
-
-        return output_list
-    else:
-        return input_files
 
 def quality_filter(input_files, platform, file_map):
 
@@ -889,6 +903,46 @@ def quality_filter(input_files, platform, file_map):
                            auto_respond=settings['automate']['auto_respond'])
 
     return None
+
+def merge_reads(input_files, file_map):
+    settings = get_settings(file_map)
+    run_name = settings['run_details']['run_name']
+
+    if settings['quality_filtering']['illumina']['merge_reads']:
+
+        qfilt_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['quality-filtered'])
+        merge_path = mkdir_exist_ok(new_dir=f'./{MERGED_PREFIX}_{run_name}', parent_dir=qfilt_parent)
+        nomerge_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(MERGED_PREFIX)}_{run_name}', parent_dir=qfilt_parent)
+
+        merge_summary = qfilt_parent / 'vsearch_merged.log'
+
+        paired_dict = pair_reads(input_files)
+
+        output_list = []
+        for file in paired_dict.keys():
+
+            nomerge_fwd_out = add_prefix(file_path=file, prefix=MERGED_PREFIX,
+                                         dest_dir=nomerge_path, action=None)
+            nomerge_rev_out = add_prefix(file_path=paired_dict[file], prefix=flip_prefix(MERGED_PREFIX),
+                                         dest_dir=nomerge_path, action=None)
+
+            merge_out_base = add_prefix(file_path=file, prefix=MERGED_PREFIX, dest_dir=merge_path, action=None)
+            sample_id = re.search('.+?(?=_R1)', merge_out_base.stem).group(0)
+            merge_output = (merge_out_base.parent / sample_id).with_suffix('.fastq')
+            output_list.append(merge_output)
+
+            vsearch_merge_cmd = ['vsearch', '--fastq_mergepairs', file, '--reverse', paired_dict[file],
+                                 '--fastqout', merge_output,
+                                 '--fastqout_notmerged_fwd', nomerge_fwd_out,
+                                 '--fastqout_notmerged_rev', nomerge_rev_out,
+                                 '--eetabbedout', merge_summary]
+
+            run_subprocess(vsearch_merge_cmd, dest_dir=qfilt_parent,
+                           auto_respond=settings['automate']['auto_respond'])
+
+        return output_list
+    else:
+        return input_files
 
 def dereplicate(input_files, derep_step, platform, file_map):
 
