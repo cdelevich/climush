@@ -203,15 +203,19 @@ def run_subprocess(cli_command_list, dest_dir, auto_respond=False):
 
     out_path = dest_dir / f'{program}.out'
     with open(out_path, 'at') as fout:
-        as_str = run_cmd.stdout.decode('utf-8')
-        if int(out_path.stat().st_size) == 0:
-            fout.write(as_str)
-        else:
-            fout.write(as_str.split('\n')[1] + '\n')
+        out_as_str = run_cmd.stdout.decode('utf-8')
+        if not int(out_path.stat().st_size) == 0:
+            fout.write(f'-----------------------------\n')
+        if len(out_as_str) > 0:
+            fout.write(f'{out_as_str}\n')
 
     err_path = dest_dir / f'{program}.err'
-    with open(err_path, 'ab') as fout:
-        fout.write(run_cmd.stderr)
+    with open(err_path, 'at') as fout:
+        err_as_str = run_cmd.stderr.decode('utf-8')
+        if not int(err_path.stat().st_size) == 0:
+            fout.write(f'-----------------------------\n')
+        if len(err_as_str) > 0:
+            fout.write(f'{err_as_str}\n')
 
     temp_file = dest_dir / f'{program}.temp'
 
