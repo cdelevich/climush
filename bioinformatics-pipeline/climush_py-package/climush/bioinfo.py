@@ -446,19 +446,29 @@ def demultiplex(file_map, multiplexed_files, seq_platform='pacbio'):
                         fout.write(f'{seq_run}\t{p}\t{", ".join(sample_ids)}\t{r}\t{", ".join(bc_list)}\n')
 
 def pair_reads(input_files):
+
     pairs_dict = {}
     rev_reads = []
-    for file in input_files:
-        if re.search('R1', file.stem, re.I):
-            pairs_dict.update({file:''})
-        else:
-            rev_reads.append(file)
 
-    for rev in rev_reads:
-        sample_id = re.search('.+?(?=_R2)', rev.stem).group(0)
-        for k in pairs_dict.keys():
-            if re.search(sample_id, k.stem, re.I):
-                pairs_dict[k] = rev
+    for file in input_files:
+        # if the file is an R1 read file...
+        if re.search('R1', file.stem, re.I):
+            pairs_dict.update({file:''})  # add to dict, with empty str as value
+        # if the file is an R2 read file...
+        elif re.search('R2', file.stem, re.I):
+            rev_reads.append(file)  # add to a list, will sort to match its R1 file next
+        # if an R1/R2 tag is not detected
+        else:
+            pairs_dict.update({file:''})  # add to dict with an empty str as value, will remain w/o paired file
+
+    # if any reverse reads are detected...
+    if len(rev_reads) > 0:
+        for rev in rev_reads:
+            # find their associated R1 file, and match these in the dict
+            sample_id = re.search('.+?(?=_R2)', rev.stem).group(0)
+            for k in pairs_dict.keys():
+                if re.search(sample_id, k.stem, re.I):
+                    pairs_dict[k] = rev
 
     return pairs_dict
 
@@ -847,25 +857,35 @@ def remove_primers(input_files, file_map, platform, paired_end=True, verbose=Fal
 
 def quality_filter(input_files, platform, file_map):
 
+    # get filtering settings from the configuration file
     settings = get_settings(file_map)
     run_name = settings['run_details']['run_name']
     qfilt_dict = settings['quality_filtering'][platform]
     min_len = qfilt_dict['min_len']
     max_len = qfilt_dict['max_len']
-    premerged = settings['quality_filtering']['illumina']['merge_reads']
 
+    # if these are Illumina reads, get the max expected error to use
     if platform == 'illumina':
         max_error = qfilt_dict['max_error']
     else:
         max_error = ''
 
+    # create a path to the parent directory for quality filtered output
     qfilt_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['quality-filtered'])
 
+    # make sudirectories for the results of quality filtering
     qfilt_path = mkdir_exist_ok(new_dir=f'./{QUALFILT_PREFIX}_{run_name}', parent_dir=qfilt_parent)
     nofilt_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(QUALFILT_PREFIX)}_{run_name}', parent_dir=qfilt_parent)
 
-    if premerged:
-        for file in input_files:
+    # attempt to pair together R1/R2 reads from the input files
+    paired_dict = pair_reads(input_files)
+
+    # go through each R1 read...
+    for file in paired_dict.keys():
+        # if this R1 read does not have an associated R2 read...
+        if paired_dict[file] == '':
+
+            # then process these sequence files as individuals
             qfilt_out = add_prefix(file_path=file, prefix=QUALFILT_PREFIX,
                                            dest_dir=qfilt_path, action=None)
             nofilt_out = add_prefix(file_path=file, prefix=flip_prefix(QUALFILT_PREFIX),
@@ -879,30 +899,32 @@ def quality_filter(input_files, platform, file_map):
 
             run_subprocess(vsearch_filt_cmd, dest_dir=qfilt_parent,
                            auto_respond=settings['automate']['auto_respond'])
-    else:
-        paired_dict = pair_reads(input_files)
-        for file in paired_dict.keys():
 
-            qfilt_fwd_out = add_prefix(file_path=file, prefix=QUALFILT_PREFIX,
-                                       dest_dir=qfilt_path, action=None)
-            nofilt_fwd_out = add_prefix(file_path=file, prefix=flip_prefix(QUALFILT_PREFIX),
-                                        dest_dir=nofilt_path, action=None)
+        # if the paired reads dict does have values (i.e., there are R2 files associated with the R1 files)
+        else:
+            # then process reads as R1/R2 pairs
+            for file in paired_dict.keys():
 
-            qfilt_rev_out = add_prefix(file_path=paired_dict[file], prefix=QUALFILT_PREFIX,
-                                       dest_dir=qfilt_path, action=None)
-            nofilt_rev_out = add_prefix(file_path=paired_dict[file], prefix=flip_prefix(QUALFILT_PREFIX),
-                                        dest_dir=nofilt_path, action=None)
+                qfilt_fwd_out = add_prefix(file_path=file, prefix=QUALFILT_PREFIX,
+                                           dest_dir=qfilt_path, action=None)
+                nofilt_fwd_out = add_prefix(file_path=file, prefix=flip_prefix(QUALFILT_PREFIX),
+                                            dest_dir=nofilt_path, action=None)
 
-            vsearch_filt_cmd = ['vsearch', '--fastq_filter', file, '--reverse', paired_dict[file],
-                                '--fastqout', qfilt_fwd_out, '--fastqout_rev', qfilt_rev_out,
-                                '--fastqout_discarded', nofilt_fwd_out, '--fastqout_discarded_rev', nofilt_rev_out,
-                                '-fastq_maxee', str(max_error), '--fastq_maxlen', str(max_len),
-                                '--fastq_minlen', str(min_len), '--sizeout']
+                qfilt_rev_out = add_prefix(file_path=paired_dict[file], prefix=QUALFILT_PREFIX,
+                                           dest_dir=qfilt_path, action=None)
+                nofilt_rev_out = add_prefix(file_path=paired_dict[file], prefix=flip_prefix(QUALFILT_PREFIX),
+                                            dest_dir=nofilt_path, action=None)
 
-            run_subprocess(vsearch_filt_cmd, dest_dir=qfilt_parent,
-                           auto_respond=settings['automate']['auto_respond'])
+                vsearch_filt_cmd = ['vsearch', '--fastq_filter', file, '--reverse', paired_dict[file],
+                                    '--fastqout', qfilt_fwd_out, '--fastqout_rev', qfilt_rev_out,
+                                    '--fastqout_discarded', nofilt_fwd_out, '--fastqout_discarded_rev', nofilt_rev_out,
+                                    '-fastq_maxee', str(max_error), '--fastq_maxlen', str(max_len),
+                                    '--fastq_minlen', str(min_len), '--sizeout']
 
-    return None
+                run_subprocess(vsearch_filt_cmd, dest_dir=qfilt_parent,
+                               auto_respond=settings['automate']['auto_respond'])
+
+    return qfilt_path
 
 def merge_reads(input_files, file_map):
     settings = get_settings(file_map)
