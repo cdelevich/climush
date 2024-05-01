@@ -7,23 +7,84 @@ from climush.bioinfo import merge_reads, quality_filter
 from climush.utilities import *
 
 settings = get_settings(fpm)
+run_name = settings['run_details']['run_name']
+
+parser = argparse.ArgumentParser(prog=Path(__file__).stem,
+                                 description='Quality filter reads using VSEARCH.',
+                                 epilog='')
+
+# input directory containing the files to quality filter
+parser.add_argument('-i', '--input',
+                    default=fpm['pipeline-output']['primers-trimmed'] / f'trim_{run_name}',
+                    help='The path to a directory containing sequencing files to quality filter. If nothing provided, '
+                         'will default to the location that is expected in the Docker container\'s native file '
+                         'structure, detailed in pipeline/mapping.py.')
+
+# if flag is included, override config settings and use this
+parser.add_argument('--merge', action=argparse.BooleanOptionalAction,
+                    default=settings['quality_filtering']['illumina']['merge_reads'],
+                    help='If you want to override the settings in the configuration file, then include the flag for '
+                         '--no-merge if you do not want to merge reads, and --merge if you want to merge reads. '
+                         'Otherwise, the setting in the configuration file will be used (default is to merge).')
+
+# if option provided, uses this minimum read length filter instead of configuration settings
+parser.add_argument('--min-length', nargs='?',
+                    default=settings['quality_filtering'],
+                    help='The minimum read length permitted to pass the quality filter. Using this command line '
+                         'argument will override the settings from your configuration file.')
+
+# if option provided, uses this maximum read length filter instead of configuration settings
+parser.add_argument('--max-length', nargs='?',
+                    default=settings['quality_filtering'],
+                    help='The maximum read length permitted to pass the quality filter. Using this command line '
+                         'argument will override the settings from your configuration file.')
+
+# if option provided, uses this maximum expected error filter instead of configuration settings
+parser.add_argument('--max-error', nargs='?',
+                    default=settings['quality_filtering'],
+                    help='The maximum expected error allowed to pass the quality filter. Using this command line '
+                         'argument will override the settings from your configuration file.')
+
+
+args = vars(parser.parse_args())
 
 #####################
 # ILLUMINA ##########
 #####################
+platform = 'illumina'
 
-last_output = [dir for dir in fpm['pipeline-output']['primers-trimmed'].glob('*') if re.search(f'^{TRIMMED_PREFIX}', dir.stem, re.I)][0]
-is_input, illumina_files = check_for_input(last_output)
+# parse default or CL arguments
+# if an input path is provided, convert to a Path object
+if isinstance(args['input'], str):
+    input_path = Path(args['input'])
+else:
+    input_path = args['input']
+
+# FIGURE OUT HOW TO UPDATE THE SETTINGS WITH COMMAND LINE INPUT
+print(f'Currently, this is not updated to accomodate changes to the configuration based on command line arguments. '
+      f'Working on it... \n')
+
+# look for input in the input path that are illumina reads
+is_input, illumina_files = check_for_input(input_path, seq_platform=platform)
 
 if is_input:
-    output = quality_filter(input_files=illumina_files, platform='illumina', file_map=fpm)
-    merge_reads(input_files=output, file_map=fpm)
+    filtered_path = quality_filter(input_files=illumina_files, platform=platform, file_map=fpm)
+    is_merge, filtered_files = check_for_input(filtered_path, seq_platform=platform)
+    if args['merge'] and is_merge:
+        print(f'\nMerging reads from {filtered_path}...')
+        merge_reads(input_files=filtered_files, file_map=fpm)
+    elif args['merge'] and not is_merge:
+        print(f'Could not locate files for merging in the path {filtered_path}. Please check the output from '
+              f'quality filtering to confirm that {platform.capitalize()} reads are present.\n')
+    else:
+        print(f'\nNot merging reads; instead using forward reads only.')
 else:
     pass
 
 #####################
 # PACBIO ############
 #####################
+platform = 'pacbio'
 
 # pacbio_dir = PIPE_OUT_MAIN / Path(f'03_remove-primers/trim_{run_name}')
 #
@@ -37,6 +98,7 @@ else:
 #####################
 # SANGER ############
 #####################
+platform = 'sanger'
 
 # when all are prefiltered, continue to next
 continue_to_next(__file__, settings)
