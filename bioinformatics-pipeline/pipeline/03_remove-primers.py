@@ -41,7 +41,7 @@ else:
     input_path = args['input']
 
 # check that there are Illumina reads to trim primers from
-is_input, illumina_files = check_for_input(file_dir=input_path, platform=platform)
+is_input, illumina_files = check_for_input(file_dir=input_path, seq_platform=platform)
 
 if is_input:
     if args['check_only']:
