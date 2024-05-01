@@ -404,7 +404,7 @@ def continue_to_next(this_script, config_dict):
 
         # if not set to auto-run, prompt user to determine whether to continue
         else:
-            msg = f'The script {current_script} has completed. Would you like to continue '\
+            msg = f'The script {this_script} has completed. Would you like to continue '\
                   f'to the next step in the pipeline, {next_script.stem}?'
             prompt_yes_no_quit(msg, auto_respond=config_dict['automate']['auto_respond'])  # if response is yes, it will continue to next line; if no, will exit here
 
