@@ -2,3 +2,4 @@
 .idea
 .venv
 /bioinformatics-pipeline/sequences/
+/bioinformatics-pipeline/pipeline/json-test.py
