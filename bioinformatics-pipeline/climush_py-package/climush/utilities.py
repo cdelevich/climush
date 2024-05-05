@@ -61,6 +61,51 @@ def flag_multiple_files(file_path, search_for, auto_respond=False):
         else:
             return which_file
 
+def check_dir_exists(dir_path, auto_respond = False):
+    '''
+    Creates a Path object and checks if the directory exists.
+
+    Takes the input path and checks whether the path is a Path object. If it is not,
+    it converts it to a Path object. Then checks whether the input path is an existing
+    directory. If it is not, it will prompt the user for a different file path. This
+    function is recursive, in that it will rerun the function if a new file path is
+    provided via the command line prompt.
+    :param dir_path: path to the directory to check; can be a Path object or a string
+    :param auto_respond: if set to True, and the provided path does not exist, then the
+    function will cause the script it is used within to exit if the dir_path is not an
+    existing file path
+    :return: a Path object of an existing file path
+    '''
+
+    # create a path object from the input, if not already a Path object
+    if isinstance(dir_path, pathlib.PurePath):
+        pass
+    else:
+        dir_path = Path(dir_path)
+
+    # check if the path exists, which is required for this script
+    if dir_path.is_dir():  # if the input path is an existing directory...
+        return dir_path  # return the Path as is
+
+    else:  # if the input path is NOT an existing directory...
+
+        # trigger yes/no/quit prompt for adding a different path
+        msg = f'The provided input path is not an existing directory:\n '\
+              f'\t{dir_path}\n'\
+              f'Would you like to provide a different directory?'  # do not include last line break, prompt_ will add
+
+        if auto_respond:
+            print(f'\tauto response: quit\n')
+            sys.exit()
+        else:
+            prompt_yes_no_quit(message=msg)  # will exit here if no/quit is selected, continue to next line if 'yes'
+
+            # if yes, then prompt for updated path
+            print(f'Please provide the new file path to use below:\n')
+            new_path = input('>  ')
+
+            # recursively run function to ensure that this new path exists
+            return check_dir_exists(dir_path)
 
 # log progress of bioinformatics pipeline
 def log_progress(file_map, run_name):
