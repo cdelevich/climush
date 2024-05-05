@@ -79,9 +79,12 @@ def check_dir_exists(dir_path, auto_respond = False):
 
     # create a path object from the input, if not already a Path object
     if isinstance(dir_path, pathlib.PurePath):
-        pass
+        if dir_path.is_absolute():  # check if absolute; needs to be to get full name of parent, etc.
+            pass
+        else:
+            dir_path = dir_path.resolve()
     else:
-        dir_path = Path(dir_path)
+        dir_path = Path(dir_path).resolve()  # also check if absolute here
 
     # check if the path exists, which is required for this script
     if dir_path.is_dir():  # if the input path is an existing directory...
