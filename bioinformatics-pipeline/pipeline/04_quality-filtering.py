@@ -27,6 +27,12 @@ parser.add_argument('--merge', action=argparse.BooleanOptionalAction,
                          '--no-merge if you do not want to merge reads, and --merge if you want to merge reads. '
                          'Otherwise, the setting in the configuration file will be used (default is to merge).')
 
+# to run quality filtering and merging separately, for time restriction
+parser.add_argument('--merge-from', nargs='?',
+                    default=None,
+                    help='If running merging separately from quality filtering, provide the path to the '
+                         'directory containing the quality-filtered paired sequence files to merge.')
+
 # if option provided, uses this minimum read length filter instead of configuration settings
 parser.add_argument('--min-length', nargs='?',
                     default=settings['quality_filtering'],
@@ -68,7 +74,12 @@ print(f'Currently, this is not updated to accomodate changes to the configuratio
 is_input, illumina_files = check_for_input(input_path, seq_platform=platform)
 
 if is_input:
-    filtered_path = quality_filter(input_files=illumina_files, platform=platform, file_map=fpm)
+    # if the --merge-from flag is not included, go through quality filter process
+    if args['merge_from'] is None:
+        filtered_path = quality_filter(input_files=illumina_files, platform=platform, file_map=fpm)
+    else:
+        is_merge, filtered_files = check_for_input(filtered_path, seq_platform=platform)
+    # confirm that there are
     is_merge, filtered_files = check_for_input(filtered_path, seq_platform=platform)
     if args['merge'] and is_merge:
         print(f'\nMerging reads from {filtered_path}...')
