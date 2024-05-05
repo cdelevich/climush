@@ -9,11 +9,7 @@ from climush.utilities import *
 settings = get_settings(fpm)
 
 parser = argparse.ArgumentParser(prog=Path(__file__).stem,
-                                 description='Identifies sequencing platform of sequencing files '
-                                             'and sorts them into their respective pipeline paths. '
-                                             'Checks file names for correct naming convention. Confirms '
-                                             'that sequences have been demultiplexed, and if not, sends '
-                                             'sequences to be demultiplexed.',
+                                 description='Remove PhiX and reads with ambiguous bases',
                                  epilog='')
 
 parser.add_argument('-i', '--input', default=fpm['sequences'],
