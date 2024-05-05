@@ -7,3 +7,4 @@ subsample_pacbio_raw.py
 /.env
 /pipeline/xero_concat.py
 /climush_py-package/climush/mapping.py
+/config/climush-bioinfo_default-settings.toml
