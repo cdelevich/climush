@@ -33,19 +33,19 @@ with open(output_path, 'w+') as fout:
     for root in search_path.walk():  # go through each directory found by Path.walk()
         for i,items in enumerate(root):  # then access the root path, subdirectories, and filenames
             if i == 0:  # don't indent if it is the first, which is the root path
-                fout.write('---------------\n')  # for each new root, insert a separator
+                fout.write('---------------------------------------------\n')  # for each new root, insert a separator
                 fout.write(f'{subitem_list[i]}: {items}\n')
-                fout.write('---------------\n')  # for each new root, insert a separator
+                fout.write('---------------------------------------------\n')  # for each new root, insert a separator
             else:
                 if isinstance(items, list):  # format with one print out per line if its a file path
-                    fout.write(f'\n\t{subitem_list[i]}')  # print the item description
+                    fout.write(f'\n  {subitem_list[i]}')  # print the item description
                     if len(items) > 0:
-                        items.insert(0, '\t\t')  # add tab so there's one before first item
-                        formatted_items = '\n\t\t'.join(items)  # format the strings in the item to print one line at a time
+                        items.insert(0, '\t')  # add tab so there's one before first item
+                        formatted_items = '\n\t'.join(items)  # format the strings in the item to print one line at a time
                         fout.write(f'{formatted_items}\n')  # then the formatted items
                     else:
-                        fout.write(f'\n\t\t(none)\n')  # write out 'none' for empty list (i.e., no items)
+                        fout.write(f'\n\t(none)\n')  # write out 'none' for empty list (i.e., no items)
                 else:  # if the item is a string and not a list, just write the string
-                    fout.write(f'\n\t{subitem_list[i]}')
-                    fout.write(f'\t\t{items}\n')
+                    fout.write(f'\n  {subitem_list[i]}')
+                    fout.write(f'\t{items}\n')
         fout.write('\n\n\n')  # write extra space between directories
