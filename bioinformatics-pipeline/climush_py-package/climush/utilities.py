@@ -244,7 +244,7 @@ def run_subprocess(cli_command_list, dest_dir, auto_respond=False):
     # out, err = run_cmd.communicate()
     program = cli_command_list[0]
 
-    if re.search('.\..', program):
+    if re.search(r'.\..', program):
         program = program.split('.')[0]
 
     run_cmd = subprocess.run(cli_command_list, capture_output=True)
@@ -298,21 +298,38 @@ def func_timer(func):
         return func_output
     return wrapper()
 
-def get_seq_platform(fastx_file, delim):
+def get_seq_platform(fastx_file, delim='_'):
     if isinstance(fastx_file, str):
         sample_id = fastx_file
-    elif is_pathclass(fastx_file):
-        sample_id = fastx_file.stem
+    elif is_pathclass(fastx_file, exit_if_false=False):
+        sample_id = fastx_file.name
     else:
-        print(f'ERROR. An error occurred when trying to detect the sequencing platform from the '
-              f'sample ID: {fastx_file}\n')
+        print(f'ERROR. Could not read the file name when trying to detect the sequencing platform '
+              f'from the file name: {fastx_file}\n')
+        return None
 
+    # check the file name components for any of the expected platforms: pacbio, illumina, sanger
+    platform = []
+    for v in sample_id.split(delim):
+        if re.search(PLATFORM_ANYWHERE_RE, v, re.I):
+            platform.append(v)
+        else:
+            continue
 
-    platform = sample_id.split(delim)[0]
-    if platform in SEQ_PLATFORM_OPTS:
-        return platform
+    # confirm that only one platform was encountered in the file name
+    if len(platform) == 1:
+        return platform[0]
+    elif len(platform) > 1:
+        print(f'There were multiple sequencing platforms detected:\n'
+              f'\tfile name: {sample_id}\n'
+              f'\tplatforms detected: {platform}\n')
     else:
-        pass
+        print(f'No sequence platforms were detected:\n'
+              f'\tfile name: {sample_id}\n')
+
+    print(f'May not be able to continue without a clear sequencing platform.\n'
+          f'Exiting...\n')
+    return None
 
 def import_mapping_df(df_path, auto_respond=False):
     '''
@@ -336,9 +353,7 @@ def import_mapping_df(df_path, auto_respond=False):
     entirety of that dataframe file.
     '''
 
-    POOL_NUM_RE = '(?<=pool).?(\d)'
-
-    if re.search('^\.x', df_path.suffix):  # if an excel file
+    if re.search(r'^\.x', df_path.suffix):  # if an excel file
         mapping_tabs = pd.read_excel(df_path, sheet_name=None)  # need to set sheet_name to None to get all tabs
         old_tab_names = list(mapping_tabs.keys())  # make list of old names, otherwise cannot update key names in loop
         for tab in old_tab_names:
@@ -349,7 +364,7 @@ def import_mapping_df(df_path, auto_respond=False):
                       f'Please type the correct pool number for this file: ')
                 pool_num = prompt_print_options(['1', '2'], auto_respond=auto_respond)  # choose from 1 or 2 (or quit, built into function)
             mapping_tabs[f'pool{pool_num}'] = mapping_tabs.pop(tab)  # replace old tab (key) with reformatted one
-    elif re.search('^\.c|^\.txt$', df_path.suffix):  # I think you can read in .txt and .csv files the same way?
+    elif re.search(r'^\.c|^\.txt$', df_path.suffix):  # I think you can read in .txt and .csv files the same way?
         try:  # try to get the pool number from the file name
             pool_num = re.search(POOL_NUM_RE, df_path.name, re.I).group(0)
         except AttributeError:  # if there's no detected pool number in the name, prompt user to specify one
@@ -485,11 +500,11 @@ def filter_empty_files(dir_path, keep_empty=True):
                 fate = 'deleted'
                 empty_folders += 1
             except:
-                continue
                 fate = ''
+                continue
         else:
-            continue
             fate = ''
+            continue
 
     return print(f'{empty_files} files and {empty_folders} folders were {fate}.\n')
 
@@ -635,7 +650,7 @@ def check_for_input(file_dir, seq_platform=None, file_ext=SEQ_FILE_GLOB):
     #     return sys.exit()
 
     if seq_platform is None:
-        seq_re = '.+?'  # will return all files in directory
+        seq_re = r'.+?'  # will return all files in directory
     elif isinstance(seq_platform, list):
         seq_re = '|'.join(seq_platform)  # returns only those in provided list
     else:
@@ -767,7 +782,7 @@ def add_prefix(file_path, prefix, dest_dir, action='rename', f_delim='_'):
 
     def prefix_single(file_name):
         old_name = file_name.name
-        platform_present = re.search('illumina|pacbio|sanger', old_name, re.I)
+        platform_present = re.search(r'illumina|pacbio|sanger', old_name, re.I)
         try:
             # if there's a match, put prefix before the platform, remove all else
             location = platform_present.span()[0]
@@ -834,12 +849,12 @@ def script_name_as_dir(script_name, parent, remove_num=False, suffix=None):
         parent = mkdir_exist_ok(new_dir=parent)
 
     script_num = Path(script_name).stem.split('_')[0]
-    script_name_nonum = re.sub('^\d+_(?=\w)','',Path(script_name).stem)
+    script_name_nonum = re.sub(r'^\d+_(?=\w)',r'', Path(script_name).stem)
     completed_name_nonum = OUTPUT_DIRS[script_name_nonum]
     completed_name = f'{script_num}_{completed_name_nonum}'
 
     if remove_num:
-        completed_name = re.sub('^\d+_(?=\w)','', completed_name)
+        completed_name = re.sub(r'^\d+_(?=\w)',r'', completed_name)
 
     if suffix:
         out_path = parent / f'{completed_name}_{suffix}'
@@ -858,35 +873,32 @@ def flip_prefix(prefix_const):
     # else:
     #     pass
 
-    if re.search('^no-', prefix_const, re.I):  # if provided prefix starts with no, remove no
-        return re.sub('^no-', '', prefix_const, re.I)
+    if re.search(r'^no-', prefix_const, re.I):  # if provided prefix starts with no, remove no
+        return re.sub(r'^no-', r'', prefix_const, re.I)
     else:  # if it does not start with no, add no
         return 'no-' + prefix_const
 
 def rename_read_header(fasta_file, header_delim=';'):
+
     # fasta_file = next(post_itsx.glob('*.fast*'))
     parent_dir = fasta_file.parent.name
 
-    if re.search('itsx', parent_dir, re.I):  # if they are post-itsx reads...
+    # get the sequence platform, to use when searching for the sample_id from the file name
+    seq_platform = get_seq_platform(fasta_file)
 
-        READ_COUNT_RE = '(?<=size=)[0-9]{1,}'
-        READ_LEN_RE = '[0-9]{1,}(?=\sbp)'
-        READ_ID_RE = '[0-9]{1,}(?=\/ccs)'
-        READ_REGION_RE = '(?<=\|\w\|).+(?=\sExtracted)'
-        SAMPLE_ID_RE = '(?<=\w_)(pacbio|sanger|illumina).+?(?=\.)'
+    if re.search(r'itsx', parent_dir, re.I):  # if they are post-itsx reads...
 
-        # REPLACE WITH REMOVE PREFIX??
-        sample_id = re.search(SAMPLE_ID_RE, fasta_file.name).group(0)
+        sample_id = get_sample_id(file_path=fasta_file, platform=seq_platform)
 
         updated_records = []
         no_update_count = 0
         for record in SeqIO.parse(fasta_file, 'fasta'):
             header = record.description
             try:
-                read_id = re.search(READ_ID_RE, header).group(0)
-                region = re.search(READ_REGION_RE, header).group(0)
-                read_count = re.search(READ_COUNT_RE, header).group(0)
-                read_length = re.search(READ_LEN_RE, header).group(0)
+                read_id = re.search(READ_ID_OG_RE, header).group(0)
+                region = re.search(READ_REGION_OG_RE, header).group(0)
+                read_count = re.search(READ_COUNT_OG_RE, header).group(0)
+                read_length = re.search(READ_LEN_OG_RE, header).group(0)
 
                 updated_header = header_delim.join([f'{sample_id}_{read_id}', region, f'region_len={read_length}bp',
                                                     f'full-len_copies={read_count}'])
@@ -898,6 +910,7 @@ def rename_read_header(fasta_file, header_delim=';'):
             except:
                 no_update_count += 1
                 updated_records.append(record)
+
 
         SeqIO.write(updated_records, fasta_file, 'fasta')
 
@@ -919,15 +932,15 @@ def escape_path_special(file_path):
     if is_pathclass(file_path):
         file_path = str(file_path)
 
-    if re.search('\(', file_path):
-        file_path = re.sub('\(', '\(', file_path)
+    if re.search(r'\(', file_path):
+        file_path = re.sub(r'\(', r'\(', file_path)
 
-    if re.search('\)', file_path):
-        file_path = re.sub('\)', '\)', file_path)
+    if re.search(r'\)', file_path):
+        file_path = re.sub(r'\)', r'\)', file_path)
 
     return file_path
 
-def get_sample_id(file_path, platform):
+def get_sample_id(file_path, platform=None):
     '''
     Return the sample ID as a string from a file path.
 
@@ -938,10 +951,20 @@ def get_sample_id(file_path, platform):
     :return: the sample ID of the input file, as a string
     '''
 
-    SAMPLE_ID_RE = f'(?<=_{platform.lower()}_).+?_0[1-9]'
+    # if at start, the platform is not provided...
+    if platform is None:
+        # try to get it from the file name
+        platform = get_seq_platform(file_path)
+        # if it is still None...
+        if platform is None:
+            platform_re = SAMPLE_ID_RE  # search for sample ID for any of the seq platforms
+        else:  # if it did find a platform, then use in regex
+            platform_re = r'(?<=_' + f'{platform.lower()}' + r'_).+?_0[1-9]'
+    else:  # if a platform was provided, then use this in the regex
+        platform_re = r'(?<=_' + f'{platform.lower()}' + r'_).+?_0[1-9]'
 
     try:
-        sample_id = re.search(SAMPLE_ID_RE, file_path.name, re.I).group(0)
+        sample_id = re.search(platform_re, file_path.name, re.I).group(0)
         return sample_id
     except AttributeError:
         msg = (f'ERROR. The provided file name, {file_path.name}, does not follow the expected '
@@ -957,8 +980,6 @@ def get_read_orient(file_path):
     the read orientation (R1 or R2)
     :return: the sample ID of the input file, as a string
     '''
-
-    ORIENT_RE = '(?<=_0[1-9]_)R[1,2](?=\.)'
 
     try:
         read_orient = re.search(ORIENT_RE, file_path.name, re.I).group(0)
@@ -1141,25 +1162,25 @@ def sort_input_files(filepath_dict, to_sort='main'):
             return False
 
     def is_demultiplexed(filepath):
-        if follows_naming_convention(filepath) or re.search('^[A-Z]+', filepath.stem):
+        if follows_naming_convention(filepath) or re.search(r'^[A-Z]+', filepath.stem):
             return True
         else:
             return False
 
     def is_pacbio(filepath):
-        if re.search('^pacbio|^\d{4}', filepath.stem):
+        if re.search(r'^pacbio|^\d{4}', filepath.stem):
             return True
         else:
             return False
 
     def is_illumina(filepath):
-        if re.search('^illumina|^[A-Z]+', filepath.stem):
+        if re.search(r'^illumina|^[A-Z]+', filepath.stem):
             return True
         else:
             return False
 
     def is_sanger(filepath):
-        if re.search('^sanger', filepath.stem):
+        if re.search(r'^sanger', filepath.stem):
             return True
         else:
             return False

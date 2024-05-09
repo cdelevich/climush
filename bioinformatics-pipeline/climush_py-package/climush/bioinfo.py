@@ -31,12 +31,6 @@ def demultiplex(file_map, multiplexed_files, seq_platform='pacbio'):
     settings = get_settings(file_map)
     run_name = settings['run_details']['run_name']  # name to use for this bioinformatics run
 
-    # CONSTRUCT REGEX CONSTANTS #####################################################################
-    # column name regex; column names vary among mapping files
-    FWD_COL_RE = '(fwd)|(forward)'
-    REV_COL_RE = '(rev)|(reverse)'
-    SAMPLE_ID_RE = '^sample'
-
     # CONFIRM THAT PLATFORM IS PACBIO ###############################################################
     # check that the sequence platform is set to pacbio; not suitable for others platforms right now
     if not seq_platform == 'pacbio':
@@ -54,7 +48,7 @@ def demultiplex(file_map, multiplexed_files, seq_platform='pacbio'):
     for mp_file in multiplexed_files:
 
         # get the sequencing core's queue ID from multiplexed seq file and corresponding climush sample ID for this queue ID
-        qid = re.search('^(\d{4})', mp_file.name).group(0)  # get queue ID from file name
+        qid = re.search(r'^(\d{4})', mp_file.name).group(0)  # get queue ID from file name
         queue_ids.add(qid)  # add the qid to the set of all queue ids requiring demux
         cid = settings['demultiplex']['multiplex'][qid]  # get climush - queue ID pairing from config
         qid_files = [f for f in mapping_files if
@@ -118,7 +112,7 @@ def demultiplex(file_map, multiplexed_files, seq_platform='pacbio'):
 
         # go through each tab in the df and get the barcodes
         for tab in mapping_tabs:  # go through each tab...
-            if re.search('pool', tab, re.I):  # ...only if relevant to mapping/demux
+            if re.search(r'pool', tab, re.I):  # ...only if relevant to mapping/demux
 
                 # get the name used for the fwd/rev barcode columns in this mapping file
                 fwd_col = get_col_name(FWD_COL_RE, mapping_tabs[tab])
@@ -133,8 +127,8 @@ def demultiplex(file_map, multiplexed_files, seq_platform='pacbio'):
                 rev_barcodes.extend(rev_bc)  # use extend to prevent sublists
 
         # make sure that the barcodes don't contain the primer sequences; if they do, remove primer sequence from bc
-        fwd_bc_noprimer = [re.sub(f'{primers["fwd_primer"]}$', '', fwd) for fwd in fwd_barcodes]
-        rev_bc_noprimer = [re.sub(f'{primers["rev_primer"]}$', '', rev) for rev in rev_barcodes]
+        fwd_bc_noprimer = [re.sub(f'{primers["fwd_primer"]}$', r'', fwd) for fwd in fwd_barcodes]
+        rev_bc_noprimer = [re.sub(f'{primers["rev_primer"]}$', r'', rev) for rev in rev_barcodes]
 
         # confirm that primers were properly removed from the barcodes
         def primers_removed_from_bc(pre_remove_list, post_remove_list, primer):
@@ -299,7 +293,7 @@ def demultiplex(file_map, multiplexed_files, seq_platform='pacbio'):
 
             # detect pool number from the file name; remove queue ID first to avoid any confusion
             try:  # should be able to do automatically
-                pool_num = re.search('\d', re.sub(f'^{qid}\.', '', pool.name)).group(0)
+                pool_num = re.search(r'\d', re.sub(f'^{qid}' + r'\.', r'', pool.name)).group(0)
             except AttributeError:  # but if re.search does not return a match
                 print(f'The sequencing pool number for the multiplexed file {pool.name} could not be detected in ' \
                       f'the file name. Please enter the pool number corresponding to this file as a single digit'
@@ -313,7 +307,7 @@ def demultiplex(file_map, multiplexed_files, seq_platform='pacbio'):
             lima_cmd = ['lima', pool, barcode_fasta, out_prefix, '--min-score', '93', '--hifi-preset', 'ASYMMETRIC']
 
             run_subprocess(cli_command_list = lima_cmd, dest_dir = lima_output,
-                           auto_respond=settings['automate']['auto_respond'])
+                           auto_respond = settings['automate']['auto_respond'])
 
     # CREATE DICTIONARY OF BARCODE PAIRS FOR ALL SAMPLES
     sample_barcodes = {q:{'pool1': {},
@@ -322,7 +316,7 @@ def demultiplex(file_map, multiplexed_files, seq_platform='pacbio'):
     for dxmap in demux_mapping:
 
         # get the queue ID from the name of the multiplexed sequencing file; need it to find key in sample_barcodes
-        qid = re.search('^(\d{4})', list(demux_mapping[dxmap])[0].name).group(0)
+        qid = re.search(r'^(\d{4})', list(demux_mapping[dxmap])[0].name).group(0)
 
         # import the mapping file dataframe
         mapping_df = import_mapping_df(df_path=dxmap, auto_respond=settings['automate']['auto_respond'])
@@ -331,7 +325,7 @@ def demultiplex(file_map, multiplexed_files, seq_platform='pacbio'):
         for tab in mapping_df:
 
             # get the name of the column used for the sample ID, fwd barcode, rev barcode
-            smp_col = get_col_name(pattern=SAMPLE_ID_RE, df=mapping_df[tab])
+            smp_col = get_col_name(pattern=SAMPLE_COL_RE, df=mapping_df[tab])
             fwd_col = get_col_name(pattern=FWD_COL_RE, df=mapping_df[tab])
             rev_col = get_col_name(pattern=REV_COL_RE, df=mapping_df[tab])
 
@@ -363,22 +357,22 @@ def demultiplex(file_map, multiplexed_files, seq_platform='pacbio'):
     for subdir in lima_subdirs:
 
         # get the queue ID from the name of the multiplexed sequencing file; need it to find key in sample_barcodes
-        cid = re.search('^pacbio.+', subdir.name).group(0)  # get climush ID, which will be in name of file
+        cid = re.search(r'^pacbio.+', subdir.name).group(0)  # get climush ID, which will be in name of file
         mp_dict = settings['demultiplex']['multiplex']  # make shorter for list comp below
         qid = [k for k in mp_dict if cid in mp_dict[k]][0]  # convert to qid to match dict
 
         for p in ['pool1', 'pool2']:
 
             # find the fasta file for this pool, which has the read ID and the barcode combination
-            lima_fasta = [f for f in subdir.glob('*.*') if re.search(f'{subdir.name}_{p}\.fasta', f.name, re.I)][0]
+            lima_fasta = [f for f in subdir.glob('*.*') if re.search(f'{subdir.name}_{p}' + r'\.fasta', f.name, re.I)][0]
 
             # open the fasta file and pull the indices of the forward and reverse barcodes
             with open(lima_fasta, 'r') as fin:
                 fasta_txt = fin.readlines()
                 for l, line in enumerate(fasta_txt):
                     if line.startswith('>'):
-                        read_id = re.findall('(?<=>).+?(?=\sbc)', line, re.I)[0]
-                        read_barcode_i = list(map(int, re.search('(?<=bc=)\d{1,2},\d{1,2}', line, re.I).group(0).split(',')))
+                        read_id = re.findall(r'(?<=>).+?(?=\sbc)', line, re.I)[0]
+                        read_barcode_i = list(map(int, re.search(r'(?<=bc=)\d{1,2},\d{1,2}', line, re.I).group(0).split(',')))
                         read_bc_names = [bc_name_index[i] for i in read_barcode_i]  # convert index to name
                         read_barcodes[qid][p].update({read_id: read_bc_names})  # add read's bc names to dict
                         read_seqs[qid][p].update({read_id: fasta_txt[l+1]})  # add read sequence to dict
@@ -452,10 +446,10 @@ def pair_reads(input_files):
 
     for file in input_files:
         # if the file is an R1 read file...
-        if re.search('R1', file.stem, re.I):
+        if re.search(r'R1', file.stem, re.I):
             pairs_dict.update({file:''})  # add to dict, with empty str as value
         # if the file is an R2 read file...
-        elif re.search('R2', file.stem, re.I):
+        elif re.search(r'R2', file.stem, re.I):
             rev_reads.append(file)  # add to a list, will sort to match its R1 file next
         # if an R1/R2 tag is not detected
         else:
@@ -465,7 +459,7 @@ def pair_reads(input_files):
     if len(rev_reads) > 0:
         for rev in rev_reads:
             # find their associated R1 file, and match these in the dict
-            sample_id = re.search('.+?(?=_R2)', rev.stem).group(0)
+            sample_id = re.search(r'.+?(?=_R2)', rev.stem).group(0)
             for k in pairs_dict.keys():
                 if re.search(sample_id, k.stem, re.I):
                     pairs_dict[k] = rev
@@ -591,7 +585,7 @@ def confirm_no_primers(input_files, file_map, platform):
     # create a regex from fwd, rev, fwd_rc, and rev_rc primer sequences, to confirm no primer remains
     primer_dict = identify_primers(platform, config_dict=settings, verbose=False)  # read in primer dict for this platform
     # join the primer seq strings together with the 'or' pipe for regex search
-    PRIMER_RE = '|'.join(list(primer_dict.values()))  # will search for any of these primers/orients
+    primer_re = '|'.join(list(primer_dict.values()))  # will search for any of these primers/orients
 
     # record read lengths to an output .json file
     read_info_json = (file_map['pipeline-output']['primers-trimmed'] / f'{run_name}_read-info').with_suffix('.json')
@@ -637,7 +631,7 @@ def confirm_no_primers(input_files, file_map, platform):
             read_lens.append(len(seq))
 
             # confirm that the primers in all orientations are not detected in the read
-            found = re.search(PRIMER_RE, str(seq), re.I)
+            found = re.search(primer_re, str(seq), re.I)
 
             if found:  # if a primer is detected..
 
@@ -949,7 +943,7 @@ def merge_reads(input_files, file_map):
                                          dest_dir=nomerge_path, action=None)
 
             merge_out_base = add_prefix(file_path=file, prefix=MERGED_PREFIX, dest_dir=merge_path, action=None)
-            sample_id = re.search('.+?(?=_R1)', merge_out_base.stem).group(0)
+            sample_id = re.search(r'.+?(?=_R1)', merge_out_base.stem).group(0)
             merge_output = (merge_out_base.parent / sample_id).with_suffix('.fastq')
             output_list.append(merge_output)
 
@@ -961,6 +955,12 @@ def merge_reads(input_files, file_map):
 
             run_subprocess(vsearch_merge_cmd, dest_dir=qfilt_parent,
                            auto_respond=settings['automate']['auto_respond'])
+
+        # add descriptive header to the merge log file
+        # with open(merge_summary, 'w') as fout:
+        #     merge_header = '#fwd_ee_exp\trev_ee_exp\tfwd_ee_obs\trev_ee_obs\n'
+        #     with_header = merge_output.insert(0, merge_header)
+        #     fout.write(with_header)
 
         return output_list
     else:
@@ -988,7 +988,7 @@ def dereplicate(input_files, derep_step, platform, file_map):
     if premerged:
         pass
     else:
-        input_files = [f for f in input_files if re.search('R1', f, re.I)]  # only take fwd if not merged
+        input_files = [f for f in input_files if re.search(r'R1', f, re.I)]  # only take fwd if not merged
         # rename files to be just sample ID or keep R1 to be clear they're forward reads only?
 
     for file in input_files:
@@ -1027,58 +1027,6 @@ def separate_subregions(input_files, file_map):
 
     return None
 
-def rename_read_header(fasta_file, header_delim=';'):
-    # fasta_file = next(post_itsx.glob('*.fast*'))
-    parent_dir = fasta_file.parent.name
-
-    if re.search('itsx', parent_dir, re.I):  # if they are post-itsx reads...
-
-        READ_COUNT_RE = '(?<=size=)[0-9]{1,}'
-        READ_LEN_RE = '[0-9]{1,}(?=\sbp)'
-        READ_ID_RE = '[0-9]{1,}(?=\/ccs)'
-        READ_REGION_RE = '(?<=\|\w\|).+(?=\sExtracted)'
-        SAMPLE_ID_RE = '(?<=\w_)(pacbio|sanger|illumina).+?(?=\.)'
-
-        # REPLACE WITH REMOVE PREFIX??
-        sample_id = re.search(SAMPLE_ID_RE, fasta_file.name).group(0)
-
-        updated_records = []
-        no_update_count = 0
-        for record in SeqIO.parse(fasta_file, 'fasta'):
-            header = record.description
-            try:
-                read_id = re.search(READ_ID_RE, header).group(0)
-                region = re.search(READ_REGION_RE, header).group(0)
-                read_count = re.search(READ_COUNT_RE, header).group(0)
-                read_length = re.search(READ_LEN_RE, header).group(0)
-
-                updated_header = header_delim.join([f'{sample_id}_{read_id}', region, f'region_len={read_length}bp',
-                                                    f'full-len_copies={read_count}'])
-
-                record.id = updated_header
-                record.name = f'{sample_id}_{read_id}'
-                record.description = ''
-                updated_records.append(record)
-            except:
-                no_update_count += 1
-                updated_records.append(record)
-
-        SeqIO.write(updated_records, fasta_file, 'fasta')
-
-        if no_update_count == 0:
-            return print(f'SUCCESS. All reads ({len(updated_records)}) were renamed '
-                         f'in {fasta_file.name}.\n')
-        elif no_update_count == len(updated_records):
-            return print(f'FAILURE. None of the reads were renamed in {fasta_file.name}. This can '
-                         f'happen if the fasta file has already been renamed by this function, '
-                         f'so open the fasta file to check.\n')
-        else:  # if some reads were renamed, but not all
-            return print(f'FAILURE. {no_update_count} sequence headers could not be renamed due to '
-                         f'a missing data field for reads in {fasta_file.name}.\n')
-    else:
-        return print(f'UNDER CONSTRUCTION. I haven\'t yet updated this function to work with any other '
-                     f'fasta files than those produced after ITSx.\n')
-
 def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_delim=';', **kwargs):
     '''
     Concatenates provided regions for each read.
@@ -1108,18 +1056,18 @@ def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_
     # header_delim = ';'
     ######################
     for kw in kwargs.keys():
-        if re.search('suffix', kw, re.I):
+        if re.search(r'suffix', kw, re.I):
             file_suffix = f'_{kwargs[kw]}'
         else:
             file_suffix = ''
 
     # create dictionary for acceptable input
-    accepted_regions = {'(^S.+?(?=\bs)|SSU)': 'SSU',  # could be better but not going to obsess
-                        'ITS.?1': 'ITS1',  # checks for possible punctuation within
-                        '5.?8S': '5.8S',  # checks for possible punctuation within
-                        'ITS.?2': 'ITS2',  # checks for possible punctuation within
-                        '(^L.+?(?=\bs)|LSU)': 'LSU',  # similar to SSU
-                        '(full)?.?ITS(?!.?\d)': 'ITS'}  # may include full, but can't have number after (w or w/o punct)
+    accepted_regions = {r'(^S.+?(?=\bs)|SSU)': 'SSU',  # could be better but not going to obsess
+                        r'ITS.?1': 'ITS1',  # checks for possible punctuation within
+                        r'5.?8S': '5.8S',  # checks for possible punctuation within
+                        r'ITS.?2': 'ITS2',  # checks for possible punctuation within
+                        r'(^L.+?(?=\bs)|LSU)': 'LSU',  # similar to SSU
+                        r'(full)?.?ITS(?!.?\d)': 'ITS'}  # may include full, but can't have number after (w or w/o punct)
 
     # check input list for valid entries, and then format string to consistent format
     # returns dict now with formatted string as key, regex as value
@@ -1164,10 +1112,7 @@ def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_
 
     fastas_to_concat = [search_path_with_regex(dir_path, regex=r) for r in region_search_dict.values()]
 
-    SAMPLE_ID_RE = '(?<=\w_)(pacbio|sanger|illumina).+?(?=\.)'
-    PREFIX_RE = '^\w.+?(?=_pacbio|_sanger|_illumina)'
-
-    sample_name = re.search(SAMPLE_ID_RE, fastas_to_concat[0].name, re.I).group(0)
+    sample_name = get_sample_id(file_path = fastas_to_concat[0].name)
     file_prefix = re.search(PREFIX_RE, fastas_to_concat[0].name, re.I).group(0)
 
     if list(region_search_dict.keys()) == ['ITS1', '5.8S', 'ITS2']:
@@ -1176,13 +1121,6 @@ def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_
         concat_name = input(f'Please provide a name to assign to this combination of subregions (use '
                             f'underscores instead of spaces):\n')
 
-    # renamed header search regex
-    # WAY TO UPDATE REGEX GLOBALLY WHEN A RENAMING OCCURS?
-    READ_ID_RE = '^.+?(?=;)'
-    READ_REGION_RE = '(?<=\d;)\w.+?(?=;)'
-    READ_LEN_RE = '(?<=len=)[0-9]{1,}(?=bp)'
-    READ_COUNT_RE = '(?<=full\-len_copies=)[0-9]{1,}'
-
     # ADD THESE OPTIONS IN THE CONFIG FILE?
     details_to_include = ['sequence', 'region_len', 'full-len_copies']
 
@@ -1190,11 +1128,11 @@ def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_
     for fasta in fastas_to_concat:
         for record in SeqIO.parse(fasta, 'fasta'):
             try:
-                read_id = re.search(READ_ID_RE, record.id).group(0)
-                region = re.search(READ_REGION_RE, record.id, re.I).group(0)
+                read_id = re.search(READ_ID_RENAMED_RE, record.id).group(0)
+                region = re.search(READ_REGION_RENAMED_RE, record.id, re.I).group(0)
 
-                length = re.search(READ_LEN_RE, record.id, re.I).group(0)
-                derep01_reads = re.search(READ_COUNT_RE, record.id, re.I).group(0)
+                length = re.search(READ_LEN_RENAMED_RE, record.id, re.I).group(0)
+                derep01_reads = re.search(READ_COUNT_RENAMED_RE, record.id, re.I).group(0)
                 details = {k:v for k,v in zip(details_to_include, [record.seq, length, derep01_reads])}
 
                 if read_id in concat_dict:  # if this sample is already in the dictionary...
@@ -1233,10 +1171,10 @@ def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_
                     if any(isinstance(i, Seq) for i in pulled_data_dict[k]):
                         joined_data['seq'] = Seq('').join(pulled_data_dict[k])  # must join with empty seq
                     else:
-                        if re.search('len$', k, re.I):
+                        if re.search(r'len$', k, re.I):
                             val = sum([int(x) for x in pulled_data_dict[k]])
                             joined_data['id'].append(f'{k}={val}bp')
-                        elif re.search('^full\-len|count', k, re.I):
+                        elif re.search(r'^full\-len|count', k, re.I):
                             if len(set(pulled_data_dict[k])) == 1:
                                 derep = int(pulled_data_dict[k][0])  # if all same, doesn't matter which you chose
                                 joined_data['id'].append(f'{k}={derep}')  # make int so no '' surrounding num in header
@@ -1266,8 +1204,6 @@ def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_
     return None
 
 def check_itsx_output(itsx_dir, full_len_dir, num_bp_compare, write_to_log=True, same_threshold=99):
-    SAMPLE_ID_RE = '(?<=\w_)(pacbio|sanger|illumina).+?(?=\.)'
-    READ_ID_RE = '[0-9]{1,}(?=\/ccs)'
 
     bp = int(num_bp_compare)
 
@@ -1288,8 +1224,8 @@ def check_itsx_output(itsx_dir, full_len_dir, num_bp_compare, write_to_log=True,
                        'lsu_end':[]}
     for record in SeqIO.parse(full_len_dir, 'fasta'):
 
-        sample_id = re.search(SAMPLE_ID_RE, full_len_dir.name).group(0)
-        read_num = re.search(READ_ID_RE, record.id).group(0)
+        sample_id = get_sample_id(file_path = full_len_dir.name)
+        read_num = re.search(READ_ID_OG_RE, record.id).group(0)
         read_id = '_'.join([sample_id, read_num])
 
         renamed_record = SeqRecord(record.seq, id=read_id, description='')
@@ -1348,7 +1284,7 @@ def check_itsx_output(itsx_dir, full_len_dir, num_bp_compare, write_to_log=True,
         log_dir.mkdir(exist_ok=True)
         diff_df.to_csv(log_dir / f'itsx_inspection_comparison.csv', index=False)
         with open((log_dir / 'itsx_inspection_summary.log'), 'wt') as fout:
-            fout.write(f'sample: {re.search(SAMPLE_ID_RE, full_len_dir.name).group(0)}\n')
+            fout.write(f'sample: {get_sample_id(file_path = full_len_dir.name)}\n')
             fout.write(f'date: {datetime.today().strftime("%Y-%M-%d")}\n\n')
             fout.write(f'All full-length reads were compared to their ITS region after running ITSx. The first'
                        f' {bp} bp of the full-length reads were aligned to the first {bp} bp of their corresponding '
