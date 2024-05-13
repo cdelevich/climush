@@ -1,4 +1,4 @@
-import pathlib, argparse, subprocess
+import pathlib, argparse, subprocess, re, sys, json, shutil
 from pathlib import Path
 from climush.utilities import check_dir_exists
 
@@ -45,9 +45,6 @@ run_id = input_path.name
 # if the dry run flag is used, create a dummy copy of the input directory to use as the input
 if args.dry_run:
 
-    # print message that process is untested, until tested (unsure if it works, at the moment)
-    print(f'The --dry-run method has not been thoroughly tested, may result in an error...\n')
-
     # run copy w/ the --attributes-only flag to create empty copy of all files/subdirs (with -r command)
     dummydir_path = input_path.parent / f'{run_id}_dry-run' # put in same location as the input path's parent
     dummydir_cmd = ['cp', '-r', '--attributes-only', input_path, dummydir_path]
@@ -61,10 +58,10 @@ if args.dry_run:
 #############################################
 
 # assemble Unix command to write file tree out to .txt file
-writeout_tree_cmd = ['tree', input_path, '>', f'{run_id}_original-file-tree.txt']
+# writeout_tree_cmd = ['tree', input_path, '>', f'{run_id}_original-file-tree.txt']
 
 # execute command
-subprocess.run(writeout_tree_cmd)
+# subprocess.run(writeout_tree_cmd)
 
 #############################################
 # CREATE NEW DIRECTORIES FOR SORTING ########
@@ -75,10 +72,8 @@ subprocess.run(writeout_tree_cmd)
 # quality score folder dictionary
 qscore_paths = {k:{'main': '',  # root dir of each qscore folder
                    'ccs': '',   # circular consensus reads for each qscore
-                   'raw': '',   # raw reads for each qscore
                    'pool-demux': {'main': '',
-                                  'lima-info': ''},
-                   'supplementary-info': ''}   # additional supplementary information for each qscore
+                                  'lima-info': ''}}
                 for k in ['Q20', 'Q30', 'Q40']}
 
 # create the subdirectories for each quality score directory
@@ -92,11 +87,10 @@ for q in qscore_paths:
 
         # if it's the main/root val for this path, add to the dict
         if p == 'main':
-            qscore_paths[q] = q_path_main
+            qscore_paths[q].update({p: q_path_main})
 
         # this is the only subdir with its own subdirs
         elif p == 'pool-demux':
-
             # create main directory for this sub, 'main' tag
             qsubsub_path = q_path_main / f'{run_id}_{q}_{p}'
 
@@ -105,12 +99,12 @@ for q in qscore_paths:
 
                 # if its the 'main' tag, just assign the main dir for this sub
                 if s == 'main':
-                    qscore_paths[q][p][s] = qsubsub_path
+                    qscore_paths[q][p].update({s: qsubsub_path})
 
                 # otherwise, create path based on this sub's main, and mkdir (needs parents=True)
                 else:
                     qss_path = qsubsub_path / f'{qsubsub_path.name}_{s}'
-                    qscore_paths[q][p][s] = qss_path
+                    qscore_paths[q][p].update({s: qss_path})
 
                     qss_path.mkdir(mode=0o777, parents=args.no_parent, exist_ok=args.overwrite)
 
@@ -125,7 +119,7 @@ for q in qscore_paths:
 
             # confirm the path was created successfully
             if qsub_path.is_dir():  # check if the directory exists (i.e., was properly created)
-                qscore_paths[q][p] = qsub_path  # if it was, then add to path dict
+                qscore_paths[q].update({p: qsub_path})  # if it was, then add to path dict
             else:  # if it was not, then print error and exit
                 print(f'ERROR. The quality score folder was not created:\n'
                       f'\t{qsub_path}\n'
@@ -182,90 +176,96 @@ src_trg_dict = {}
 # keep master list of all files, then make sure they are accounted for in srg_trg_dict
 full_file_list = []
 
-# for each directory and subdirectory in the input path...
-for dirs in input_path.walk():
+# for each directory and subdirectory in the input path, inspect the directory's path, subdirectories, and files
+for root, subdir, files in input_path.walk():
 
-    # inspect the directory's path, subdirectories, and files
-    for root, subdir, files in dirs:
+    # sort the files in this main directory
+    for file in files:
 
-        # sort the files in this main directory
-        for file in files:
+        # the source path will be the same set-up for all files
+        src = root / file
 
-            # the source path will be the same set-up for all files
-            src = root / file
+        # add all files into full_file_list, to ensure all are transferred to src_trg_dict
+        full_file_list.append(src)
 
-            # add all files into full_file_list, to ensure all are transferred to src_trg_dict
-            full_file_list.append(file)
+        # if this is the main root directory...
+        if root == input_path:
 
-            # if this is the main root directory...
-            if root == input_path:
+            # any files I made to summary directory
+            if re.search(f'^{run_id}', file, re.I):
+                trg = summary_paths['main'] / file
 
-                # any files I made to summary directory
-                if re.search(f'^{run_id}', file, re.I):
-                    trg = summary_path / file
+            # if any of the files contain a subread tag, move to subreads directory
+            # unsure what .xml file is, looks like some read info (pre-consensus)
+            # not totally sure what the .log file is either, so put here
+            # barcodes.fa is for the core's demux process
+            elif (re.search(r'.+?subread.+?', file, re.I)
+                  or src.suffix == '.xml'
+                  or src.suffix == '.log'
+                  or src.suffix == '.fa'):
+                trg = subread_path / file
 
-                # if any of the files contain a subread tag, move to subreads directory
-                # unsure what .xml file is, looks like some read info (pre-consensus)
-                # not totally sure what the .log file is either, so put here
-                # barcodes.fa is for the core's demux process
-                elif (re.search(f'.?+subread.?+', file, re.I)
-                      or file.suffix == '.xml'
-                      or file.suffix == '.log'
-                      or file.suffix == '.fa'):
-                    trg = subread_path / file
-
-                # if the word 'transfer' is in the file, put in file-transfer subdir
-                elif re.search(f'.?+transfer.?+|^tmp', file, re.I):
-                    trg = summary_paths['file-transfer'] / file
-
-                # if this is the file the describes the directory contents according to GC3F
-                elif re.search(f'^info.?+\.txt', file, re.I):
-                    trg = summary_paths['main'] / f'pacbio_gc3f-file-descriptions.txt'
-
-            # if this path contains ccs.Q20, ccs.Q30, or ccs.Q40 anywhere in the path...
-            elif re.search('ccs.Q\d{2}', str(root), re.I):
-
-                qscore = re.search('(?<=ccs\.)Q\d{2}')
-
-                # if the path name contains ccs.Q20, ccs.Q30, or ccs.Q40...
-                if re.search('ccs.Q\d{2}', root.name, re.I):
-                    trg = qscore_paths[qscore]['ccs'] / file
-
-                # if the directory is a Q## subdirectory, demultiplexed...
-                # this is GC3F's demultiplexing, not mine (pool demux, not sample demux)
-                elif re.search('demultiplex.+?', root.name, re.I):
-
-                    # if it is a reads file separated into a pool...
-                    if re.search('(?<=^\d{4}\.)P[ol]{0,3}\d--P[ol]{0,3}\d(?!\.consensusreadset\.)',
-                                 file, re.I):
-
-                        # update the filename so that it includes the quality score
-                        file_parts = file.split('.')
-                        file_parts.insert(2, qscore)
-                        new_file = '.'.join(file_parts)
-                        trg = qscore_paths[qscore]['pool-demux']['main'] / new_file
-
-                    # if not one of these demux sequence files, then put into lima-info subdir
-                    else:
-                        trg = qscore_paths[qscore]['pool-demux']['lima-info'] / file
-
-                # I'm not sure what files this would encompass, but I'll send to main Q## directory
-                else:
-                    trg = qscore_paths[qscore]['main'] / file
-
-            # if this is the /reads directory within main
-            elif re.search(f'read.?', str(root), re.I):  # flexible to read or reads as directory name
-                trg = read_path / file
-
-            # the INFO directory contains info related to the file transfer from GC3F to Globus shared dir
-            elif re.search('info', str(root), re.I):
+            # if the word 'transfer' is in the file, put in file-transfer subdir
+            elif re.search(r'.+?transfer.+?|^tmp', file, re.I):
                 trg = summary_paths['file-transfer'] / file
 
-            else:
-                trg = summary_paths / file
+            # if this is the file the describes the directory contents according to GC3F
+            elif re.search(r'^info.+?\.txt', file, re.I):
+                trg = summary_paths['main'] / f'pacbio_gc3f-file-descriptions.txt'
 
-            # add the old and new paths to the dictionary
-            srg_trg_dict[src] = trg
+            else:
+                trg = summary_paths['main'] / file
+
+        # if this path contains ccs.Q20, ccs.Q30, or ccs.Q40 anywhere in the path...
+        elif re.search(r'ccs.Q\d{2}', str(root), re.I):
+
+            qscore = re.search(r'(?<=ccs\.)Q\d{2}', str(root), re.I).group(0)
+
+            # if the path name contains ccs.Q20, ccs.Q30, or ccs.Q40...
+            if re.search(r'ccs.Q\d{2}', root.name, re.I):
+
+                # update the filename so that it includes the quality score
+                file_parts_all = file.split('.')
+                file_name = f'{file_parts_all[0]}_{qscore}'
+                file_ext = '.'.join(file_parts_all[1:])
+                new_file = f'{file_name}.{file_ext}'
+                trg = qscore_paths[qscore]['ccs'] / file
+
+            # if the directory is a Q## subdirectory, demultiplexed...
+            # this is GC3F's demultiplexing, not mine (pool demux, not sample demux)
+            elif re.search(r'demultiplex.+?', root.name, re.I):
+
+                # if it is a reads file separated into a pool...
+                if re.search(r'(?<=^\d{4}\.)P[ol]{0,3}\d--P[ol]{0,3}\d(?!\.consensusreadset\.)',
+                             file, re.I):
+
+                    # update the filename so that it includes the quality score
+                    file_parts = file.split('.')
+                    file_parts.insert(2, qscore)
+                    new_file = '.'.join(file_parts)
+                    trg = qscore_paths[qscore]['pool-demux']['main'] / new_file
+
+                # if not one of these demux sequence files, then put into lima-info subdir
+                else:
+                    trg = qscore_paths[qscore]['pool-demux']['lima-info'] / file
+
+            # I'm not sure what files this would encompass, but I'll send to main Q## directory
+            else:
+                trg = qscore_paths[qscore]['main'] / file
+
+        # if this is the /reads directory within main
+        elif re.search(r'read.?', str(root), re.I):  # flexible to read or reads as directory name
+            trg = read_path / file
+
+        # the INFO directory contains info related to the file transfer from GC3F to Globus shared dir
+        elif re.search(r'info', str(root), re.I):
+            trg = summary_paths['file-transfer'] / file
+
+        else:
+            trg = summary_paths['main'] / file
+
+        # add the old and new paths to the dictionary
+        src_trg_dict[src] = trg
 
 
 ##################################################
@@ -284,9 +284,10 @@ missing_files = list(list_set.difference(dict_set))
 # if the difference is not zero, print the missing files and exit process before anything is moved
 if len(missing_files) > 0:
     missing_files.insert(0, '\n\t')
+    missing_files.sort()
     formatted_missing = '\n\t'.join(missing_files)
-    print(f'The following files are missing from the file shuffling dictionary. Please review '
-          f'this list, and make any changes to the {__file__.name} script, then rerun.')
+    print(f'The following {len(missing_files)} files are missing from the file shuffling dictionary. Please review '
+          f'this list, and make any changes to the {Path(__file__).name} script, then rerun.')
     print(formatted_missing)
     print('\nNo file sorting has occurred. Exiting...')
     sys.exit()
@@ -295,13 +296,29 @@ if len(missing_files) > 0:
 # USE DICTIONARY TO MOVE FILES
 
 # go through the dict, and sort the files
+src_trg_str_dict = {}
 for src, trg in src_trg_dict.items():
     src.rename(trg)
+    src_trg_str_dict[str(src)] = str(trg)
+
+# IF DRY RUN FLAG USED, REPORT SUCCESS AND REMOVE EMPTY TEST DIRECTORY
+if args.dry_run:
+
+    print(f'The dry run of file sorting was successful.')
+
+    # check that the size of the directory is small (won't be zero) before removing
+    if input_path.stat().st_size < 500:
+
+        # removes an empty directory; test directory copy should be empty
+        shutil.rmtree(input_path)
+
+    # exit here, without creating the path dictionary
+    sys.exit()
 
 
 # SAVE THIS DICTIONARY FOR RECORD OF OLD FILE LOCATIONS AND NEW FILE LOCATIONS
 
 # export this dictionary, as record of old and new file paths
-file_rename_path = (summary_path / f'{run_id}_file-sorting').with_suffix('.json')
+file_rename_path = (summary_paths['main'] / f'{run_id}_file-sorting').with_suffix('.json')
 with open(file_rename_path, 'w+') as jout:
-    src_trg_dict.dumps(jout)
+    json.dump(src_trg_str_dict, jout)
