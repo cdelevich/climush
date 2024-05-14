@@ -639,7 +639,7 @@ def check_for_input(file_dir, seq_platform=None, file_ext=SEQ_FILE_GLOB):
     path that contains sequencing files; [2] a list of the files matching the
     file extension in the directory, if present
     '''
-    assert is_pathclass(file_dir)
+    assert is_pathclass(file_dir)  # must be Path class or .is_dir() won't work, and it will say dir doesn't exist
 
     # I decided to leave this out so you could put any regex in (i.e., multiplexed pacbio files will start with \d{4}
     # accepted_seq_input = [None, 'illumina', 'sanger', 'pacbio']
@@ -658,20 +658,20 @@ def check_for_input(file_dir, seq_platform=None, file_ext=SEQ_FILE_GLOB):
 
     if file_dir.is_dir():  # check that input is a directory
         if count_files(file_path=file_dir, search_for=file_ext) > 0:  # confirm it is not empty
-            file_list = [f for f in file_dir.glob('*') if re.search(seq_re, f.name, re.I)]  # check for specific files
+            file_list = [f for f in file_dir.glob(file_ext) if re.search(seq_re, f.name, re.I)]  # check for specific files
             if len(file_list) > 0:
                 return True, file_list  # return true if files matching criteria are found
             else:
-                # print(f'The directory {file_dir} contains files, but none that match the platform-specific search '
-                #       f'criteria: {seq_platform}.')
+                print(f'The directory {file_dir} contains files, but none that match the platform-specific search '
+                      f'criteria: {seq_platform}.')
                 return False, file_list  # return false if not
         else:
             file_list = []  # if input is a directory, but it is empty...
-            # print(f'The directory {file_dir} exists, but is empty.\n')
+            print(f'The directory {file_dir} exists, but is empty.\n')
             return False, file_list  # return false and empty list
     else:
         file_list = []  # if input is not a directory
-        # print(f'The directory {file_dir} does not exist.\n')
+        print(f'The directory {file_dir} does not exist.\n')
         return False, file_list  # return false and empty list
 
 # get name of previous script
