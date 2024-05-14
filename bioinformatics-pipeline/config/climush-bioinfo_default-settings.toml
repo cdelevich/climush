@@ -27,7 +27,7 @@ multiplex.7668 = 'pacbio_sporocarp-f_2023-11'  # 4-digit UO sequencing core need
 multiplex.7806 = 'pacbio_sporocarp-f_2023-12'  # 4-digit UO sequencing core needed to find multiplexed files
 multiplex.7983 = 'pacbio_sporocarp-f_2024-01'  # 4-digit UO sequencing core needed to find multiplexed files
 multiplex.8007 = 'pacbio_sporocarp-f_2024-03'  # 4-digit UO sequencing core needed to find multiplexed files
-multiplex.TBD =  'pacbio_sporocarp-f_2024-04'  # UPDATE ONCE SEQUENCES ARE RETURNED
+multiplex.8126 = 'pacbio_sporocarp-f_2024-04'  # UPDATE ONCE SEQUENCES ARE RETURNED
 
 min_precision =  { 'fwd' = 93, 'rev' = 93 }   # integer: barcode precision minimum score (93 = 93%);
                                               #          93 recommended by Tedersoo et al. 2021
