@@ -9,7 +9,7 @@ import numpy as np
 from climush.constants import *
 from climush.utilities import *
 
-def demultiplex(file_map, multiplexed_files, seq_platform='pacbio'):
+def demultiplex(output_dir, file_map, multiplexed_files, seq_platform='pacbio'):
 
     # REMOVE AFTER TESTING ############
     # DON'T FORGET TO UNCOMMENT THE RUN_SUBPROCESS LINE WHERE LIMA ACTUALLY RUNS!!! #################
@@ -235,7 +235,7 @@ def demultiplex(file_map, multiplexed_files, seq_platform='pacbio'):
 
     # write out fasta file of unique barcodes; must be ordered so same numbering is used every time this is run
     # create new path in pipeline output, and use this path to create fasta file name
-    fasta_out_dir = mkdir_exist_ok(new_dir = 'barcodes', parent_dir = file_map['pipeline-output']['demultiplexed'])
+    fasta_out_dir = mkdir_exist_ok(new_dir = 'barcodes', parent_dir = output_dir)
     barcode_fasta = (fasta_out_dir / f'barcodes_{run_name}').with_suffix('.fasta')
 
     # create a dictionary with the barcode seq as the key and the value is the ID name (header) in the output fasta file
@@ -266,7 +266,7 @@ def demultiplex(file_map, multiplexed_files, seq_platform='pacbio'):
 
     # DEMULTIPLEX USING LIMA #############################################################################
     # create a directory for the output files that lima produces
-    lima_output = mkdir_exist_ok(new_dir='lima_output', parent_dir=file_map['pipeline-output']['demultiplexed'])
+    lima_output = mkdir_exist_ok(new_dir='lima_output', parent_dir=output_dir)
     lima_subdirs = []  # create list of output directories to read lima output from later on
 
     for qid in queue_ids:
@@ -382,7 +382,7 @@ def demultiplex(file_map, multiplexed_files, seq_platform='pacbio'):
     # COMPARE LIMA BARCODE COMBINATIONS TO MAPPING FILE BARCODE COMBINATIONS
 
     # create an output subdirectory in demultiplexed dir for all demultiplexed reads in this bioinformatics run
-    demux_dir = mkdir_exist_ok(new_dir = f'{DEMUX_PREFIX}_{run_name}', parent_dir=file_map['pipeline-output']['demultiplexed'])
+    demux_dir = mkdir_exist_ok(new_dir = f'{DEMUX_PREFIX}_{run_name}', parent_dir=output_dir)
 
     # for each sequencing run...
     for qid in read_barcodes:
@@ -428,7 +428,7 @@ def demultiplex(file_map, multiplexed_files, seq_platform='pacbio'):
                     print(f'ERROR. The barcode combination detected in read {r} from {p} of {seq_run} matched to '
                           f'{len(sample_ids)} sample IDs, when it should only match to one. This read was not '
                           f'sorted, and this error was recorded to the error table.\n')
-                    barcode_error = (file_map['pipeline-output']['demultiplexed'] / 'barcode_errors').with_suffix('.tsv')
+                    barcode_error = (output_dir / 'barcode_errors').with_suffix('.tsv')
 
                     # if the error file doesn't yet exist, start with writing the header
                     if not barcode_error.is_file():
