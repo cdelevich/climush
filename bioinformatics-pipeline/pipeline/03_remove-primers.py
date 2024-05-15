@@ -59,20 +59,13 @@ else:
 #####################
 platform = 'pacbio'
 
-# # check that there are PacBio reads to trim primers from
-# last_output = [dir for dir in fpm['pipeline-output']['demultiplexed'].glob('*')
-#                if re.search(f'^{NOAMBIG_PREFIX}', dir.name, re.I)][0]
-# is_input, illumina_files = check_for_input(file_dir=last_output, seq_platform='illumina')
-#
-# # REMOVE AFTER TESTING
-# is_input = True
-# pacbio_files = fpm['pipeline-output']['prefiltered'].glob('*.fast*')
-# ####################
-#
-# if is_input:
-#     remove_primers(pacbio_files, file_map=fpm, platform='pacbio', paired_end=False)
-# else:
-#     pass
+# check that there are PacBio reads to trim primers from
+is_input, pacbio_files = check_for_input(file_dir=input_path, seq_platform=platform)
+
+if is_input:
+    remove_primers(input_files=pacbio_files, file_map=fpm, platform='pacbio', paired_end=False)
+else:
+    pass
 
 #####################
 # SANGER ############
