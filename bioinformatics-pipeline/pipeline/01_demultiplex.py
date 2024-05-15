@@ -29,39 +29,37 @@ parser.add_argument('-o', '--output',
                          'will default to the location that is expected in the Docker container\'s native file '
                          'structure, detailed in pipeline/mapping.py.')
 
-# to run quality filtering and merging separately, for time restriction
-parser.add_argument('--merge-from', nargs='?',
-                    default=None,
-                    help='If running merging separately from quality filtering, provide the path to the '
-                         'directory containing the quality-filtered paired sequence files to merge.')
-
-# if option provided, uses this minimum read length filter instead of configuration settings
-parser.add_argument('--min-length', nargs='?',
-                    default=settings['quality_filtering'],
-                    help='The minimum read length permitted to pass the quality filter. Using this command line '
-                         'argument will override the settings from your configuration file.')
-
-# if option provided, uses this maximum read length filter instead of configuration settings
-parser.add_argument('--max-length', nargs='?',
-                    default=settings['quality_filtering'],
-                    help='The maximum read length permitted to pass the quality filter. Using this command line '
-                         'argument will override the settings from your configuration file.')
-
-# if option provided, uses this maximum expected error filter instead of configuration settings
-parser.add_argument('--max-error', nargs='?',
-                    default=settings['quality_filtering'],
-                    help='The maximum expected error allowed to pass the quality filter. Using this command line '
-                         'argument will override the settings from your configuration file.')
-
+# if option provided, will use this minimum score instead of configuration settings
+parser.add_argument('--min-score', nargs='?',
+                    default=settings['demultiplex']['min_precision'],
+                    help='The minimum precision of detecting barcodes in the multiplexed reads. A minimum score '
+                         'of 80 yields a precision of >99.99%. The higher the score, the lower the level of'
+                         'contaminant, but this will also lead to a lower post-demultiplexing read yield. The '
+                         'default minimum precision score is 93, as recommended by Tedersoo et al. 2021.')
 
 args = vars(parser.parse_args())
 
 # parse default or CL arguments
-# if an input path is provided, convert to a Path object
+
+# if an input is provided, convert to a Path object
 if isinstance(args['input'], str):
     input_path = Path(args['input'])
 else:
     input_path = args['input']
+
+# if output path is provided, convert to Path object
+if isinstance(args['output'], str):
+    output_path = Path(args['output'])
+else:
+    output_path = args['output']
+
+# I don't have a way to accept a non-default minimum precision score yet (--min-score) so print warning if provided one
+if not isinstance(args['min_score'], dict):
+    default_precision = settings['demultiplex']['min_precision']
+    print(f'WARNING. This version of {Path(__file__).name} is not yet configured to accept values for '
+          f'--min-score that differ from the default values from the configuration file. Using the default '
+          f'values of:\n'
+          f'   {default_precision.items()}')
 
 # set variable that will only switch to True if files requiring demultiplexing are detected
 files_demuxed = False
@@ -69,18 +67,18 @@ files_demuxed = False
 #####################
 # ILLUMINA ##########
 #####################
-platform = 'illumina'
-
-# check if there are Illumina reads that need to be demultiplexed
-is_input, illumina_files = check_for_input(fpm['sequences']['demux'], seq_platform=platform)
-
-if is_input:
-    msg = f'WARNING. Currently, there is no script that can demultiplex Illumina reads. You can continue with the ' \
-          f'pipeline, but these {len(illumina_files)} multiplexed Illumina sequencing files will be ignored. Do you ' \
-          f'wish to continue without these sequences?'
-    prompt_yes_no_quit(message = msg)
-else:
-    pass
+# platform = 'illumina'
+#
+# # check if there are Illumina reads that need to be demultiplexed
+# is_input, illumina_files = check_for_input(input_path, seq_platform=platform)
+#
+# if is_input:
+#     msg = f'WARNING. Currently, there is no script that can demultiplex Illumina reads. You can continue with the ' \
+#           f'pipeline, but these {len(illumina_files)} multiplexed Illumina sequencing files will be ignored. Do you ' \
+#           f'wish to continue without these sequences?'
+#     prompt_yes_no_quit(message = msg)
+# else:
+#     pass
 
 #####################
 # PACBIO ############
@@ -88,35 +86,35 @@ else:
 platform = 'pacbio'
 
 # check if there are PacBio reads that need to be demultiplexed
-is_input, pacbio_files = check_for_input(fpm['sequences']['demux'], seq_platform='\d{4}')
+is_input, pacbio_files = check_for_input(input_path, seq_platform=r'\d{4}')
 
 if is_input:
     files_demuxed = True
     print(f'{len(pacbio_files)} PacBio sequencing files were detected that require demultiplexing...')
 
     # create output directory for demultiplexed samples
-    mkdir_exist_ok(new_dir = fpm['pipeline-output']['demultiplexed'])
+    mkdir_exist_ok(new_dir = output_path)
 
     # demultiplex input files
-    demultiplex(file_map=fpm, multiplexed_files=pacbio_files)
+    demultiplex(output_dir=output_path, file_map=fpm, multiplexed_files=pacbio_files)
 else:
     pass
 
 #####################
 # SANGER ############
 #####################
-platform = 'sanger'
-
-# check if there are Sanger reads that need to be demultiplexed
-is_input, sanger_files = check_for_input(fpm['sequences']['demux'], seq_platform=platform)
-
-if is_input:
-    msg = f'WARNING. Currently, there is no script that can demultiplex Sanger reads. You can continue with the ' \
-          f'pipeline, but these {len(sanger_files)} multiplexed Sanger sequencing files will be ignored. Do you ' \
-          f'wish to continue without these sequences?'
-    prompt_yes_no_quit(message = msg)
-else:
-    pass
+# platform = 'sanger'
+#
+# # check if there are Sanger reads that need to be demultiplexed
+# is_input, sanger_files = check_for_input(input_path, seq_platform=platform)
+#
+# if is_input:
+#     msg = f'WARNING. Currently, there is no script that can demultiplex Sanger reads. You can continue with the ' \
+#           f'pipeline, but these {len(sanger_files)} multiplexed Sanger sequencing files will be ignored. Do you ' \
+#           f'wish to continue without these sequences?'
+#     prompt_yes_no_quit(message = msg)
+# else:
+#     pass
 
 #########################
 
