@@ -1,6 +1,6 @@
 import pathlib, argparse, subprocess, re, sys, json, shutil
 from pathlib import Path
-from climush.utilities import check_dir_exists
+from climush.utilities import check_dir_exists, is_pathclass
 
 # define command line options
 parser = argparse.ArgumentParser(prog='SortPacbioFiles',
@@ -29,6 +29,10 @@ parser.add_argument('--dry-run', action='store_true',
                     help='Performs a dry run of the file sorting, where an exact copy of the original directory '
                          'tree')
 
+# if files have been sorted using this script, will restore the files/directories to their original structure
+parser.add_argument('--restore', action='store_true',
+                    help='Restores the files and directories to their original file structure before sorting.')
+
 args = parser.parse_args()
 
 
@@ -53,15 +57,81 @@ if args.dry_run:
     # then replace the input_path with the path to the dummy copy of the input_path
     input_path = dummydir_path
 
+#####################################################
+# RESTORE ORIGINAL FILE STRUCTURE (IF REQUESTED) ####
+#####################################################
+
+# define path to the summary directory, which is used later but required now for a restore
+summary_main = input_path / f'{run_id}_summary'
+
+# define the path to the .json file sorting output here; saved at end but need path now for restore
+file_rename_path = (summary_main / f'{run_id}_file-sorting').with_suffix('.json')
+
+if args.restore:
+
+    if file_rename_path.is_file():
+
+        # find the file sorting .json file that is output when this script is run
+        with open(file_rename_path) as json_in:
+            restore_dict = json.load(json_in)
+
+        # json package does not allow PosixPath as dict key, so this dict only contains strings
+        for src, trg in restore_dict.items():
+            Path(trg).rename(Path(src))  # need to reset string paths to PosixPaths
+
+        print(f'The original file structure was successfully restored.\n')
+
+    else:
+
+        print(f'This directory:\n'
+              f'  {input_path}\n'
+              f'does not appear to have been renamed using the script {Path(__file__).name}. It attempted to locate '
+              f'the file:\n'
+              f'  {file_rename_path}\n'
+              f'to restore the original file structure but could not locate it.\n')
+
+    sys.exit()
+
 #############################################
 # SAVE COPY OF ORIGINAL FILE TREE ###########
 #############################################
 
-# assemble Unix command to write file tree out to .txt file
-# writeout_tree_cmd = ['tree', input_path, '>', f'{run_id}_original-file-tree.txt']
+# do not do this for a dry run
+if args.dry_run:
+    pass
+else:
+    # original file tree path
+    original_tree_path = (summary_main / f'{run_id}_original-file-tree').with_suffix('.txt')
 
-# execute command
-# subprocess.run(writeout_tree_cmd)
+    def save_file_tree(parent_dir, out_path, save=True):
+        '''
+        Create a text file containing the file tree of the input parent directory.
+
+        :param parent_dir: top level directory within the tree
+        :param out_path: file path to save the tree to
+        :return: None; saves file in background
+        '''
+
+        # assemble Unix command to get tree
+        tree_cmd = ['tree', parent_dir]
+
+        # execute command
+        tree_out = subprocess.run(tree_cmd, capture_output=True, text=True)
+
+        if save:
+            # write stdout to file
+            with open(out_path, 'w') as fout:
+                fout.write(tree_out.stdout)
+
+            return None
+        else:
+            return tree_out
+
+    # do not save now, since output path does not yet exist
+    # cannot just use function later, because don't want new directory (summary_main) in original tree
+    og_tree = save_file_tree(parent_dir=input_path,
+                             out_path=original_tree_path,
+                             save=False)
 
 #############################################
 # CREATE NEW DIRECTORIES FOR SORTING ########
@@ -142,8 +212,6 @@ read_path.mkdir(mode=0o777, parents=args.no_parent, exist_ok=args.overwrite)
 
 # SEQUENCE RUN SUMMARY INFORMATION
 
-summary_main = input_path / f'{run_id}_summary'
-
 summary_paths = {'main': '',
                  'file-transfer': ''}
 
@@ -159,6 +227,9 @@ for p in summary_paths:
         subdir.mkdir(mode=0o777, parents=args.no_parent, exist_ok=args.overwrite)
         summary_paths[p] = subdir
 
+if not args.dry_run:
+    with open(original_tree_path, 'w') as fout:
+        fout.write(og_tree.stdout)
 
 #########################################################
 # WALK UNSORTED PATH AND RECORD FILE LOCATIONS ##########
@@ -296,29 +367,67 @@ if len(missing_files) > 0:
 # USE DICTIONARY TO MOVE FILES
 
 # go through the dict, and sort the files
+
+# json package does not allow PosixPath objects as keys, so create new dict to add paths to as strings
 src_trg_str_dict = {}
+
 for src, trg in src_trg_dict.items():
+
+    # rename the original file with the updated file path (i.e., 'move')
     src.rename(trg)
-    src_trg_str_dict[str(src)] = str(trg)
 
-# IF DRY RUN FLAG USED, REPORT SUCCESS AND REMOVE EMPTY TEST DIRECTORY
-if args.dry_run:
+    # add source/target paths as strings to .json output dict
+    src_trg_str_dict[str(src)] = str(trg)  # cannot be PosixPath for .json output
 
-    print(f'The dry run of file sorting was successful.')
+def find_and_delete_empty_dirs(parent_dir):
+    '''
+    Locate and remove empty directories within a parent directory.
 
-    # check that the size of the directory is small (won't be zero) before removing
-    if input_path.stat().st_size < 500:
+    :param parent_dir: the top-level directory in which to search and remove empty
+    directories
+    :return: none
+    '''
 
-        # removes an empty directory; test directory copy should be empty
-        shutil.rmtree(input_path)
+    if args.dry_run:
 
-    # exit here, without creating the path dictionary
-    sys.exit()
+        shutil.rmtree(parent_dir)
+        print(f'The dry run of file sorting was successful.')
+        return sys.exit()
 
+    else:
+        empty_dirs = []
+
+        for root, subdir, _ in parent_dir.walk(top_down=False):
+
+            for sd in subdir:
+                full_path = root / sd
+                try:
+                    full_path.rmdir()  # should only remove if the directory is empty
+                    empty_dirs.append(f'  {full_path}\n')  # format for printing before adding to list
+                except OSError:  # should raise OSError if directory if not empty
+                    continue
+
+        print(f'The following {empty_dirs} directories were empty and therefore removed:\n'
+              f'  {empty_dirs}')
+
+        return None
+
+# REMOVE ALL EMPTY DIRECTORIES
+# if this is a dry run, it will remove all of the directories it produced
+find_and_delete_empty_dirs(parent_dir=input_path)
 
 # SAVE THIS DICTIONARY FOR RECORD OF OLD FILE LOCATIONS AND NEW FILE LOCATIONS
 
 # export this dictionary, as record of old and new file paths
-file_rename_path = (summary_paths['main'] / f'{run_id}_file-sorting').with_suffix('.json')
 with open(file_rename_path, 'w+') as jout:
     json.dump(src_trg_str_dict, jout)
+
+#############################################
+# SAVE COPY OF NEW FILE TREE ################
+#############################################
+
+# original file tree path
+new_tree_path = (summary_main / f'{run_id}_updated-file-tree').with_suffix('.txt')
+
+save_file_tree(parent_dir=input_path,
+               out_path=new_tree_path)
