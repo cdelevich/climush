@@ -403,12 +403,12 @@ def find_and_delete_empty_dirs(parent_dir):
                 full_path = root / sd
                 try:
                     full_path.rmdir()  # should only remove if the directory is empty
-                    empty_dirs.append(f'  {full_path}\n')  # format for printing before adding to list
+                    empty_dirs.append(('  ' + str(full_path) + '\n'))  # format for printing before adding to list
                 except OSError:  # should raise OSError if directory if not empty
                     continue
 
-        print(f'The following {empty_dirs} directories were empty and therefore removed:\n'
-              f'  {empty_dirs}')
+        print(f'The following {len(empty_dirs)} directories were empty and therefore removed:\n')
+        print(*empty_dirs)
 
         return None
 
