@@ -1011,7 +1011,7 @@ def separate_subregions(input_files, file_map):
     settings = get_settings(file_map)
     run_name = settings['run_details']['run_name']
 
-    itsx_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['separate-subregions'])
+    itsx_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['separated-subregions'])
 
     itsx_path = mkdir_exist_ok(new_dir=f'./{ITSX_PREFIX}_{run_name}',  parent_dir=itsx_parent)
 
@@ -1025,7 +1025,7 @@ def separate_subregions(input_files, file_map):
         run_subprocess(itsx_command, dest_dir=itsx_parent,
                        auto_respond=settings['automate']['auto_respond'])
 
-    return None
+    return itsx_path
 
 def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_delim=';', **kwargs):
     '''
@@ -1203,7 +1203,7 @@ def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_
 
     return None
 
-def check_itsx_output(itsx_dir, full_len_dir, num_bp_compare, write_to_log=True, same_threshold=99):
+def check_concat_output(itsx_dir, full_len_dir, num_bp_compare, write_to_log=True, same_threshold=99):
 
     bp = int(num_bp_compare)
 
