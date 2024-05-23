@@ -1,1 +1,4 @@
 pacbio_sporocarp-f_2024-04_filepaths.txt
+/file-naming/illumina_soil-litter_2023-10_raw-reads_empty/
+/config/*.ini
+./*.txt
