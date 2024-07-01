@@ -2,16 +2,23 @@ from pathlib import Path
 import sys
 from climush.utilities import mkdir_exist_ok
 
-# PIPELINE
+# path to the pipeline scripts
 try:
     PIPELINE = Path(__file__).parent.resolve()
 except NameError:
     PIPELINE = Path('mapping.py').parent.resolve()
-
-PIPE_RENAME = next(PIPELINE.glob('*rename*'))
+# WHY DO I HAVE THIS?
 PIPE_DEMUX = next(PIPELINE.glob('*demu*'))
 
+# path to the main pipeline directory
 ROOT = PIPELINE.parent.resolve()
+
+# path to helper scripts
+HELPERS = ROOT.parent.resolve() / 'helper-scripts'
+
+# THIS ONE WAS RENAMED FROM PIPE_RENAME
+HELPERS_RENAME = next(HELPERS.glob('*nam*'))  # dir containing renaming scripts/files
+HELPERS_SORT = next(HELPERS.glob('*sort*'))
 
 # CONFIGURATION
 CONFIG = ROOT / 'config'
@@ -58,7 +65,6 @@ filepath_map = {'root': ROOT,
                                             'chimera':CHIM_DB,
                                             'taxonomy':TAX_DB}},
                 'pipeline': {'main':PIPELINE,
-                             'rename':PIPE_RENAME,
                              'demux':PIPE_DEMUX},
                 'sequences': {'main': SEQUENCES,
                               'pacbio':SORT_PACBIO,
