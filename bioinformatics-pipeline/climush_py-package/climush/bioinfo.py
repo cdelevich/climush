@@ -1006,25 +1006,41 @@ def dereplicate(input_files, derep_step, platform, file_map):
 
     return None
 
-def separate_subregions(input_files, file_map):
+def separate_subregions(input_files, file_map, verbose=False):
 
+    # import configuration settings
     settings = get_settings(file_map)
     run_name = settings['run_details']['run_name']
 
+    # create a directory for all ITSx output, if one does not exist
     itsx_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['separated-subregions'])
 
+    # create a directory within the main ITSx output for this particular pipeline run
     itsx_path = mkdir_exist_ok(new_dir=f'./{ITSX_PREFIX}_{run_name}',  parent_dir=itsx_parent)
 
+    # run ITSx for each input file
     for file in input_files:
 
-        itsx_output_basename = add_prefix(file_path=file, prefix=ITSX_PREFIX, dest_dir=itsx_path, action=None).with_suffix('')
+        # create a new directory for each sample, since multiple files per sample are produced
+        itsx_sample_parent = mkdir_exist_ok(new_dir=file.stem, parent_dir=itsx_path)
 
-        itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'F', '--multi_thread', 'T',
-                        '--save_regions', 'all']
+        # construct a base name that ITSx will use for the output files
+        itsx_output_basename = add_prefix(file_path=file, prefix=ITSX_PREFIX,
+                                          dest_dir=itsx_sample_parent, action=None).with_suffix('')
 
+        # construct the ITSx command; will produce more output if verbose=True (defaults to False)
+        if verbose:
+            itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'F', '--multi_thread', 'T',
+                            '--save_regions', 'all']
+        else:
+            itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'F', '--multi_thread', 'T',
+                            '--graphical', 'F', '--positions', 'F', '--save_regions', '{ITS1,5.8S,ITS2,LSU}']
+
+        # run the ITSx command
         run_subprocess(itsx_command, dest_dir=itsx_parent,
                        auto_respond=settings['automate']['auto_respond'])
 
+    # return the ITSx output path for this sequencing run
     return itsx_path
 
 def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_delim=';', **kwargs):
@@ -1405,6 +1421,17 @@ def cluster_reads(input_files, file_map):
 
     return None
 
+def choose_representative(input_files, file_map):
+    '''
+    Decide which PacBio read to use as the representative read.
+
+    :param input_files:
+    :param file_map:
+    :return:
+    '''
+
+    # create a BioSeq object to store the representative reads into
+    # combine all representative reads into a single file
 
 # def create_blast_db(config_dict, file_map, taxa_list=None):
 #     '''
