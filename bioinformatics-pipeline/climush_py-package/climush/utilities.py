@@ -290,9 +290,9 @@ def run_subprocess(cli_command_list, dest_dir, auto_respond=False):
 def func_timer(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
-        start_time = datetime.datetime.now()
+        start_time = datetime.now()
         func_output = func(*args, **kwargs)
-        end_time = datetime.datetime.now()
+        end_time = datetime.now()
         runtime = str(end_time - start_time).split('.')[0]  # round seconds down
         print(f"{func.__name__} was executed in {runtime}.\n")
         return func_output
@@ -353,26 +353,75 @@ def import_mapping_df(df_path, auto_respond=False):
     entirety of that dataframe file.
     '''
 
-    if re.search(r'^\.x', df_path.suffix):  # if an excel file
+    # if the mapping file is an excel file...
+    if re.search(r'^\.x', df_path.suffix):
+
+        # read in all tabs from the table
         mapping_tabs = pd.read_excel(df_path, sheet_name=None)  # need to set sheet_name to None to get all tabs
         old_tab_names = list(mapping_tabs.keys())  # make list of old names, otherwise cannot update key names in loop
+
+        # create a set to add pool numbers to when they are found from tabs in .xlsx file
+        # if there are multiple tabs, some of which are unrelated to pools, will need to reference this
+        found_pools = {'pool01':'',
+                       'pool02':''}
+        miscell_tabs = []
+
         for tab in old_tab_names:
+
             try:  # format the name of the tab to be uniform across all tabs/dataframes
                 pool_num = re.search(POOL_NUM_RE, tab, re.I).group(0)
-            except AttributeError:
-                print(f'The pool number could not be inferred from tab {tab} in the mapping file {df_path.name}. '
-                      f'Please type the correct pool number for this file: ')
-                pool_num = prompt_print_options(['1', '2'], auto_respond=auto_respond)  # choose from 1 or 2 (or quit, built into function)
-            mapping_tabs[f'pool{pool_num}'] = mapping_tabs.pop(tab)  # replace old tab (key) with reformatted one
+
+                # add the found pool number to the found_pools set
+                if re.search(r'1', pool_num):
+                    found_pools['pool1'] = tab
+                elif re.search(r'2', pool_num):
+                    found_pools['pool2'] = tab
+                else:
+                    print(f'ERROR. A pool number was detected in the tab {tab} in the mapping file {df_path.name}, '
+                          f'but it could not be determined whether this was the number for pool 01 or pool 02.\n')
+                    return sys.exit()
+
+            except AttributeError:  # if this tab does not contain pool information, or at least not detected as such...
+
+                # add this tab name to the miscell_tabs list to check at end whether might be a pool tab or not
+                miscell_tabs.append(tab)
+
+            for pool_num, pool_tab in found_pools.items():
+
+                # if no tab was found matching this pool...
+                if pool_tab == '':
+
+                    # print a warning and prompt user to chose the tab that corresponds to this pool
+                    print(f'WARNING. The pool number for {pool_num} could not be inferred from tabs in the '
+                          f'mapping file {df_path.name}. Please enter the number of the tab that corresponds to '
+                          f'{pool_num}')
+
+                    # will return the name of the tab to use, so update var pool_tab to match
+                    pool_tab = prompt_print_options(miscell_tabs, auto_respond=auto_respond)
+
+                mapping_tabs[pool_num] = mapping_tabs.pop(pool_tab)  # replace old tab (key) with reformatted one
+
+
+
+    # if the mapping file is a .csv or .txt file...
     elif re.search(r'^\.c|^\.txt$', df_path.suffix):  # I think you can read in .txt and .csv files the same way?
+
         try:  # try to get the pool number from the file name
+
             pool_num = re.search(POOL_NUM_RE, df_path.name, re.I).group(0)
+
         except AttributeError:  # if there's no detected pool number in the name, prompt user to specify one
+
             print(f'The pool number could not be inferred from the file name of the mapping file {df_path.name}. '
                   f'Please type the correct pool number for this file: ')
             pool_num = prompt_print_options(['1', '2'], auto_respond=auto_respond)  # choose from 1 or 2 (or quit, built into function)
+
         mapping_tabs = {f'pool{pool_num}': pd.read_csv(df_path)}  # make dict to match format from .xlsx
+
+    # if the mapping file doesn't appear to be .xlsx, .csv, or .txt...
     else:
+
+        # can't use this file with the current version of the pipeline functions
         print(f'ERROR. The file format {df_path.suffix} of the mapping file {df_path.name} is not a recognized '
               f'file type. Accepted file types are: \'.xlsx\', \'.csv\', and \'.txt\'.\n')
         sys.exit()
@@ -477,6 +526,64 @@ def continue_to_next(this_script, config_dict):
 #######################
 # FILE PATHS ##########
 #######################
+
+
+def import_filepath(arg_value, must_exist, make_absolute=True):
+    '''
+    Import a file path from parsed command line options as a Path object.
+
+    Takes the value returned from a parsed argparse argument, typically as
+    a dictionary element. Should also accept an argparse Namespace class as
+    long as it has already been indexed into a string (makes no difference).
+    :param arg_value: value from the parsed command line argument that expects
+    a path-like string or Path object (e.g., for default values from config files)
+    :param
+    :param make_absolute: whether to convert the Path object to an absolute
+    file path if a relative file path is provided
+    :return: the input path as a Path object
+    '''
+
+    # convert input to a Path class object
+    if is_pathclass(arg_value, exit_if_false=False):
+        input_path = arg_value
+    else:
+        input_path = Path(arg_value)
+
+    # check through the rest of the settings for the path (must_exist, make_absolute)
+
+    # if the path must exist and want to make it absolute...
+    if make_absolute and must_exist:  # [T/T]
+        try:  # using strict=True will both check that the path exists and make it absolute
+            return input_path.resolve(strict=True)
+        except FileNotFoundError:  # if it doesn't exist, then FileNotFoundError will be triggered
+            # in this case, print an error message with the error-causing path, and exit function
+            # because there is one other section with same error message, just pass and will print error + exit at end
+            pass
+
+    # if only want to make the path absolute...
+    elif make_absolute:  # [T/F] if it were both, it would have already execute first if statement
+        return input_path.resolve(strict=False)
+
+    # if I only want to ensure that the path exists...
+    elif must_exist:  # [F/T] if make_absolute were true, it would have executed by now
+        if input_path.is_dir() or input_path.is_file():  # accept either directories or files
+            return input_path
+        else:
+            # because there is one other section with same error message, just pass and will print error + exit at end
+            pass
+
+    # if I don't want either setting; I don't want to require that path exists nor that the path be absolute
+    else:
+        return input_path
+
+    # print collected ERROR message, if any, and exit script if this point is reached
+    # only errors will not have returned anything by now
+    msg = (f'ERROR. The following path provided does not exist: \n'
+           f' {input_path} \n'
+           f'A path to an existing file or directory is required for this function. '
+           f'Please check this path and then rerun.\n')
+    print(msg)
+    return sys.exit()
 
 def filter_empty_files(dir_path, keep_empty=True):
     empty_files = 0
@@ -797,6 +904,9 @@ def add_prefix(file_path, prefix, dest_dir, action='rename', f_delim='_'):
         elif action == 'copy':
             new_path = dest_dir / new_name
             shutil.copy(file_path, new_path)
+        elif action == 'mkdir':
+            new_path = (dest_dir / new_name).with_suffix('')
+            mkdir_exist_ok(new_dir=new_path, parent_dir=dest_dir)
         else:
             new_path = dest_dir / new_name
 
@@ -959,9 +1069,9 @@ def get_sample_id(file_path, platform=None):
         if platform is None:
             platform_re = SAMPLE_ID_RE  # search for sample ID for any of the seq platforms
         else:  # if it did find a platform, then use in regex
-            platform_re = r'(?<=_' + f'{platform.lower()}' + r'_).+?_0[1-9]'
+            platform_re = f'{platform.lower()}' + r'_.+?(?=\.)'
     else:  # if a platform was provided, then use this in the regex
-        platform_re = r'(?<=_' + f'{platform.lower()}' + r'_).+?_0[1-9]'
+        platform_re = f'{platform.lower()}' + r'_.+?(?=\.)'
 
     try:
         sample_id = re.search(platform_re, file_path.name, re.I).group(0)
