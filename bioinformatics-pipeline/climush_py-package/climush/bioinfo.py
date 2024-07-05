@@ -1022,18 +1022,18 @@ def separate_subregions(input_files, file_map, verbose=False):
     for file in input_files:
 
         # create a new directory for each sample, since multiple files per sample are produced
-        itsx_sample_parent = mkdir_exist_ok(new_dir=file.stem, parent_dir=itsx_path)
+        itsx_sample_dir = add_prefix(file_path=file, prefix=ITSX_PREFIX, dest_dir=itsx_path, action='mkdir')
 
         # construct a base name that ITSx will use for the output files
         itsx_output_basename = add_prefix(file_path=file, prefix=ITSX_PREFIX,
-                                          dest_dir=itsx_sample_parent, action=None).with_suffix('')
+                                          dest_dir=itsx_sample_dir, action=None).with_suffix('')
 
         # construct the ITSx command; will produce more output if verbose=True (defaults to False)
         if verbose:
-            itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'F', '--multi_thread', 'T',
+            itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'fungi', '--multi_thread', 'T',
                             '--save_regions', 'all']
         else:
-            itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'F', '--multi_thread', 'T',
+            itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'fungi', '--multi_thread', 'T',
                             '--graphical', 'F', '--positions', 'F', '--save_regions', '{ITS1,5.8S,ITS2,LSU}']
 
         # run the ITSx command
