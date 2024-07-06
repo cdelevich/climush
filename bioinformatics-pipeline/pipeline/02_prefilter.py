@@ -1,6 +1,6 @@
 from mapping import filepath_map as fpm
 
-import argparse, sys, subprocess
+import argparse, sys, subprocess, pathlib
 from pathlib import Path
 from climush.constants import *
 from climush.bioinfo import filter_out_phix, prefilter_fastx
@@ -27,7 +27,7 @@ args = vars(parser.parse_args())
 platform = 'illumina'
 
 # if no user-input sequence file path is provided, then look in pipeline directory
-if isinstance(args['input'], dict):
+if isinstance(args['input'], dict):  # default input will have subfolders and therefore be a dict
     input_path = args['input'][platform]
 else:
     input_path = Path(args['input'])

@@ -1,6 +1,6 @@
 from mapping import filepath_map as fpm
 
-import argparse, sys, re, subprocess
+import argparse, sys, re, subprocess, pathlib
 from climush.constants import *
 from climush.utilities import *
 
@@ -15,10 +15,12 @@ parser = argparse.ArgumentParser(prog=Path(__file__).stem,
                                  epilog='')
 
 parser.add_argument('-sp', '--seq-path', default=fpm['sequences']['main'],
+                    type=pathlib.PurePath,
                     help='The path to the sequencing files. Will default to the location that is '
                          'expected with the Docker container\'s native file structure.')
 
 parser.add_argument('-cp', '--config-path', default=fpm['config']['main'],
+                    type=pathlib.PurePath,
                     help='The path to the configuration files. Will default to the location that is '
                          'expected with the Docker container\'s native file structure.')
 
@@ -52,11 +54,11 @@ for dir in dir_requires_action:
             platform_type = input(f'At minimum, the sequencing files are required to have the sequencing platform '
                                   f'associated with each file. What type of sequencing technology was used to '
                                   f'produce these sequences?[illumina,pacbio,sanger]')
-            if re.search('^i', platform_type, re.I):
+            if re.search(r'^i', platform_type, re.I):
                 add_prefix(dir, prefix='illumina', dest_dir=dir)
-            elif re.search('^p', platform_type, re.I):
+            elif re.search(r'^p', platform_type, re.I):
                 add_prefix(dir, prefix='pacbio', dest_dir=dir)
-            elif re.search('^s', platform_type, re.I):
+            elif re.search(r'^s', platform_type, re.I):
                 add_prefix(dir, prefix='sanger', dest_dir=dir)
             else:
                 print(f'The prefix provided, {platform_type}, does not match any of the available options.\n')
@@ -71,11 +73,11 @@ for dir in dir_requires_action:
         platform_type = input(f'At minimum, the sequencing files are required to have the sequencing platform '
                               f'associated with each file. What type of sequencing technology was used to '
                               f'produce these sequences?[illumina,pacbio,sanger]')
-        if re.search('^i', platform_type, re.I):
+        if re.search(r'^i', platform_type, re.I):
             add_prefix(dir, prefix='illumina', dest_dir=dir)
-        elif re.search('^p', platform_type, re.I):
+        elif re.search(r'^p', platform_type, re.I):
             add_prefix(dir, prefix='pacbio', dest_dir=dir)
-        elif re.search('^s', platform_type, re.I):
+        elif re.search(r'^s', platform_type, re.I):
             add_prefix(dir, prefix='sanger', dest_dir=dir)
         else:
             print(f'The prefix provided, {platform_type}, does not match any of the available options.\n')

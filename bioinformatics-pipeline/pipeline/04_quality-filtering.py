@@ -1,6 +1,7 @@
 from mapping import filepath_map as fpm
 
-import argparse, sys, subprocess
+import argparse, sys, subprocess, pathlib
+from datetime import datetime
 from pathlib import Path
 from climush.constants import *
 from climush.bioinfo import merge_reads, quality_filter
@@ -16,6 +17,7 @@ parser = argparse.ArgumentParser(prog=Path(__file__).stem,
 # input directory containing the files to quality filter
 parser.add_argument('-i', '--input',
                     default=fpm['pipeline-output']['primers-trimmed'] / f'trim_{run_name}',
+                    type=pathlib.PurePath,
                     help='The path to a directory containing sequencing files to quality filter. If nothing provided, '
                          'will default to the location that is expected in the Docker container\'s native file '
                          'structure, detailed in pipeline/mapping.py.')
@@ -30,6 +32,7 @@ parser.add_argument('--merge', action=argparse.BooleanOptionalAction,
 # to run quality filtering and merging separately, for time restriction
 parser.add_argument('--merge-from', nargs='?',
                     default=None,
+                    type=pathlib.PurePath,
                     help='If running merging separately from quality filtering, provide the path to the '
                          'directory containing the quality-filtered paired sequence files to merge.')
 
@@ -59,12 +62,11 @@ args = vars(parser.parse_args())
 #####################
 platform = 'illumina'
 
-# parse default or CL arguments
-# if an input path is provided, convert to a Path object
-if isinstance(args['input'], str):
-    input_path = Path(args['input'])
+# if a merge_from path provided, ensure it is a Path object
+if args['merge_from'] is None:
+    merge_from = None
 else:
-    input_path = args['input']
+    merge_from = Path(args['merge_from'])
 
 # FIGURE OUT HOW TO UPDATE THE SETTINGS WITH COMMAND LINE INPUT
 print(f'Currently, this is not updated to accomodate changes to the configuration based on command line arguments. '
@@ -75,12 +77,12 @@ is_input, illumina_files = check_for_input(input_path, seq_platform=platform)
 
 if is_input:
     # if the --merge-from flag is not included, go through quality filter process
-    if args['merge_from'] is None:
+    if merge_from is None:
         filtered_path = quality_filter(input_files=illumina_files, platform=platform, file_map=fpm)
+        is_merge, filtered_files = check_for_input(filtered_path, seq_platform=platform)
     else:
         is_merge, filtered_files = check_for_input(filtered_path, seq_platform=platform)
     # confirm that there are
-    is_merge, filtered_files = check_for_input(filtered_path, seq_platform=platform)
     if args['merge'] and is_merge:
         print(f'\nMerging reads from {filtered_path}...')
         merge_reads(input_files=filtered_files, file_map=fpm)
@@ -91,7 +93,10 @@ if is_input:
         print(f'\nNot merging reads; instead using forward reads only.')
 else:
     pass
-
+end_time = datetime.now()
+run_time = end_time - start_time
+print(f'{int(len(filtered_files)/2)} paired-end samples were run through quality filtering and merging '
+      f'in {run_time}.\n')
 #####################
 # PACBIO ############
 #####################

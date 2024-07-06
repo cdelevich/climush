@@ -1,6 +1,6 @@
 from mapping import filepath_map as fpm
 
-import argparse, sys, re, json
+import argparse, sys, re, json, pathlib
 from pathlib import Path
 import pandas as pd
 from climush.constants import *
@@ -18,6 +18,7 @@ parser = argparse.ArgumentParser(prog=Path(__file__).stem,
 # input directory containing the files to demultiplex
 parser.add_argument('-i', '--input',
                     default=fpm['sequences']['demux'],
+                    type=pathlib.PurePath,
                     help='The path to a directory containing sequencing files to demultiplex. If nothing provided, '
                          'will default to the location that is expected in the Docker container\'s native file '
                          'structure, detailed in pipeline/mapping.py.')
@@ -25,6 +26,7 @@ parser.add_argument('-i', '--input',
 # output directory to send the demultiplexed reads to
 parser.add_argument('-o', '--output',
                     default=fpm['pipeline-output']['demultiplexed'],
+                    type=pathlib.PurePath,
                     help='The path to a directory containing sequencing files to demultiplex. If nothing provided, '
                          'will default to the location that is expected in the Docker container\'s native file '
                          'structure, detailed in pipeline/mapping.py.')
@@ -40,18 +42,6 @@ parser.add_argument('--min-score', nargs='?',
 args = vars(parser.parse_args())
 
 # parse default or CL arguments
-
-# if an input is provided, convert to a Path object
-if isinstance(args['input'], str):
-    input_path = Path(args['input'])
-else:
-    input_path = args['input']
-
-# if output path is provided, convert to Path object
-if isinstance(args['output'], str):
-    output_path = Path(args['output'])
-else:
-    output_path = args['output']
 
 # I don't have a way to accept a non-default minimum precision score yet (--min-score) so print warning if provided one
 if not isinstance(args['min_score'], dict):

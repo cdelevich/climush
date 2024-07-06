@@ -1,6 +1,6 @@
 from mapping import filepath_map as fpm
 
-import argparse, sys, subprocess
+import argparse, sys, subprocess, pathlib
 from pathlib import Path
 from climush.constants import *
 from climush.bioinfo import dereplicate
@@ -16,19 +16,12 @@ parser = argparse.ArgumentParser(prog=Path(__file__).stem,
 # input directory containing the files to dereplicate
 parser.add_argument('-i', '--input',
                     default=fpm['pipeline-output']['primers-trimmed'] / f'trim_{run_name}',
+                    type=pathlib.PurePath,
                     help='The path to a directory containing sequencing files to dereplicate. If nothing provided, '
                          'will default to the location that is expected in the Docker container\'s native file '
                          'structure, detailed in pipeline/mapping.py.')
 
 args = vars(parser.parse_args())
-
-# parse default or CL arguments
-
-# if an input path is provided, convert to a Path object
-if isinstance(args['input'], str):
-    input_path = Path(args['input'])
-else:
-    input_path = args['input']
 
 #####################
 # ILLUMINA ##########
