@@ -17,6 +17,11 @@ NAME_CONFIG_HANDLE = 'filename-components'
 # CONFIGURATION FILE SECTIONS
 PIPELINE_CONFIG_MPID = 'pacbio-multiplex-ids'
 
+# SEQUENCE FILE NAMES
+MOCK_COMM_RE = r'^mock'
+NEG_CTRL_RE = r'^ntc'
+UNDET_RE = r'^undet'
+
 # MISCELL REGEX
 AFFIRM_REGEX = r'^c|(continue)|^y'
 
@@ -26,9 +31,11 @@ QUIT_RE = r'^quit.*?|^exit.*?'  # avoids confusion about whether to use quit or 
 
 HIDDEN_FILE_REGEX = r'^\.'
 GZIP_REGEX = r'(\.fast.\.gz)$'
+GZIP_GLOB = '*.fastq.gz'
 ANY_PLATFORM_REGEX = r'^illumina|^pacbio|^sanger'
 PLATFORM_ANYWHERE_RE = r'illumina|pacbio|sanger'
 SEQ_FILE_GLOB = '*.fast*'
+SEQ_FILE_RE = r'\.fast.$'
 
 
 ORIENT_RE = r'(?<=_0[1-9]_)R[1,2](?=\.)'
@@ -77,13 +84,13 @@ PREFIX_RE = r'^\w.+?(?=_pacbio|_sanger|_illumina)'  # used in search_path_with_r
 READ_ID_RENAMED_RE = r'^.+?(?=;)'  # used in concat_regions() in bioinfo.py
 
 # get the gene region of a read after the header has been reformatted by rename_read_header() from utilities.py
-READ_REGION_RENAMED_RE = r'(?<=\d;)\w.+?(?=;)'  # used in concat_regions() in bioinfo.py
+READ_REGION_RENAMED_RE = r'(?<=[A-Z]\|)\w.+?(?= Extracted)'  # used in concat_regions() in bioinfo.py
 
 # get the read length of a read after the header has been reformatted by rename_read_header() from utilities.py
-READ_LEN_RENAMED_RE = r'(?<=len=)[0-9]{1,}(?=bp)'  # used in concat_regions() in bioinfo.py
+READ_LEN_RENAMED_RE = r'(?<=\()[0-9]{1,}(?= bp\))'  # used in concat_regions() in bioinfo.py
 
 # get the read count of a read after the header has been reformatted by rename_read_header() from utilities.py
-READ_COUNT_RENAMED_RE = r'(?<=full\-len_copies=)[0-9]{1,}'  # used in concat_regions() in bioinfo.py
+READ_COUNT_RENAMED_RE = r'(?<=;size=)[0-9]{1,}(?=\|)'  # used in concat_regions() in bioinfo.py
 
 
 # PIPELINE FILE PREFIXES
