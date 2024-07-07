@@ -1043,7 +1043,7 @@ def separate_subregions(input_files, file_map, verbose=False):
     # return the ITSx output path for this sequencing run
     return itsx_path
 
-def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_delim=';', **kwargs):
+def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_delim=';'):
     '''
     Concatenates provided regions for each read.
 
@@ -1065,17 +1065,6 @@ def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_
     the concatenated fasta output; defaults to semicolon
     :return: None, but will write out a fasta file
     '''
-
-    # REMOVE AFTER TESTING
-    # dir_path = Path('./04_separated-subregions/itsx_pacbio_sporocarp-f_2023-12_Q40')
-    # regions_to_concat = ['ITS1', '5_8S', 'ITS2']
-    # header_delim = ';'
-    ######################
-    for kw in kwargs.keys():
-        if re.search(r'suffix', kw, re.I):
-            file_suffix = f'_{kwargs[kw]}'
-        else:
-            file_suffix = ''
 
     # create dictionary for acceptable input
     accepted_regions = {r'(^S.+?(?=\bs)|SSU)': 'SSU',  # could be better but not going to obsess
@@ -1128,11 +1117,13 @@ def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_
 
     fastas_to_concat = [search_path_with_regex(dir_path, regex=r) for r in region_search_dict.values()]
 
-    sample_name = get_sample_id(file_path = fastas_to_concat[0].name)
+    sample_name = get_sample_id(file_path = fastas_to_concat[0])
     file_prefix = re.search(PREFIX_RE, fastas_to_concat[0].name, re.I).group(0)
 
     if list(region_search_dict.keys()) == ['ITS1', '5.8S', 'ITS2']:
         concat_name = 'full_ITS'
+    elif list(region_search_dict.keys()) == ['ITS1', '5.8S', 'ITS2', 'LSU']:
+        concat_name = 'ITS-LSU'
     else:
         concat_name = input(f'Please provide a name to assign to this combination of subregions (use '
                             f'underscores instead of spaces):\n')
@@ -1144,11 +1135,11 @@ def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_
     for fasta in fastas_to_concat:
         for record in SeqIO.parse(fasta, 'fasta'):
             try:
-                read_id = re.search(READ_ID_RENAMED_RE, record.id).group(0)
-                region = re.search(READ_REGION_RENAMED_RE, record.id, re.I).group(0)
+                read_id = re.search(READ_ID_RENAMED_RE, record.description).group(0)
+                region = re.search(READ_REGION_RENAMED_RE, record.description, re.I).group(0)
 
-                length = re.search(READ_LEN_RENAMED_RE, record.id, re.I).group(0)
-                derep01_reads = re.search(READ_COUNT_RENAMED_RE, record.id, re.I).group(0)
+                length = re.search(READ_LEN_RENAMED_RE, record.description, re.I).group(0)
+                derep01_reads = re.search(READ_COUNT_RENAMED_RE, record.description, re.I).group(0)
                 details = {k:v for k,v in zip(details_to_include, [record.seq, length, derep01_reads])}
 
                 if read_id in concat_dict:  # if this sample is already in the dictionary...
@@ -1180,7 +1171,7 @@ def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_
         def join_if_all_present(pulled_data_dict):
 
             joined_data = {'seq':'',
-                           'id':[read, concat_name]}
+                           'id':[]}
 
             for k in pulled_data_dict.keys():
                 if len(pulled_data_dict[k]) == len(regions_to_concat):
@@ -1188,12 +1179,10 @@ def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_
                         joined_data['seq'] = Seq('').join(pulled_data_dict[k])  # must join with empty seq
                     else:
                         if re.search(r'len$', k, re.I):
-                            val = sum([int(x) for x in pulled_data_dict[k]])
-                            joined_data['id'].append(f'{k}={val}bp')
+                            read_len = f'{concat_name} {sum([int(x) for x in pulled_data_dict[k]])}bp'
                         elif re.search(r'^full\-len|count', k, re.I):
                             if len(set(pulled_data_dict[k])) == 1:
-                                derep = int(pulled_data_dict[k][0])  # if all same, doesn't matter which you chose
-                                joined_data['id'].append(f'{k}={derep}')  # make int so no '' surrounding num in header
+                                derep = f'{k}={int(pulled_data_dict[k][0])}'  # if all same, doesn't matter which you chose
                         else:
                             print(f'Could not recognized the input data type, {k}:\n'
                                   f'\t{pulled_data_dict[k]}\n')
@@ -1203,7 +1192,9 @@ def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_
                           f'({len(pulled_data_dict[k])} out of {len(regions_to_concat)} were pulled). ' \
                           f'Debug before continuing...\n'
                     print(msg)
-                    return None  # REPLACE W/ sys.exit AFTER DEBUG
+                    return sys.exit()
+
+            joined_data.update({'id':[read_id, derep, read_len]})
 
             return joined_data
 
@@ -1214,9 +1205,8 @@ def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_
                                   description = '')
         concatenated_records.append(concat_record)
 
-    fasta_out = dir_path / f'{file_prefix}_{sample_name}.{concat_name}{file_suffix}.fasta'
+    fasta_out = dir_path / f'{file_prefix}_{sample_name}.{concat_name}.fasta'
     SeqIO.write(concatenated_records, fasta_out, 'fasta')
-
     return None
 
 def check_concat_output(itsx_dir, full_len_dir, num_bp_compare, write_to_log=True, same_threshold=99):
