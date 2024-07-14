@@ -11,3 +11,5 @@ subsample_pacbio_raw.py
 /climush_py-package/climush.egg-info/
 /climush_py-package/dist/
 ts_*
+climush_py-package/dist/
+climush_py-package/climush.egg-info
