@@ -278,7 +278,7 @@ def demultiplex(output_dir, file_map, multiplexed_files, seq_platform='pacbio'):
         seq_run_output = mkdir_exist_ok(new_dir=seq_run, parent_dir=lima_output) # create an output dir for each seq run
         lima_subdirs.append(seq_run_output)
 
-        # located all multiplexed sequencing files that match this queue ID
+        # locate all multiplexed sequencing files that match this queue ID
         pools_to_demux = [f for f in multiplexed_files if re.search(f'^{qid}', f.name)]
 
         # alert if only one pool is detected
@@ -405,8 +405,11 @@ def demultiplex(output_dir, file_map, multiplexed_files, seq_platform='pacbio'):
                 # look for the sample ID from the mapping file that has the same pair of barcodes
                 sample_ids = [s for s in sample_subdict if len(set(sample_subdict[s].keys()).difference(set(bc_list))) == 0]
 
+                # get the number of samples that match to this combination of barcodes
+                num_matches = len(sample_ids)
+
                 # confirm that the read's barcode combination matches only one sample ID, as it should
-                if len(sample_ids) == 1:
+                if num_matches == 1:
 
                     # get sample ID as string, not list (now that it is confirmed there's only one)
                     sample_id = sample_ids[0]
@@ -425,19 +428,29 @@ def demultiplex(output_dir, file_map, multiplexed_files, seq_platform='pacbio'):
                         fout.write(f'{read_seq}\n')
 
                 else:
-                    print(f'ERROR. The barcode combination detected in read {r} from {p} of {seq_run} matched to '
-                          f'{len(sample_ids)} sample IDs, when it should only match to one. This read was not '
-                          f'sorted, and this error was recorded to the error table.\n')
+
+                    # change the error message based on number of matches detected
+                    if num_matches > 1:
+                        print(f'ERROR. The barcode combination detected in read {r} from {p} of {seq_run} matched to '
+                              f'{len(sample_ids)} sample IDs, when it should only match to one. This read was not '
+                              f'sorted, and this error was recorded to the error table.\n')
+                        sample_ids_err = ", ".join(sample_ids)
+                    else:
+                        print(f'ERROR. The barcode combination detected in read {r} from {p} of {seq_run} matched to '
+                              f'{len(sample_ids)} sample IDs, when it should only match to one. This read was not '
+                              f'sorted, and this error was recorded to the error table.\n')
+                        sample_ids_err = "no matches"
+
                     barcode_error = (output_dir / 'barcode_errors').with_suffix('.tsv')
 
                     # if the error file doesn't yet exist, start with writing the header
                     if not barcode_error.is_file():
                         with open(barcode_error, 'a') as fout:
-                            fout.write(f'sequencing_run\tsequencing_pool\tsample_ids\tread_id\tbarcode_combination\n')
+                            fout.write(f'sequencing_run\t\tsequencing_pool\tsample_ids\tread_id\t\t\tbarcode_combination\n')
 
                     # write out details of the read that triggered this error
                     with open(barcode_error, 'a') as fout:
-                        fout.write(f'{seq_run}\t{p}\t{", ".join(sample_ids)}\t{r}\t{", ".join(bc_list)}\n')
+                        fout.write(f'{seq_run}\t{p}\t{sample_ids_err}\t{r}\t{", ".join(bc_list)}\n')
 
 def pair_reads(input_files):
 
@@ -1034,7 +1047,8 @@ def separate_subregions(input_files, file_map, verbose=False):
                             '--save_regions', 'all']
         else:
             itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'fungi', '--multi_thread', 'T',
-                            '--graphical', 'F', '--positions', 'F', '--save_regions', '{ITS1,5.8S,ITS2,LSU}']
+                            '--graphical', 'F', '--positions', 'F', '--silent', 'T',
+                            '--save_regions', '{ITS1,5.8S,ITS2,LSU}']
 
         # run the ITSx command
         run_subprocess(itsx_command, dest_dir=itsx_parent,
@@ -1122,7 +1136,7 @@ def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_
 
     if list(region_search_dict.keys()) == ['ITS1', '5.8S', 'ITS2']:
         concat_name = 'full_ITS'
-    elif list(region_search_dict.keys()) == ['ITS1', '5.8S', 'ITS2', 'LSU']:
+    elif list(region_search_dict.keys()) == ['ITS1', '58S', 'ITS2', 'LSU']:
         concat_name = 'ITS-LSU'
     else:
         concat_name = input(f'Please provide a name to assign to this combination of subregions (use '
