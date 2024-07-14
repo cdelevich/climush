@@ -404,8 +404,8 @@ def import_mapping_df(df_path, filter=True, auto_respond=False):
 
         # create a set to add pool numbers to when they are found from tabs in .xlsx file
         # if there are multiple tabs, some of which are unrelated to pools, will need to reference this
-        found_pools = {'pool01':'',
-                       'pool02':''}
+        found_pools = {'pool1':'',
+                       'pool2':''}
         miscell_tabs = []
 
         for tab in old_tab_names:
@@ -415,9 +415,9 @@ def import_mapping_df(df_path, filter=True, auto_respond=False):
 
                 # add the found pool number to the found_pools set
                 if re.search(r'1', pool_num):
-                    found_pools['pool01'] += tab
+                    found_pools['pool1'] += tab
                 elif re.search(r'2', pool_num):
-                    found_pools['pool02'] += tab
+                    found_pools['pool2'] += tab
                 else:
                     print(f'ERROR. A pool number was detected in the tab {tab} in the mapping file {df_path.name}, '
                           f'but it could not be determined whether this was the number for pool 01 or pool 02.\n')
@@ -457,7 +457,17 @@ def import_mapping_df(df_path, filter=True, auto_respond=False):
                   f'Please type the correct pool number for this file: ')
             pool_num = prompt_print_options(['1', '2'], auto_respond=auto_respond)  # choose from 1 or 2 (or quit, built into function)
 
-        mapping_tabs = {f'pool{pool_num}': pd.read_csv(df_path)}  # make dict to match format from .xlsx
+        # make sure that the pool number tab is formatted correctly (single number, no leading zero, etc.)
+        if re.search(r'1', pool_num):
+            formatted_pool_num = '1'
+        elif re.search(r'2', pool_num):
+            formatted_pool_num = '2'
+        else:
+            print(f'ERROR. A pool number was detected in the tab {tab} in the mapping file {df_path.name}, '
+                  f'but it could not be determined whether this was the number for pool 01 or pool 02.\n')
+            return sys.exit()
+
+        mapping_tabs = {f'pool{formatted_pool_num}': pd.read_csv(df_path)}  # make dict to match format from .xlsx
 
     # if the mapping file doesn't appear to be .xlsx, .csv, or .txt...
     else:
