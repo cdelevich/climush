@@ -211,6 +211,45 @@ def prompt_sequencing_platform(sample_id, auto_respond=False):
               f'the file naming convention.\n')
         return
 
+# prompt user for generic input, with ability to assign an automated response depending on config settings
+def prompt_generic(message, auto_respond=False, **kwargs):
+    '''
+    For use with generic user prompts, with option to customize the auto response using
+    a keyword argument.
+    :param message: prompt message to print through command line
+    :param auto_respond: will check the configuration file to determine whether to use the
+    automatic response (i.e., if settings['automate']['auto_respond'] == True)
+    :param kwargs: currently only accepts a keyword pair for auto_response, where key needs to
+    be auto_response and its value is the automatic response to use for this prompt
+    :return: prompt response value
+    '''
+
+    # check for any keyword arguments
+    try:
+        auto_response = kwargs['auto_response']
+    except KeyError:
+        auto_response = None
+
+    # print the response message regardless of possible error below, so that error is easier to trace if
+    #  autoresponse is missing but required
+    print(message)
+
+    # if auto_respond is set to True, require an auto_response and exit if not provided
+    if auto_respond and (auto_response is None):
+        print(f'ERROR. If the pipeline is configured to run automatically, an auto-response is required '
+              f'in order to continue. Please include an automated response for this prompt, and then rerun.\n'
+              f'Exiting...\n')
+        return sys.exit()
+
+    # if auto_respond is set to True and an auto_response is provided, return the auto_response
+    elif auto_respond and (auto_response is not None):
+        return auto_response
+
+    # if auto_respond is not set to True, then prompt user for input via command line, and return value
+    else:
+        user_response = input()
+        return user_response
+
 # print indented list
 def print_indented_list(print_list):
     print_list[0] = '\t' + print_list[0] # add leading tab for first item printed from list, otherwise adds after line break
@@ -331,7 +370,7 @@ def get_seq_platform(fastx_file, delim='_'):
           f'Exiting...\n')
     return None
 
-def import_mapping_df(df_path, auto_respond=False):
+def import_mapping_df(df_path, filter=True, auto_respond=False):
     '''
     Import .csv, .txt, or .xlsx table as a dictionary.
 
@@ -339,12 +378,15 @@ def import_mapping_df(df_path, auto_respond=False):
     .xlsx, .csv, and .txt. Will output a dictionary, where the key is the name
     of the tab in the dataframe and the value is the dataframe in that tab. Will
     always return a dictionary, although only .xlsx files will have tabs. Formats
-    the name of the keys in the output dictionary to be 'pool1' or 'pool2'; the
+    the name of the keys in the output dictionary to be 'pool01' or 'pool02'; the
     number of the pool is inferred from the name of the tab (.xlsx) or the name
     of the file (.csv, .txt). Returned as dictionary so that the output can be
     handled in the same way, regardless of file type (e.g., loop through tabs
     even if a .csv, which will have a single tab).
     :param df_path: path to the dataframe
+    :param filter: True/False; whether to remove all tabs that are not detected as
+    a pool tab (pool01/pool02); set to the default True because I am not sure that
+    the demultiplex() function will work if more than just pool01 and pool02
     :param auto_respond: True/False; whether to automatically respond to the prompt
     within or not; this value should be provided from the settings read in from the
     configuration file, within ['automate']['auto_respond']
@@ -369,13 +411,13 @@ def import_mapping_df(df_path, auto_respond=False):
         for tab in old_tab_names:
 
             try:  # format the name of the tab to be uniform across all tabs/dataframes
-                pool_num = re.search(POOL_NUM_RE, tab, re.I).group(0)
+                pool_num = re.search(POOL_NUM_RE, tab, re.I).group(0).strip()
 
                 # add the found pool number to the found_pools set
                 if re.search(r'1', pool_num):
-                    found_pools['pool1'] = tab
+                    found_pools['pool01'] += tab
                 elif re.search(r'2', pool_num):
-                    found_pools['pool2'] = tab
+                    found_pools['pool02'] += tab
                 else:
                     print(f'ERROR. A pool number was detected in the tab {tab} in the mapping file {df_path.name}, '
                           f'but it could not be determined whether this was the number for pool 01 or pool 02.\n')
@@ -386,21 +428,20 @@ def import_mapping_df(df_path, auto_respond=False):
                 # add this tab name to the miscell_tabs list to check at end whether might be a pool tab or not
                 miscell_tabs.append(tab)
 
-            for pool_num, pool_tab in found_pools.items():
+        for pool_num, pool_tab in found_pools.items():
 
-                # if no tab was found matching this pool...
-                if pool_tab == '':
+            # if no tab was found matching this pool...
+            if pool_tab == '':
 
-                    # print a warning and prompt user to chose the tab that corresponds to this pool
-                    print(f'WARNING. The pool number for {pool_num} could not be inferred from tabs in the '
-                          f'mapping file {df_path.name}. Please enter the number of the tab that corresponds to '
-                          f'{pool_num}')
+                # print a warning and prompt user to chose the tab that corresponds to this pool
+                print(f'WARNING. The pool number for {pool_num} could not be inferred from tabs in the '
+                      f'mapping file {df_path.name}. Please enter the number of the tab that corresponds to '
+                      f'{pool_num}')
 
-                    # will return the name of the tab to use, so update var pool_tab to match
-                    pool_tab = prompt_print_options(miscell_tabs, auto_respond=auto_respond)
+                # will return the name of the tab to use, so update var pool_tab to match
+                pool_tab = prompt_print_options(miscell_tabs, auto_respond=auto_respond)
 
-                mapping_tabs[pool_num] = mapping_tabs.pop(pool_tab)  # replace old tab (key) with reformatted one
-
+            mapping_tabs[pool_num] = mapping_tabs.pop(pool_tab)  # replace old tab (key) with reformatted one
 
 
     # if the mapping file is a .csv or .txt file...
@@ -426,7 +467,20 @@ def import_mapping_df(df_path, auto_respond=False):
               f'file type. Accepted file types are: \'.xlsx\', \'.csv\', and \'.txt\'.\n')
         sys.exit()
 
-    return mapping_tabs
+    # filter out any other tabs in the input file if they are not the pool01 or pool02 tab
+    if filter:
+        filtered_tabs = {}
+        for tab_name,content in mapping_tabs.items():
+            if tab_name in miscell_tabs:
+                continue
+            else:
+                filtered_tabs.update({tab_name: content})
+
+        return filtered_tabs
+
+    # otherwise, return all tabs from input Excel table
+    else:
+        return mapping_tabs
 
 # activate next script in python
 def continue_to_next(this_script, config_dict):
@@ -905,7 +959,7 @@ def add_prefix(file_path, prefix, dest_dir, action='rename', f_delim='_'):
             new_path = dest_dir / new_name
             shutil.copy(file_path, new_path)
         elif action == 'mkdir':
-            new_path = (dest_dir / new_name).with_suffix('')
+            new_path = (dest_dir / new_name).with_suffix('s')
             mkdir_exist_ok(new_dir=new_path, parent_dir=dest_dir)
         else:
             new_path = dest_dir / new_name
