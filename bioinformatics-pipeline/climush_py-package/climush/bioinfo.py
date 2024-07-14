@@ -9,7 +9,7 @@ import numpy as np
 from climush.constants import *
 from climush.utilities import *
 
-def demultiplex(output_dir, file_map, multiplexed_files, seq_platform='pacbio'):
+def demultiplex(output_dir, file_map, multiplexed_files, verbose, seq_platform='pacbio'):
 
     # REMOVE AFTER TESTING ############
     # DON'T FORGET TO UNCOMMENT THE RUN_SUBPROCESS LINE WHERE LIMA ACTUALLY RUNS!!! #################
@@ -90,13 +90,15 @@ def demultiplex(output_dir, file_map, multiplexed_files, seq_platform='pacbio'):
 
             # check number of matches, will print out different prompt, but otherwise executes same thing
             if len(matches) == 0:  # if no matches
-                print(f'No column matching the pattern \'{pattern}\' was located in the input dataframe. Please try '
-                      f'another regular expression that better matches a single column out of these columns in the '
-                      f'dataframe: ')
+                error_msg = f'No column matching the pattern \'{pattern}\' was located in the input dataframe. Please try '\
+                            f'another regular expression that better matches a single column out of these columns in the '\
+                            f'dataframe: '
             else:
-                print(f'{len(matches)} column names match the pattern \'{pattern}\' in the input dataframe. Please try '
-                      f'another regular expression that better matches a single column out of these columns in the '
-                      f'dataframe: ')
+                error_msg = f'{len(matches)} column names match the pattern \'{pattern}\' in the input dataframe. Please try '\
+                            f'another regular expression that better matches a single column out of these columns in the '\
+                            f'dataframe: '
+
+            print(error_msg)
 
             print_indented_list(matches)  # print out the columns of the dataframe (formatted to be indented)
             retry_pattern = input()
@@ -147,9 +149,10 @@ def demultiplex(output_dir, file_map, multiplexed_files, seq_platform='pacbio'):
             if len(len_bc_primer) == 1:  # if all barcodes the same length prior to removing primer...
                 len_bc_expected = len_bc_primer[0] - len(primer)  # ...calc single expected length
             else:  # throw error and return False if original barcodes not all same length
-                print(f'ERROR. Barcodes in the mapping file should be the same length, but are not.')
-                print(f'number of unique lengths of barcodes w/ primers: {len(len_bc_primer)}')
-                print(f'unique lengths of barcodes w/ primers:           {len_bc_primer}\n')
+                if verbose:
+                    print(f'ERROR. Barcodes in the mapping file should be the same length, but are not.')
+                    print(f'number of unique lengths of barcodes w/ primers: {len(len_bc_primer)}')
+                    print(f'unique lengths of barcodes w/ primers:           {len_bc_primer}\n')
                 return False
 
             # COMPARISON
@@ -157,11 +160,12 @@ def demultiplex(output_dir, file_map, multiplexed_files, seq_platform='pacbio'):
             if (len(len_bc_noprimer) == 1) and (int(len_bc_noprimer[0]) == len_bc_expected):
                 return True
             else:
-                print(f'ERROR. The barcodes after removing the primer are either different lengths or do not match '
-                      f'the expected length after removing the primer.')
-                print(f'number of unique barcode lengths: {len(len_bc_noprimer)}')
-                print(f'length of barcode w/ primer:      {len_bc_expected}')
-                print(f'length(s) of barcode w/o primer:  {len_bc}\n')
+                if verbose:
+                    print(f'ERROR. The barcodes after removing the primer are either different lengths or do not match '
+                          f'the expected length after removing the primer.')
+                    print(f'number of unique barcode lengths: {len(len_bc_noprimer)}')
+                    print(f'length of barcode w/ primer:      {len_bc_expected}')
+                    print(f'length(s) of barcode w/o primer:  {len_bc}\n')
                 return False
 
         fwd_bc_ready = primers_removed_from_bc(pre_remove_list = fwd_barcodes,
@@ -215,20 +219,23 @@ def demultiplex(output_dir, file_map, multiplexed_files, seq_platform='pacbio'):
             else:
                 if num_bc_overall < num_bc_mapping:  # if there are additional barcodes in this mapping file...
                     extra_bc = set(seq_run_bc[b]).difference(unique_barcodes[b])  # find extra bc
-                    print(f'WARNING. {len(extra_bc)} new barcode(s) added to the overall list of unique barcodes:\n'
-                          f'\textra {b.split("_")[0]} barcode(s): {extra_bc}\n'
-                          f'All mapping files should contain the same set of unique forward and reverse barcodes. '
-                          f'Continuing with demultiplexing, but if there\'s a future error, see the mapping file'
-                          f'that triggered this warning: {map.name}\n')
+                    err_msg = f'WARNING. {len(extra_bc)} new barcode(s) added to the overall list of unique barcodes:\n'\
+                              f'\textra {b.split("_")[0]} barcode(s): {extra_bc}\n'\
+                              f'All mapping files should contain the same set of unique forward and reverse barcodes. '\
+                              f'Continuing with demultiplexing, but if there\'s a future error, see the mapping file '\
+                              f'that triggered this warning: {map.name}\n'
                 elif num_bc_overall > num_bc_mapping:  # if not all possible barcodes are in this mapping file...
                     missing_bc = unique_barcodes[b].difference(set(seq_run_bc[b]))  # find missing bc
-                    print(f'WARNING. {len(missing_bc)} barcode(s) were missing from this mapping file\'s barcodes:\n'
-                          f'\tmissing {b.split("_")[0]} barcode(s): {missing_bc}\n'
-                          f'All mapping files should contain the same set of unique forward and reverse barcodes. '
-                          f'Continuing with demultiplexing, but if there\'s a future error, see the mapping file '
-                          f'that triggered this warning: {map.name}\n')
+                    err_msg = f'WARNING. {len(missing_bc)} barcode(s) were missing from this mapping file\'s barcodes:\n'\
+                              f'\tmissing {b.split("_")[0]} barcode(s): {missing_bc}\n'\
+                              f'All mapping files should contain the same set of unique forward and reverse barcodes. '\
+                              f'Continuing with demultiplexing, but if there\'s a future error, see the mapping file '\
+                              f'that triggered this warning: {map.name}\n'
                 else:
                     pass  # they are equal, as expected
+
+                if verbose:
+                    print(err_msg)
 
             # regardless of above outcome, add barcodes from this mapping file to the overall dict of unique barcodes
             unique_barcodes[b].update(seq_run_bc[b])  # use update to add list to set
@@ -431,15 +438,18 @@ def demultiplex(output_dir, file_map, multiplexed_files, seq_platform='pacbio'):
 
                     # change the error message based on number of matches detected
                     if num_matches > 1:
-                        print(f'ERROR. The barcode combination detected in read {r} from {p} of {seq_run} matched to '
-                              f'{len(sample_ids)} sample IDs, when it should only match to one. This read was not '
-                              f'sorted, and this error was recorded to the error table.\n')
+                        err_msg = f'ERROR. The barcode combination detected in read {r} from {p} of {seq_run} matched to '\
+                                  f'{len(sample_ids)} sample IDs, when it should only match to one. This read was not '\
+                                  f'sorted, and this error was recorded to the error table.\n'
                         sample_ids_err = ", ".join(sample_ids)
                     else:
-                        print(f'ERROR. The barcode combination detected in read {r} from {p} of {seq_run} matched to '
-                              f'{len(sample_ids)} sample IDs, when it should only match to one. This read was not '
-                              f'sorted, and this error was recorded to the error table.\n')
+                        err_msg = f'ERROR. The barcode combination detected in read {r} from {p} of {seq_run} matched to '\
+                                  f'{len(sample_ids)} sample IDs, when it should only match to one. This read was not '\
+                                  f'sorted, and this error was recorded to the error table.\n'
                         sample_ids_err = "no matches"
+
+                    if verbose:
+                        print(err_msg)
 
                     barcode_error = (output_dir / 'barcode_errors').with_suffix('.tsv')
 
