@@ -10,3 +10,4 @@ subsample_pacbio_raw.py
 /config/climush-bioinfo_default-settings.toml
 /climush_py-package/climush.egg-info/
 /climush_py-package/dist/
+ts_*
