@@ -824,6 +824,7 @@ def remove_primers(input_files, file_map, platform, paired_end=True, verbose=Fal
                             file, paired_dict[file]]
 
             run_subprocess(cutadapt_cmd, dest_dir=trim_primers_parent,
+                           separate_sample_output=False,
                            auto_respond=settings['automate']['auto_respond'])
 
     # compose and execute the command line command to run cutadapt for single-end reads

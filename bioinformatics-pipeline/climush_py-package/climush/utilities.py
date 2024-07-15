@@ -257,7 +257,7 @@ def print_indented_list(print_list):
     return print(formatted_list)
 
 # run shell command and save stdout and stderr to file
-def run_subprocess(cli_command_list, dest_dir, auto_respond=False):
+def run_subprocess(cli_command_list, dest_dir, separate_sample_output=True, auto_respond=False):
     '''
     Run a subprocess, saving the output and error to a log file.
 
@@ -268,8 +268,14 @@ def run_subprocess(cli_command_list, dest_dir, auto_respond=False):
     :param cli_command_list: the list of the components of the command line
     argument to run through subprocess; each argument should be separated
     out into a list, rather than a single string.
-    :param dest_path: directory to write the file to; should be a Path
+    :param dest_dir: directory to write the file to; should be a Path
     object
+    :param separate_sample_output: True/False; whether to include a separator in the output file
+    between the standard output for each sample; in most cases, a separator is helpful
+    when reviewing the output and seeing a clear distinction between samples, but for some
+    programs like cutadapt, it prevents summary calculations from being performed
+    :param auto_respond: True/False; whether to automatically respond to any prompts that
+    might arise from this function
     :return: None
     '''
     assert is_pathclass(dest_dir)
@@ -291,17 +297,23 @@ def run_subprocess(cli_command_list, dest_dir, auto_respond=False):
     out_path = dest_dir / f'{program}.out'
     with open(out_path, 'at') as fout:
         out_as_str = run_cmd.stdout.decode('utf-8')
-        if not int(out_path.stat().st_size) == 0:
-            fout.write(f'-----------------------------\n')
-        if len(out_as_str) > 0:
+        if separate_sample_output:
+            if not int(out_path.stat().st_size) == 0:
+                fout.write(f'-----------------------------\n')
+            if len(out_as_str) > 0:
+                fout.write(f'{out_as_str}\n')
+        else:
             fout.write(f'{out_as_str}\n')
 
     err_path = dest_dir / f'{program}.err'
     with open(err_path, 'at') as fout:
         err_as_str = run_cmd.stderr.decode('utf-8')
-        if not int(err_path.stat().st_size) == 0:
-            fout.write(f'-----------------------------\n')
-        if len(err_as_str) > 0:
+        if separate_sample_output:
+            if not int(err_path.stat().st_size) == 0:
+                fout.write(f'-----------------------------\n')
+            if len(err_as_str) > 0:
+                fout.write(f'{err_as_str}\n')
+        else:
             fout.write(f'{err_as_str}\n')
 
     temp_file = dest_dir / f'{program}.temp'
