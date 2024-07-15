@@ -16,7 +16,7 @@ parser = argparse.ArgumentParser(prog=Path(__file__).stem,
 # input directory containing the files to dereplicate
 parser.add_argument('-i', '--input',
                     default=fpm['pipeline-output']['separated-subregions'] / f'itsx_{run_name}',
-                    type=pathlib.PurePath,
+                    type=pathlib.PosixPath,
                     help='The path to a directory containing sequencing files to dereplicate. If nothing provided, '
                          'will default to the location that is expected in the Docker container\'s native file '
                          'structure, detailed in pipeline/mapping.py.')
