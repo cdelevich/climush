@@ -833,16 +833,16 @@ def check_for_input(file_dir, seq_platform=None, file_ext=SEQ_FILE_GLOB):
             if len(file_list) > 0:
                 return True, file_list  # return true if files matching criteria are found
             else:
-                print(f'The directory {file_dir} contains files, but none that match the platform-specific search '
-                      f'criteria: {seq_platform}.')
+                # print(f'The directory {file_dir} contains files, but none that match the platform-specific search '
+                #       f'criteria: {seq_platform}.')
                 return False, file_list  # return false if not
         else:
             file_list = []  # if input is a directory, but it is empty...
-            print(f'The directory {file_dir} exists, but is empty.\n')
+            # print(f'The directory {file_dir} exists, but is empty.\n')
             return False, file_list  # return false and empty list
     else:
         file_list = []  # if input is not a directory
-        print(f'The directory {file_dir} does not exist.\n')
+        # print(f'The directory {file_dir} does not exist.\n')
         return False, file_list  # return false and empty list
 
 # get name of previous script
