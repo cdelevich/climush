@@ -438,12 +438,12 @@ def demultiplex(output_dir, file_map, multiplexed_files, verbose, seq_platform='
 
                     # change the error message based on number of matches detected
                     if num_matches > 1:
-                        err_msg = f'ERROR. The barcode combination detected in read {r} from {p} of {seq_run} matched to '\
+                        err_msg = f'WARNING. The barcode combination detected in read {r} from {p} of {seq_run} matched to '\
                                   f'{len(sample_ids)} sample IDs, when it should only match to one. This read was not '\
                                   f'sorted, and this error was recorded to the error table.\n'
                         sample_ids_err = ", ".join(sample_ids)
                     else:
-                        err_msg = f'ERROR. The barcode combination detected in read {r} from {p} of {seq_run} matched to '\
+                        err_msg = f'WARNING. The barcode combination detected in read {r} from {p} of {seq_run} matched to '\
                                   f'{len(sample_ids)} sample IDs, when it should only match to one. This read was not '\
                                   f'sorted, and this error was recorded to the error table.\n'
                         sample_ids_err = "no matches"
@@ -456,7 +456,7 @@ def demultiplex(output_dir, file_map, multiplexed_files, verbose, seq_platform='
                     # if the error file doesn't yet exist, start with writing the header
                     if not barcode_error.is_file():
                         with open(barcode_error, 'a') as fout:
-                            fout.write(f'sequencing_run\t\tsequencing_pool\tsample_ids\tread_id\t\t\tbarcode_combination\n')
+                            fout.write(f'sequencing_run\t\tsequencing_pool\tsample_ids\tread_id\t\t\t\tbarcode_combination\n')
 
                     # write out details of the read that triggered this error
                     with open(barcode_error, 'a') as fout:
