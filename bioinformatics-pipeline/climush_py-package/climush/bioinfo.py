@@ -849,6 +849,7 @@ def remove_primers(input_files, file_map, platform, paired_end=True, verbose=Fal
 
             # create or append to cutadapt stderr/stdout, all output goes to one file (not one per sample)
             run_subprocess(cutadapt_cmd, dest_dir=trim_primers_parent,
+                           separate_sample_output=False,
                            auto_respond=settings['automate']['auto_respond'])
 
     # also helpful to see the command that is run during troubleshooting
