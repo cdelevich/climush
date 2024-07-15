@@ -60,14 +60,14 @@ if args['concat_only']:
         print(f'\n{itsx_sample.stem}\n')
         concat_regions(dir_path=itsx_sample, regions_to_concat=['ITS1', '5_8S', 'ITS2'])  # full ITS
         concat_regions(dir_path=itsx_sample, regions_to_concat=['ITS1', '5_8S', 'ITS2', 'LSU'])  # full length read (reoriented)
-        # check_concat_output(itsx_dir=concat_path, full_len_dir=input_path, num_bp_compare=50)
+        # check_concat_output(itsx_dir=concat_path, full_len_dir=args['input'], num_bp_compare=50)
 else:
-    is_input, pacbio_files = check_for_input(file_dir=input_path, seq_platform=platform)
+    is_input, pacbio_files = check_for_input(file_dir=args['input'], seq_platform=platform)
     if is_input:
         itsx_out_path = separate_subregions(input_files=pacbio_files, file_map=fpm)
         concat_regions(dir_path=itsx_out_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'])  # full ITS
         concat_regions(dir_path=itsx_out_path, regions_to_concat=['ITS1', '5_8S', 'ITS2', 'LSU'])  # full length read (reoriented)
-        # check_concat_output(itsx_dir=itsx_out_path, full_len_dir=input_path, num_bp_compare=50)
+        # check_concat_output(itsx_dir=itsx_out_path, full_len_dir=args['input'], num_bp_compare=50)
     else:
         pass
 

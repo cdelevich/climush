@@ -73,7 +73,7 @@ print(f'Currently, this is not updated to accomodate changes to the configuratio
       f'Working on it... \n')
 
 # look for input in the input path that are illumina reads
-is_input, illumina_files = check_for_input(input_path, seq_platform=platform)
+is_input, illumina_files = check_for_input(args['input'], seq_platform=platform)
 
 if is_input:
     # if the --merge-from flag is not included, go through quality filter process

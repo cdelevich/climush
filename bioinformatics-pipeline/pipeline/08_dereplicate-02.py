@@ -43,7 +43,7 @@ args = vars(parser.parse_args())
 
 platform = 'pacbio'
 
-is_input, pacbio_files = check_for_input(file_dir=input_path, seq_platform=platform)
+is_input, pacbio_files = check_for_input(file_dir=args['input'], seq_platform=platform)
 
 if is_input:
     dereplicate(input_files=pacbio_files, derep_step=2, platform=platform, file_map=fpm)

@@ -28,6 +28,13 @@ parser.add_argument('--check-only', action='store_true',
                     help='Boolean (True/False). Whether to double check that the primers are removed from the sequences '
                          'in their forward and reverse complement direction.')
 
+# if option provided, will print out all warnings
+parser.add_argument('--verbose',
+                    action='store_true',
+                    default=settings['automate']['verbose'],
+                    help='Whether to print out all errors and warnings in the terminal; if True, will print all '
+                         'errors and warnings; if False, will only print out fatal errors.')
+
 args = vars(parser.parse_args())
 
 #####################
@@ -35,22 +42,16 @@ args = vars(parser.parse_args())
 #####################
 platform = 'illumina'
 
-# if no user-input sequence file path is provided, then look in pipeline directory
-if isinstance(args['input'], str):
-    input_path = Path(args['input'])
-else:
-    input_path = args['input']
-
 # check that there are Illumina reads to trim primers from
-is_input, illumina_files = check_for_input(file_dir=input_path, seq_platform=platform)
+is_input, illumina_files = check_for_input(file_dir=args['input'], seq_platform=platform)
 
 if is_input:
     if args['check_only']:
         print(f'Only checking for primers...')
-        confirm_no_primers(input_path, file_map=fpm, platform=platform)
+        confirm_no_primers(args['input'], file_map=fpm, platform=platform)
     else:
         print(f'Running cutadapt...')
-        trimmed_path = remove_primers(illumina_files, file_map=fpm, platform=platform, paired_end=True, verbose=False)
+        trimmed_path = remove_primers(illumina_files, file_map=fpm, platform=platform, paired_end=True, verbose=args['verbose'])
         confirm_no_primers(trimmed_path, file_map=fpm, platform=platform)
 else:
     pass
@@ -61,10 +62,10 @@ else:
 platform = 'pacbio'
 
 # check that there are PacBio reads to trim primers from
-is_input, pacbio_files = check_for_input(file_dir=input_path, seq_platform=platform)
+is_input, pacbio_files = check_for_input(file_dir=args['input'], seq_platform=platform)
 
 if is_input:
-    remove_primers(input_files=pacbio_files, file_map=fpm, platform='pacbio', paired_end=False)
+    remove_primers(input_files=pacbio_files, file_map=fpm, platform=platform, verbose=args['verbose'], paired_end=False)
 else:
     pass
 

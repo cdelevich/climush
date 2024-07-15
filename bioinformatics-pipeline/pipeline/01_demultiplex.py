@@ -67,7 +67,7 @@ files_demuxed = False
 # platform = 'illumina'
 #
 # # check if there are Illumina reads that need to be demultiplexed
-# is_input, illumina_files = check_for_input(input_path, seq_platform=platform)
+# is_input, illumina_files = check_for_input(args['input'], seq_platform=platform)
 #
 # if is_input:
 #     msg = f'WARNING. Currently, there is no script that can demultiplex Illumina reads. You can continue with the ' \
@@ -103,7 +103,7 @@ else:
 # platform = 'sanger'
 #
 # # check if there are Sanger reads that need to be demultiplexed
-# is_input, sanger_files = check_for_input(input_path, seq_platform=platform)
+# is_input, sanger_files = check_for_input(args['input'], seq_platform=platform)
 #
 # if is_input:
 #     msg = f'WARNING. Currently, there is no script that can demultiplex Sanger reads. You can continue with the ' \

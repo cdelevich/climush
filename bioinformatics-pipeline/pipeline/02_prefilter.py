@@ -27,14 +27,8 @@ args = vars(parser.parse_args())
 #####################
 platform = 'illumina'
 
-# if no user-input sequence file path is provided, then look in pipeline directory
-if isinstance(args['input'], dict):  # default input will have subfolders and therefore be a dict
-    input_path = args['input'][platform]
-else:
-    input_path = Path(args['input'])
-
 # check that there are Illumina reads to pre-filter
-is_input, illumina_files = check_for_input(input_path)
+is_input, illumina_files = check_for_input(args['input'])
 
 if is_input:
     nophix_path = filter_out_phix(input_files=illumina_files, file_map=fpm)
@@ -55,13 +49,7 @@ else:
 platform = 'sanger'
 # unfamiliar with whether any prefiltering necessary for Sanger reads, any PhiX spike-in?
 
-# if no user-input sequence file path is provided, then look in pipeline directory
-if isinstance(args['input'], dict):
-    input_path = args['input'][platform]
-else:
-    input_path = Path(args['input'])
-
-is_input, sanger_files = check_for_input(input_path)
+is_input, sanger_files = check_for_input(args['input'])
 
 if is_input:
     nophix_path = filter_out_phix(input_files=sanger_files, file_map=fpm)
