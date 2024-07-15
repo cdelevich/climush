@@ -18,7 +18,7 @@ parser = argparse.ArgumentParser(prog=Path(__file__).stem,
 
 parser.add_argument('-i', '--input',
                     default=fpm['pipeline-output']['prefiltered']['prefilt02_no-ambig'] / f'no-ambig_{run_name}',
-                    type=pathlib.PurePath,
+                    type=pathlib.PosixPath,
                     help='The path to the sequencing files. Will default to the location that is '
                          'expected with the Docker container\'s native file structure.')
 

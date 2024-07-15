@@ -15,12 +15,12 @@ parser = argparse.ArgumentParser(prog=Path(__file__).stem,
                                  epilog='')
 
 parser.add_argument('-sp', '--seq-path', default=fpm['sequences']['main'],
-                    type=pathlib.PurePath,
+                    type=pathlib.PosixPath,
                     help='The path to the sequencing files. Will default to the location that is '
                          'expected with the Docker container\'s native file structure.')
 
 parser.add_argument('-cp', '--config-path', default=fpm['config']['main'],
-                    type=pathlib.PurePath,
+                    type=pathlib.PosixPath,
                     help='The path to the configuration files. Will default to the location that is '
                          'expected with the Docker container\'s native file structure.')
 

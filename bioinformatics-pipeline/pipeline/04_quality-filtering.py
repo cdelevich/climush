@@ -17,7 +17,7 @@ parser = argparse.ArgumentParser(prog=Path(__file__).stem,
 # input directory containing the files to quality filter
 parser.add_argument('-i', '--input',
                     default=fpm['pipeline-output']['primers-trimmed'] / f'trim_{run_name}',
-                    type=pathlib.PurePath,
+                    type=pathlib.PosixPath,
                     help='The path to a directory containing sequencing files to quality filter. If nothing provided, '
                          'will default to the location that is expected in the Docker container\'s native file '
                          'structure, detailed in pipeline/mapping.py.')
@@ -32,7 +32,7 @@ parser.add_argument('--merge', action=argparse.BooleanOptionalAction,
 # to run quality filtering and merging separately, for time restriction
 parser.add_argument('--merge-from', nargs='?',
                     default=None,
-                    type=pathlib.PurePath,
+                    type=pathlib.PosixPath,
                     help='If running merging separately from quality filtering, provide the path to the '
                          'directory containing the quality-filtered paired sequence files to merge.')
 
