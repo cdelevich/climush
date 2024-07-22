@@ -31,10 +31,6 @@ parser.add_argument('--search',
 # create a dictionary of arg names and input values
 args = vars(parser.parse_args())
 
-args = {'input': Path('/Users/carolyndelevich/main/github_repos/climush/bioinformatics-pipeline/pipeline-output/separated-subregions/itsx_psf2404-2407'),
-        'output': None,
-        'search': ['ORD']}
-
 # if an output file name is not provided, create one based off the input directory name
 if args['output'] is None:
     output_parent = args['input']
@@ -54,7 +50,7 @@ sample_list = []
 for file in list(args['input'].glob('*')):
     if re.search(search_for, file.name, re.I):  # used regex because much easier to join multiple search strings with or ('|')
         # intended to use the get_sample_id() function but it is currently shit for pacbio
-        sample_id = file.name.split('_')[-1]
+        sample_id = file.stem.split('_')[-1]  # use .stem so that the file extension is not included
         sample_list.append(sample_id)
 
 
