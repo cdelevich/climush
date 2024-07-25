@@ -1,198 +1,29 @@
-import argparse, configparser, itertools, os, shutil, re, sys
+import argparse, tomlkit, itertools, os, shutil, re, sys
 from pathlib import Path
 import pandas as pd
-from climush.config import import_config_as_dict
+from datetime import datetime
+from climush.utilities import prompt_yes_no_quit, is_pathclass, import_filepath, flag_multiple_files, get_settings, mkdir_exist_ok, print_indented_list, prompt_print_options
 
-# command line arguments
-parser = argparse.ArgumentParser(description='Rename CliMush raw sequence files.')
+from climush.constants import CONFIG_FILETYPE, SEQ_FILE_RE, GZIP_REGEX, GZIP_GLOB, MOCK_COMM_RE, NEG_CTRL_RE, UNDET_RE
 
-path_help = 'Path to the directory containing the sequences to rename, relative to the location of ' \
-            'rename_sequence_files.py script.'
-parser.add_argument('path', help=path_help)  # positional
+# start timer for calculating run time
+start_time = datetime.now()
 
-inipath_help = 'Relative or absolute path to the .ini file for this set of sequence files, which should be updated ' \
-               'by the user prior to running this script; if a path is not provided, it will look for a file with the ' \
-               'extension \'.ini\' in the same directory as the input path provided.'
-parser.add_argument('-inipath', help=inipath_help, required=False)
+# indicate whether to employ 'test mode', used for running interactively in IDE
+test_mode = False
 
-tableout_help = 'Whether to save a conversion table showing the old and new file names. Output table will not ' \
-                'be saved unless argument used in command line. '
-parser.add_argument('--table_out', help=tableout_help, required=False, action=argparse.BooleanOptionalAction)
+# should do this programatically but I'm not
+run_date = '2023-10'
 
-nocopy_help = 'Whether to save a copy of the files with their original file names in a zip file ' \
-              'before renaming. Tends to be time consuming for Illumina sequencing files. If you do not ' \
-              'want copies made, include the argument in the command line. Program will confirm either way ' \
-              'before proceeding.'
-parser.add_argument('--no_copy', help=nocopy_help, required=False, action=argparse.BooleanOptionalAction)
+# set a variable that will determine if a warning was triggered at some point throughout the script
+no_warnings = True
 
-ext_help = 'File extension of the sequence files; if not included, will default to fasta.gz'
-parser.add_argument('--ext', default='.fastq.gz', help=ext_help)
-
-colldate_help = 'The general collection date used for this group of sequences, formatted as YYYY-MM; for spring collections, ' \
-                'use 202#-05 and for fall use 202#-10. if a collection date is not provided, the collection date will be ' \
-                'inferred from the name of the configuration (.ini) file as long as it follows the standard naming ' \
-                'convention for configuration files (i.e., YYYY-MM date is included in the file name). Error will be ' \
-                'raised if the program cannot locate a date with this format in the configuration file name, and none is ' \
-                'provided with the \'--coll_date\' CLI argument.'
-parser.add_argument('--coll_date', required=False, help=colldate_help)
-
-args = parser.parse_args()
-
-def positive_response(input_response):
-    if re.search(r'^Y', input_response, re.I):
-        return True
-    else:
-        return False
-def check_input(cli_input):
-    '''
-    Confirms that the format of the input from the command line is
-    formatted correctly. If it is a directory, it must have a trailing
-    '/' and if it is a file extension, it must have a leading '.'
-    :param input: input variable
-    :return: if not formatted correctly, returns reformatted variable;
-    otherwise will return original input variable
-    '''
-
-    if cli_input is None:
-        return cli_input
-    else:
-        if (os.path.isdir(cli_input)) and not (cli_input.endswith('/')):
-            cli_input = cli_input + '/'
-        elif re.search(r'^\d', cli_input):
-            if not (re.search(r'\d{4}-\d{2}', cli_input)) and not (os.path.isdir(cli_input)):
-                print(f'\nCollection date provided in the command line is not '
-                      f'formatted correctly. Must be YYYY-MM.')
-                sys.exit()
-        else:
-            if not cli_input.startswith('.'):
-                cli_input = '.' + cli_input
-
-    return cli_input
-
-table_out = args.table_out
-colldate_group = check_input(args.coll_date)
-path_input = check_input(args.path)
-file_ext = check_input(args.ext)
-
-if args.inipath is None:
-    ini_types = list(Path(path_input).glob('*.ini'))
-    if len(ini_types) > 1:
-        print(f'\nERROR: Multiple .ini files ({len(ini_types)}) were located in the provided input directory '
-              f'{path_input}. Please specify the correct configuration file in the '
-              f'command line with argument \'-inipath\' or remove all other .ini files in this directory.\n')
-        sys.exit()
-    else:
-        path_init = ini_types[0]
-        print(f'\nUsing configuration file: {path_init}.')
-else:
-    path_init = args.inipath
-
-if args.no_copy is True:
-    cont_input = input('A copy of the files with their original file names will *not* be created, so it '
-                       'is advised that you have your own backup of these files with their original file names. '
-                       'Do you wish to continue? [Y/N]')
-else:
-    cont_input = input('A copy of the files with their original file names will be created, and may '
-                       'be time intensive. Do you wish to continue? [Y/N]')
-
-if positive_response(cont_input):
-    no_copy = args.no_copy
-else:
-    print('To save a copy of the files with their original file names, remove \'--no_copy\' '
-          'from the command line input.\n'
-          'To prevent a copy of the files with their original file names from being saved, '
-          'include \'--no_copy\' from the command line input.')
-    sys.exit()
-
-## FOR TESTING/TROUBLESHOOTING
-# table_out = True
-# colldate_group = None
-# path_input = './illumina_renamed-files/illumina_2023-05_test/'
-# path_init = f'{path_input}!file-rename_config_2023-05_soil-litter.ini'
-# file_ext = '.fastq.gz'
-# no_copy = True
-
-def is_valid_entry(string):
-    '''
-    Tests if a string contains data.
-
-    Uses the VALID_ENTRY regex to search an input string for usable
-    data. Checks whether the word 'NA' or 'None' is detected as a
-    whole word, and not a part of another string, case insensitive.
-    If NA/None or empty string detected, returns False as it is not
-    a valid entry. If NA/None or empty string is *not* detected, it
-    is assumed that string is a valid piece of data (e.g., from the
-    configuration file), and returns True.
-    :param string: string to test for valid data entry
-    :return: True, if string is a valid entry; otherwise False.
-    '''
-    r = re.compile(VALID_ENTRY_REGEX, re.I)
-    results = list(filter(r.search, string))
-
-    if len(results) > 0:
-        return True
-    else:
-        return False
-
-# read in data from the initialization file into a dict (config_dict)
-# THIS WILL THROW ERROR BECAUSE PATH_INIT IS FILE NOT PATH
-config_dict = import_config_as_dict(path_to_file=path_init, file_handle=)
-
-config_parser = configparser.RawConfigParser()
-config_parser.optionxform = lambda option: option  # use custom config to preserve case of config file
-config_parser.read(path_init)
-config_dict = {sect: dict(config_parser.items(sect)) for sect in config_parser.sections()}
-
-# define constants
-SEQ_FILE_REGEX = r'fast.'
-VALID_ENTRY_REGEX = r'[^(^NA$)|^(^None$)]'
-MOCK_REGEX = r'^mock'
-NTC_REGEX = r'^ntc'
-UNDET_REGEX = r'^undet'
-
-DELIMITER = config_dict['delimiter']['delimiter']
-
-# helpful dictionaries
-filename_components = {'seq_platform': ['sanger', 'illumina', 'pacbio'],
-                       'compartment': ['litter', 'soil', 'spore', 'sporocarp-f', 'sporocarp-a', 'leaf-sp01',
-                                       'leaf-sp02', 'seed-sp01', 'seed-sp02', 'root-sp01', 'root-sp02'],
-                       'coll_date': 'YYYY-MM',
-                       'ecoregion': ['D01', 'D03', 'D05', 'D06', 'D13', 'D14', 'D16', 'D19'],
-                       'treatment': ['UC', 'UO', 'UG', 'BC', 'BO', 'BG'],
-                       'subplot': ['01', '02', '03', '04', '05', '06', '07', '08', '09']}
-
-# create dict of NEON domains, their associated states, and room to add unique site names from original labels
-neon_domains = {'AK': {'D19': []},
-                'AZ': {'D14': []},
-                'CO': {'D13': []},
-                'FL': {'D03': []},
-                'KS': {'D06': []},
-                'MA': {'D01': []},
-                'MN': {'D05': []},
-                'OR': {'D16': []}}
-
-# get values from a dictionary; works for nested and not-nested
-def get_dict_values(dictionary):
-  for val in dictionary.values():
-    if isinstance(val, dict):
-      yield from get_dict_values(val)
-    else:
-      yield val
-
-# extracted nested portion of a nested dictionary
-def extract_nested(dictionary):
-    output_dict = {}
-
-    for val in dictionary.values():
-        if isinstance(val, dict):
-            output_dict.update(val)
-        else:
-            return print('Provided dictionary does not appear to be nested.')
-
-    return output_dict
-
+##########################################################
+###### ADD TO CLIMUSH PACKAGE ##########################################################################################
+##########################################################
+print('section 01: add to climush package\n')
 # function that will update the neon_domains dictionary if there is a new value for the domain
-def update_domain_dict(domain_dict, site_section='site_name', configuration_dict=config_dict):
+def update_domain_dict(domain_dict, configuration_dict, site_section='site_name'):
     '''
     Updates the NEON domains dictionary with new site values.
 
@@ -205,7 +36,7 @@ def update_domain_dict(domain_dict, site_section='site_name', configuration_dict
     :param domain_dict: a nested dictionary where the primary
     key is the state abbreviation, the secondary key is the
     NEON domain, and the value of the NEON domain is an empty
-    list.
+    set.
     :param site_section: the name of the section that contains
     information on the site name used in the old file names;
     defaults to 'site_name', which is the name given in the
@@ -218,139 +49,20 @@ def update_domain_dict(domain_dict, site_section='site_name', configuration_dict
     '''
 
     site_dict = configuration_dict[site_section]
-    state_abbr = list(site_dict.keys())
 
-    for state in state_abbr:
-        # get list of config sites to add to neon domain dict
-        config_site_name = site_dict[state]
+    for state, site in site_dict.items():
 
+        # get the associated NEON domain for this state
         domain = list(domain_dict[state].keys())[0]
 
-        domain_dict[state][domain] += config_site_name
+        # add the site name to the NEON domain for this state
+        if isinstance(site, list):
+            for s in site:
+                domain_dict[state][domain].add(s)
+        else:
+            domain_dict[state][domain].add(site)
 
     return None
-
-update_domain_dict(neon_domains)
-
-# function that differentiates Illumina versus PacBio raw reads based on start of file name
-def determine_sequence_platform(filename):
-    '''
-    Get sequence platform based on file name format.
-
-    Determines the sequence platform that the sequence
-    file originated from based on the format of the raw
-    sequence file before renaming. If it is a PacBio
-    dataset, it will start with four digits; otherwise,
-    it is an Illumina sequence file.
-    :param filename: original raw read file name as string
-    :return: sequencing platform as string; either 'pacbio'
-    or 'illumina'
-    '''
-    if re.search(r'^\d{4}', filename):
-        seq_platform = 'pacbio'
-    else:
-        seq_platform = 'illumina'
-
-    return seq_platform
-
-# function that will drop the file extension of a file name
-def drop_file_extension(filename, add_path='', add_extension='', keep_path=False):
-    '''
-    Get base file name of a sequencing file.
-
-    Removes the sequence file extension of the input filename and
-    returns a string of the file name with the extension removed.
-    Function looks specifically for a sequence file extension such
-    as fasta, fastq, fastq.gz, fastx to remove. Options to add a
-    new file path or a new file extension to the base name of the
-    input file. Helper function to create dummy/test files and when
-    renaming sequencing files to updated naming convention.
-    :param filename: name of the sequencing file with its original
-    file extension; should be some kind of fastx file (O.K. if it is
-    a fastq.gz file); an error will be raised if a part of the filename
-    that is not the file extension contains 'fast*'.
-    :param add_path: file path to add to the beginning of the base file
-    name; optional, will default to nothing added.
-    :param add_extension: file extension to add to the beginning of the
-    base file name; optional, will default to nothing added.
-    :param keep_path: whether to keep the path on the file name or remove
-    it; default is False, which means the file path is not kept
-    :return: base file name of the input file name with original file
-    extension removed; may also contain a file path prefix (if provided)
-    and/or a new file extension (if provided).
-    '''
-
-    # remove the input file path prefix if it is not wanted
-    if keep_path:
-        pass
-    else:  # default
-        filename = os.path.basename(filename)
-
-    # ensure the output path has a trailing slash so filepath is created correctly
-    if (not add_path.endswith('/')) and (add_path != ''):
-        add_path = add_path + '/'
-
-    # ensure the file type has a leading '.' so empty files created correctly
-    if (not add_extension.startswith('.')) and (add_extension != ''):
-        add_extension = '.' + add_extension
-
-    # split at '.', which should at minimum split away the file extension
-    filename_components = filename.split('.')
-
-    # find part (index) of the file name from split component list that matches the sequence file type
-    index_to_drop = [c for c, comp in enumerate(filename_components) if re.search(SEQ_FILE_REGEX, comp)]
-
-    if len(index_to_drop) == 1:  # should only be one part of the file name that matches fast*
-        # keep only part of original filename that comes before the sequence file type
-        components_keep = filename_components[:index_to_drop[0]]
-        if len(components_keep) > 1:  # if the filename contains a '.' outside its file extension...
-            final_out = add_path + '.'.join(components_keep) + add_extension  # ...join the components back with a '.'
-        else:  # if the original filename does not otherwise contain a '.'...
-            final_out = add_path + components_keep[0] + add_extension  # ...no joining required
-    else:  # raise an error if there's confusion about what is the file extension and what is part of the filename
-        print(f"\nERROR: more than one component of the file name {filename} contains text matching 'fast*'. Rename "
-              f"this section of the file name and retry.\n")
-        sys.exit()
-
-    return final_out
-
-# convert input from config file to regular expression
-def convert_config_regex(config_input):
-    '''
-    Convert simple text with asterisk wildcard to regex.
-
-    Config file accepts wildcards in the common form of an
-    asterisk (*) to make it more user-friendly. This function
-    will take that input and convert to a regular expression.
-    If there are multiple strings in the input for this function,
-    it will return a list of regex strings, which can be later
-    joined to kept separate.
-    :param config_input: string or list of strings where asterisk
-    wildcard is used; wildcard not necessary, but if not present, will
-    build regex for exact match to input (i.e., not part of other
-    word).
-    :return: list of regex if input list, single regex string if input
-    string.
-    '''
-    result = []
-
-    for search_str in config_input:  # assemble regex based on config string/list provided
-
-        search_str = search_str.replace('.', '\.')  # if there's a '.' as part of original label, need to escape for regex
-
-        if search_str.startswith('*'):  # if wildcard at start, search for string at end of label
-            result.append(search_str.replace('*', '.*') + '$')
-        elif search_str.endswith('*'):  # if wildcard at end, search for string at beginning of label
-            result.append(
-                '^' + search_str.replace('*', '.*'))  # last asterisk, can be anything or nothing after
-        else:  # otherwise, search for exact match
-            result.append('^' + search_str + '$')
-
-    return result
-
-# get tuple of original filenames; tuple so that no changes can be made to these original file names
-original_filenames = tuple([drop_file_extension(filename=file) for file in os.listdir(path_input) if re.search(SEQ_FILE_REGEX, file)])
-count_undet = len([f for f in original_filenames if re.search(r'undetermined', f, re.I)])
 
 # create a dictionary of the original file names and their sizes, as a check after renaming
 def file_size_dict(directory, filesize_unit='MB'):
@@ -371,293 +83,32 @@ def file_size_dict(directory, filesize_unit='MB'):
     :return: dictionary where keys are names of the original files
     and values are the size of the original files in (bites?)
     '''
-    # ensure the output path has a trailing slash so filepath is created correctly
-    if not directory.endswith('/'):
-        directory = directory + '/'
 
     # get path of all original sequence files in the input directory
-    path_seq_files = [(directory + file) for file in os.listdir(directory) if re.search(SEQ_FILE_REGEX, file)]
+    filepaths = [file for file in directory.glob(GZIP_GLOB)]
 
     # get the conversion to use for output file size
-    conversion_dict = {'B': 0, 'KB': 1024, 'MB': 1024**2, 'GB': 1024**3}  # conversion relative to bytes
-    accepted_unit_regex = '|'.join(list(conversion_dict.keys()))
+    file_size_conversion = {'B': 0, 'KB': 1024, 'MB': 1024**2, 'GB': 1024**3}  # conversion relative to bytes
+
+    # only allow filesize_unit input value that is in the file size conversion dictionary
+    accepted_unit_regex = '|'.join(list(file_size_conversion.keys()))
+
+    # confirm that file size unit input value is valid; prompt user if not
     if re.search(accepted_unit_regex, filesize_unit, re.I):
-        conversion = conversion_dict[filesize_unit]
-        seq_file_dict = {drop_file_extension(k): {'file_size': ((os.stat(k).st_size)/conversion),
-                                                  'unit': filesize_unit.upper()}
-                         for k in path_seq_files}
+        pass
     else:
-        return print(f'ERROR: provided file size unit ({filesize_unit}) is not a valid unit. Valid '
-                     f'file size units are: {list(conversion_dict.keys())}. Choose one of the accepted units and '
-                     f'rerun.')
+        print(f'ERROR. The provided file size unit, {filesize_unit}, is not a valid unit. Please chose a valid '
+              f'unit from the following options:\n')
+        filesize_unit = prompt_print_options(option_list = list(file_size_conversion.keys()))
 
-    return seq_file_dict
+    # get file conversion and file size for each file in the input dictionary
+    conversion = file_size_conversion[filesize_unit]  # conversion value from bytes
 
-original_file_sizes = file_size_dict(directory=path_input)
+    filesize_dict = {file.name: {'file_size': (int(file.stat().st_size) / conversion),
+                                 'unit': (filesize_unit.upper())}
+                     for file in filepaths}
 
-# confirm that the original filenames in the file size dict are exactly the same as in original_filenames
-assert tuple(original_file_sizes.keys()) == original_filenames, 'Original file names do not match the file names ' \
-                                                                'in the file size dictionary. The final renamed file ' \
-                                                                'check will be inaccurate if not fixed. '
-
-# create dictionary of original label components; helper function in get_old_new_labels()
-def get_original_labels(filenames, configuration_dict=config_dict):
-    '''
-    Get file name label components of original Illumina file names.
-
-    Substitution of old labels with new labels from the updated
-    naming convention requires knowledge of all possible old
-    labels used. In some cases, there are differences in the
-    use of punctuation in label components (i.e., UB-C and UBC)
-    so gathering all possible label components is crucial to
-    the relabeling process. This function only works with raw
-    reads from Illumina sequencing, as PacBio raw reads do not
-    contain any relevant information. This function also requires
-    the configuration file to contain entries for all component
-    positions in the original label, and the delimiter used in the
-    original label.
-    :param filenames: path of directory containing sequences
-    to rename.
-    :param configuration_dict: the name of the dictionary that was
-    built from the configuration file; default is config_dict, and
-    is unlikely to be different unless changed by user.
-    :return: a dictionary with keys being the components of the
-    new sequence file name and the values being the old components
-    used for those categories.
-    '''
-
-    # create an empty set for each relevant file name component
-    filename_comps = list(filename_components.keys())
-    filename_comps.remove('coll_date')  # collection date is handled separately, do not include in this function
-    set_list = []  # used at end when created output dictionary
-    for comp in filename_comps:
-        set_name = f'og_{comp}'  # create name of set based on component
-        set_list.append(set_name)  # add name of set to list for use when creating output dict
-        exec(f'{set_name} = set()', globals())  # execute creation of set using this set name
-
-    missing_components = []
-    # helper function to find label for each component in a file name
-    def find_original_components(component_name, filename):
-        '''
-        Find the original label used for a given component.
-
-        Helper function for get_original_labels. Looks for the label used
-        for each component present in the original file name. Skips over
-        components that are missing in the original file name.
-        :param component_name: the name of the component of the label (str), such as
-        seq_platform, compartment, etc.; see keys of filename_components
-        dictionary for all options; will raise an error if it is not one
-        of the component names in this dictionary.
-        :return: none; will add the label for the component to the set of
-        file name components created in get_original_labels function.
-        '''
-        comp_dict = configuration_dict['component_positions']
-        component_list = filename.split(DELIMITER)
-
-        comp_options = list(comp_dict.keys())
-        if not component_name in comp_options:
-            print(f'\nERROR: component provided ({component_name}) not a valid option. '
-                  f'Valid names for components are: {comp_options}')
-            return False
-
-        # get component from file name, if component present
-        comp_value = comp_dict[component_name][0]
-        try:  # if an integer is provided for the component's index...
-            comp_label = component_list[int(comp_value)]  # index the component list by this integer to get label
-        except:  # if component index cannot be converted to an integer (i.e., is None, NA, '', etc.)
-            # print(f'\nERROR: the component {component_name} was not found in the original file name.\n')
-            missing_components.append(component_name)
-            return True  # end function, component not in original filename
-
-        # get the name of the set to add component label to
-        og_set = f'og_{component_name}'
-
-        # add component label to the original component set if it follows expected naming convention
-        if component_name == 'ecoregion':  # ecoregion is handled differently to check it is added to NEON dictionary
-            if comp_label in list(
-                    itertools.chain(*list(get_dict_values(neon_domains)))):  # look for it in neon_domain nested values
-                exec(f'{og_set}.add(comp_label)')  # add ecoregion to set once confirmed its in NEON domain dict
-            else:
-                print(
-                    f'\nERROR: Ecoregion/site used in original file name {comp_label} not properly added to the NEON domains '
-                    f'dictionary. Check that you updated your configuration file before starting, and rerun.')
-                return False
-        else:
-            if component_name == 'compartment':
-                search_list = [val for val in itertools.chain(*list(config_dict['compartment_labels'].values())) if
-                               is_valid_entry(val)]  # get all possible label values
-            elif (component_name == 'treatment') or (component_name == 'subplot'):
-                search_list = [val for val in config_dict['accepted_labels'][component_name] if is_valid_entry(val)]
-            else:
-                print(f'Unrecognized file component name: {component_name}. Accepted component names are: '
-                      f'{list(filename_components.keys())}')
-                return False
-
-            search_re_list = convert_config_regex(search_list)
-
-            search_regex = '|'.join(search_re_list)  # search for all possible labels for this component
-
-            if re.search(search_regex, comp_label, re.I):
-                exec(f'{og_set}.add(comp_label)')
-            else:
-                print(f"\nERROR: File {filename} cannot be renamed using the automated program because it does not "
-                      f"follow the naming convention provided in the configuration file.")
-                return False
-
-        return True
-
-    # generator to produce results only if component items are valid
-    def search_until_error(component_list, filenames):
-        invalid_filenames = []
-        for file in filenames:
-            for comp in component_list:
-                if not find_original_components(comp, file):
-                    invalid_filenames.append(file)
-                    break
-                else:
-                    continue
-
-        yield invalid_filenames
-
-    filenames_use = [file for file in filenames if (determine_sequence_platform(file) == 'illumina') and
-                     not (re.search(r'undetermined', file, re.I))]
-
-    invalid_filenames = tuple(search_until_error(filename_comps, filenames_use))[0]
-
-
-    print(f'\n{len(missing_components)} out of {len(filenames)-count_undet} original file names were missing the '
-          f'following file name component(s): {set(missing_components)}. This information will be gathered '
-          f'automatically from either the configuration file or the program\'s auto-detect functions.\n')
-
-    # create dictionary where keys are component names and values are all possible values used in original filenames
-    output_dict = {k: [] for k in filename_comps}
-    for k in output_dict.keys():
-        output_set = f'og_{k}'
-        exec(f'output_dict[k] += {output_set}')
-
-    return output_dict, invalid_filenames
-
-original_labels, invalid_filenames = get_original_labels(original_filenames)
-
-# create a list of only valid filenames that follow the naming convention from config file
-valid_filenames = tuple(set(original_filenames).difference(set(invalid_filenames)))
-
-# remove any punctuation that might be in the old label components; helper function in get_old_new_labels
-def remove_punctuation(old_labels, replace='', remove_duplicates=True):
-    '''
-    Remove punctuation from old labels.
-
-    Before creating the oldnew dictionaries within the function
-    get_old_new_labels, the old labels will be screened for
-    punctuation, and if found, the punctuation will be removed.
-    If there are duplicate labels after punctuation is removed,
-    it will also remove duplicate labels. Removing punctuation
-    is necessary in order for future renaming steps to work
-    correctly.
-    :param old_labels: a list of the old labels used in the
-    original file names.
-    :param replace: option to replace the punctuation with a custom
-    string; default is set to remove punctuation and replace with
-    nothing.
-    :return: list of the old labels with all punctuation removed.
-    '''
-    s = r'\W'  # search regex
-
-    if isinstance(old_labels, list):
-        no_punctuation = []
-        non_strings = []
-        for label in old_labels:
-            if isinstance(label, str):
-                no_punctuation.append(re.sub(s, replace, label))
-            else:
-                no_punctuation.append(label)
-                non_strings.append(label)
-        if len(non_strings) > 0:
-            print(f'Some elements of the input list were not strings ({non_strings}), so they were not '
-                  f'assessed for punctuation, but remain in the output list.')
-        if remove_duplicates:
-            return list(set(no_punctuation))
-        else:
-            return no_punctuation
-    elif isinstance(old_labels, str):
-        return re.sub(s, replace, old_labels)
-    else:
-        return print(f'The provided input data type ({type(old_labels)}) is not a valid input.'
-                     f'This function only accepts strings or lists of strings as input.')
-
-# create dictionary for each component of old labels and new labels (2 keys each dictionary, 'old_labels', 'new_labels')
-def get_old_new_labels(filenames, original_labels):
-    '''
-    Create nested dictionary of old and new labels by file name component.
-
-    Goes through the original file names to access the original labels
-    of the file names to be updated, using the get_original_labels
-    function. Then will create a nested dictionary of all file
-    name components that are present in the old file names. The primary
-    keys of this output dictionary is the name of the component, and then
-    each of the components will have two secondary keys: 'old_labels'
-    and 'new_labels'. These keys have values of all old labels used for
-    that component and all new labels that will be used to replace the
-    old ones.
-    :param filenames: a list or tuple of the original file names
-    that will be renamed with the updated file naming convention.
-    :return: a nested dictionary where the primary keys are
-    the different file name components and each primary key has the secondary
-    key 'old_labels' and 'new_labels'.
-    '''
-
-    output_dict = {k: {'old_labels': [], 'new_labels': []} for k in original_labels.keys()}
-
-    for k in original_labels.keys():
-        old_labels = remove_punctuation(original_labels[k])
-        new_labels = list(filename_components[k])
-
-        if len(old_labels) == len(new_labels):
-            output_dict[k]['old_labels'] += remove_punctuation(original_labels[k])
-            output_dict[k]['new_labels'] += list(filename_components[k])
-        else:
-            if k == 'seq_platform':
-                output_dict[k]['old_labels'] += old_labels
-                output_dict[k]['new_labels'] += set([determine_sequence_platform(file) for file in filenames])
-            elif k == 'compartment':
-                valid_new_labels = set()
-
-                for lab in config_dict['compartment_labels'].keys():
-                    values = config_dict['compartment_labels'][lab]
-                    for v in values:
-                        if is_valid_entry(v):
-                            valid_new_labels.add(lab)
-                        else:
-                            continue
-
-                output_dict[k]['old_labels'] += old_labels
-                output_dict[k]['new_labels'] += valid_new_labels
-            elif k == 'ecoregion':
-                valid_new_labels = set()
-                label_dict = extract_nested(neon_domains)
-
-                for lab in label_dict.keys():
-                    values = label_dict[lab]
-                    for v in values:
-                        if is_valid_entry(v):
-                            valid_new_labels.add(lab)
-                        else:
-                            pass
-
-                output_dict[k]['old_labels'] += old_labels
-                output_dict[k]['new_labels'] += valid_new_labels
-            elif k == 'subplot':
-                old_numbers = '|'.join([re.search(r'([1-9])', ol)[0] for ol in old_labels])
-                valid_new_labels = [nl for nl in new_labels if re.search(old_numbers, nl)]
-
-                output_dict[k]['old_labels'] += old_labels
-                output_dict[k]['new_labels'] += valid_new_labels
-            else:
-                print(f'I did not yet write a solution for this scenario, sorry!')
-
-    return output_dict
-
-oldnew_dict = get_old_new_labels(valid_filenames, original_labels)
+    return filesize_dict
 
 # before renaming files, create a copy of all files to be renamed and send to zipped subdirectory (for safety)
 def copy_original_files(directory, copy_directory='original_files', compress=True):
@@ -676,474 +127,1104 @@ def copy_original_files(directory, copy_directory='original_files', compress=Tru
     :return: print confirmation that all files were successfully
     copied to the copy directory
     '''
-    # ensure the output path has a trailing slash so filepath is created correctly
-    if not directory.endswith('/'):
-        directory = directory + '/'
 
-    # assemble the path of the copy directory
-    copy_path = directory + copy_directory + '/'
+    # convert input to a Path class object
+    if is_pathclass(directory, exit_if_false=False):
+        dir_path = directory
+    else:
+        dir_path = Path(directory)
+
+    # create the output directory (copy) in same directory as the input directory
+    if is_pathclass(copy_directory, exit_if_false=False):
+        copy_path = copy_directory
+    else:
+        copy_path = dir_path / copy_directory
 
     # create the copy directory
-    if os.path.isdir(copy_path):  # if a directory already exists with this name...
-        if len(os.listdir(copy_path)) > 0:  # if the directory isn't empty...
-            ask_to_delete = f'\nA directory with the name {copy_directory} already exists in {directory}. Do you ' \
-                            f'want to delete this directory and continue? If you choose no (\'N\') and do not want ' \
-                            f'to delete the directory, then the program will exit. (Y/N)\n'
-            response = input(ask_to_delete)  # ask if you want to delete it
-            if positive_response(response):  # if CLI response yes, delete old directory and create new
-                shutil.rmtree(copy_path)
-                os.mkdir(copy_path)
-            else:  # otherwise, exit program
-                sys.exit()
-        else:
-            shutil.rmtree(copy_path)  # remove existing (empty) directory
-            os.mkdir(copy_path)  # create new directory
-    else:  # if the directory doesn't exist...
-        os.mkdir(copy_path)  # create it
 
-    # get a list of the sequence files to copy to the copy directory
-    files_to_copy = [(directory + file) for file in os.listdir(directory) if re.search(SEQ_FILE_REGEX, file)]
+    # if the directory already exists, prompt user for input
+    if copy_path.is_dir():
 
-    # copy each sequence file to the copy directory
+        # prompt for user input
+        msg = f'A directory with the name {copy_path.name} already exists in: \n'\
+              f'\t{dir_path}\n'\
+              f'Do you want to delete this directory and continue? If you do not want to delete this directory, '\
+              f'then the program will exit.'
+
+        # if response is yes, will continue; if no/quit, will exit here
+        prompt_yes_no_quit(message=msg)
+
+        # remove the pre-existing directory that matches the copy directory name
+        shutil.rmtree(copy_path)
+
+    # make the new copy path directory
+    mkdir_exist_ok(new_dir = copy_path)
+
+    # create a list of files to copy, excluding any non-sequencing files
+    files_to_copy = [ file for file in dir_path.glob(GZIP_GLOB) ]
+
+    # copy each sequence file to the new copy directory
     for file in files_to_copy:
-        shutil.copy(file, copy_path)  # to preserve extra metadata, use copy2
+        shutil.copy2(file, copy_path)  # to preserve extra metadata, use copy2
 
     # before archiving copy, get count of sequence files from source and destination
-    num_copied_files = len(os.listdir(copy_path))
+    num_copied_files = len(list(copy_path.glob('*')))
     num_original_files = len(files_to_copy)
-
-    if compress:
-        # zip the copy directory
-        shutil.make_archive(copy_path, 'zip', copy_path)
-        # remove the unzipped copy directory
-        shutil.rmtree(copy_path)
 
     # confirm all files were copied to the copy directory
     if num_copied_files == num_original_files:
-        return print(f'\n{num_copied_files} original sequence files were successfully copied to {copy_directory}.')
+
+        # if all files copied, then compress output
+        if compress:
+            # zip the copy directory
+            shutil.make_archive(copy_path, 'zip', copy_path)
+
+            # remove the unzipped copy directory
+            shutil.rmtree(copy_path)
+
+        return print(f'\nA copy of {num_copied_files} original sequence files was successfully made in:\n'
+                     f'\t{copy_path}')
+
     else:
         num_missing = abs(num_copied_files - num_original_files)
-        return print(f'ERROR: {num_missing}/{num_original_files} sequence files from the source directory {directory} '
-                     f'were not copied to the destination directory {copy_directory}.')
+        return print(f'ERROR: {num_missing}/{num_original_files} sequence files from the source directory:\n'
+                     f'\t{dir_path}\n'
+                     f'were not copied to the destination directory:\n'
+                     f'\t{copy_path}')
 
+# convert the glob format provided from configuration file to a regex format
+def convert_glob_to_regex(glob_str):
+    '''
+    Convert simple text with asterisk wildcard to regex.
+
+    Config file accepts wildcards in the common form of an
+    asterisk (*) to make it more user-friendly. This function
+    will take that input and convert to a regular expression.
+    If there are multiple strings in the input for this function,
+    it will return a list of regex strings, which can be later
+    joined to kept separate.
+    :param config_input: string or list of strings where asterisk
+    wildcard is used; wildcard not necessary, but if not present, will
+    build regex for exact match to input (i.e., not part of other
+    word).
+    :return: list of regex if input list, single regex string if input
+    string.
+    '''
+
+    if isinstance(glob_str, str):
+        pass
+    else:
+        print(f'ERROR. Input for convert_glob_to_regex() function in the renaming file must be a string, not '
+              f'a list. Please fix the code and then rerun.\n')
+        print(f'Exiting...')
+        # sys.exit()
+
+    glob_str = glob_str.replace(r'.', r'\.')  # if there's a '.' as part of original label, need to escape for regex
+
+    if glob_str.startswith('*'):  # if wildcard at start, search for string at end of label
+        result = glob_str.replace(r'*', r'.*') + '$'
+    elif glob_str.endswith('*'):  # if wildcard at end, search for string at beginning of label
+        result = '^' + glob_str.replace(r'*', r'.*')  # last asterisk, can be anything or nothing after
+    else:  # otherwise, search for exact match
+        result = '^' + glob_str + '$'
+
+    return result
+
+# extracted nested portion of a nested dictionary
+# def extract_nested(nested_dict, depth):
+#     # create a depth counter that will keep track of the number of key levels that it iterates through
+#     depth_count = 0
+#
+#     # search through the depths of the dictionary until the desired depth is reached
+#     while depth_count < depth:
+#         for key, val in nested_dict.items():
+#             if isinstance(val, dict):
+#                 depth_count += 1
+#             else:
+#                 if depth_count == 0:  # if the very first set of keys/values explored is determined to not be nested
+#                     return print('WARNING. Provided dictionary does not appear to be nested.\n')  # alert user
+#
+#         # implement a safety check, to prevent any infinite loops
+#         if depth_count > 50:
+#             return print('WARNING. There may be an error with the function. 50 levels of the dictionary were searched '
+#                          'and did not return a result.\n')
+#     else:
+#         output_dict = {key: val}
+#         return output_dict
+
+def extract_nested(nested_dict):
+    output_dict = {}
+
+    for key, val in nested_dict.items():
+        if isinstance(val, dict):
+            output_dict.update(val)  # val itself is a dictionary, so only add this sub-dict to the output dictionary
+        else:
+            print('WARNING. Provided dictionary does not appear to be nested.\n')
+
+    return output_dict
+
+# NOT ACTUALLY USED IN THIS SCRIPT, BUT MIGHT BE HELPFUL ELSEWHERE?
+# function to flatten the values in a dictionary to a single list, recursively
+def flatten_dict_values(input_dict, flattened_list=[]):
+    '''
+    Return values from a simple dictionary (non-nested) as a list of values.
+    If values are a mix of lists and/or sets of values, the items within these
+    lists/sets will be unpacked.
+    :param input_dict: a simple dictionary (non-nested); if using a nested dictionary,
+    then subset the dictionary so that it appears non-nested.
+    :param flattened_list: list to add the flattened values to; defaults to an empty
+    list at the start, but will be a partially filled list upon recursion
+    :return: list of values from the input dictionary; always a list, even if input
+    values are a set, so that you can observe any values that belong to multiple keys
+    '''
+
+    # given this function is recursive, input may not be dict upon recursion
+
+    # if it is the initial input, it will be a dict; get values from the input dict
+    if isinstance(input_dict, dict):
+        flattened_list = []  # list has to be reset to empty or vals will be added each time it is used
+        vals_to_flatten = input_dict.values()
+    # if recursed, it will be a set or list; rename to match the object name of dict input
+    else:
+        vals_to_flatten = input_dict
+
+    # go through each of the values in the input dictionary or recursion set/list
+    for val in vals_to_flatten:
+        # if the value is a list or set, then recurse to flatten (also added tuple, though I don't use)
+        if isinstance(val, list) or isinstance(val, set) or isinstance(val, tuple):
+            flatten_dict_values(val, flattened_list=flattened_list)
+        # if the value is a dictionary, then the input dictionary is nested, which is not something this function handles
+        elif isinstance(val, dict):
+            print(f'WARNING. The input dictionary is nested, so it is ambiguous how to flatten the values '
+                  f'in this dictionary. Subset the dictionary so that it is non-nested, and then '
+                  f'rerun.\n')
+        # if not a list or set, then add to flattened list (should mean its a string, float, int, etc.; hopefully)
+        else:
+            flattened_list.append(val)
+
+    return flattened_list
+
+# search for a value in a dict where values are sets/lists/tuples, and return its key when a match is found
+def search_conversion_dict(input_dict, search_val):
+    '''
+    Search the input dictionary values for a match to the provided string, looking into
+    lists, sets, and/or tuples, and return the key corresponding to this value once it
+    is located.
+    :param input_dict: dictionary to search the values in; should be non-nested
+    :param search_val: the value to search for in the dictionary, as a string, float,
+    integer, etc. (not a collection-type object like a list)
+    :return: the key corresponding to the input search value
+    '''
+
+    # look through each key/value pair in the dictionary
+    for key, val in input_dict.items():
+
+        # if the value is a collection-type object, then flatten it to get a single value
+        if isinstance(val, list) or isinstance(val, set) or isinstance(val, tuple):
+            if search_val in val:
+                return key
+        else:
+            if search_val == val:
+                return key
+
+    print(f'WARNING. The input search string, {search_val}, was not located as a value in the '
+          f'input dictionary.\n')
+    return None
+
+########################################################################################################################
+
+# if using interactively in an IDE, set test_mode = True to bypass command line arguments
+if test_mode:
+    # define path to this script (only works in certain contexts, i.e., my local file system)
+    current_script = Path('/Users/carolyndelevich/main/github_repos/climush/helper-scripts/file-naming/rename_sequence_files.py')
+
+    # confirm that you want to continue before proceeding; will also show if running in terminal if still set to True by accident
+    msg = (f'Test mode is currently engaged for {current_script.name}. Command line arguments will not be accessible. '
+           f'Would you like to continue?')
+    prompt_yes_no_quit(message=msg)
+
+    args = {'input': Path('/Users/carolyndelevich/main/github_repos/climush/helper-scripts/file-naming/illumina_soil-litter_2023-10_empty-files'),
+            'config': Path('/Users/carolyndelevich/main/github_repos/climush/helper-scripts/config/climush-bioinfo_file-rename.toml'),
+            'output': None,  # use default
+            'no_track': False,  # produce the output conversion table
+            'no_copy': False}  # save a copy of the original files
+
+# if not using interactively (i.e., running from terminal, etc.), set test_mode = False to activate command line arguments (default)
+else:
+    current_script = Path(__file__)
+    ##########################################################
+    ## DEFINE COMMAND LINE OPTIONS ###########################
+    ##########################################################
+
+    # command line arguments
+    parser = argparse.ArgumentParser(description='Rename CliMush raw sequence files.')
+
+    # input directory containing the sequence files to rename
+    parser.add_argument('-i', '--input',  # positional argument
+                        help=f'Path to the directory containing the sequences to rename; either an absolute path or '
+                             f'relative to the location of this script, which is located in: {Path(__file__).parent}')
+
+    # path to the configuration file to use for renaming the input files
+    parser.add_argument('--config',  # optional
+                        help = f'Relative or absolute path to the .toml configuration file for this set of sequence files, '
+                               f'which should be updated by the user prior to running this script. If a path is not '
+                               f'provided, it will look for a file with the extension \'.toml\' in the same directory '
+                               f'as the input path provided.')
+
+    # path to use for the renamed output files
+    parser.add_argument('--output',  # optional
+                        help = f'Relative or absolute path of the directory to contain the renamed sequencing files. By '
+                               f'default, this folder will be named after the sequencing run with '
+                               f'the prefix \'_raw-reads\'.')
+
+    # flag option to output a conversion table
+    parser.add_argument('--no-track',  # optional
+                        action = 'store_true',
+                        help = f'If this flag is used, a conversion table will be *not* be saved that showing the old file names '
+                               f'and their corresponding updated file name. It is advised to always include a conversion table '
+                               f'and not use this flag.')
+
+    # flag option to NOT save a compressed copy of the original files
+    parser.add_argument('--no-copy',  # optional
+                        action = 'store_true',
+                        help = f'If this flag is used, no copy of the original file names, compressed as a zip file for '
+                               f'the collection, will be saved. This is the safe option if there is not already a copy '
+                               f'of the original files elsewhere. However, it does take additional space and time if a '
+                               f'compressed copy of the original files is saved.')
+
+    # parse command line arguments into a dictionary
+    args = vars(parser.parse_args())  # parse here to facilitate use of 'test_mode'
+
+##########################################################
+## PARSE COMMAND LINE ARGUMENTS ##########################
+##########################################################
+print('section 02: parse command line arguments\n')
+## INPUT PATH
+# ensure that the input path is a Path object
+input_path = import_filepath(args['input'], must_exist=True)
+
+
+## CONFIGURATION FILE PATH
+# check if a configuration filepath was provided
+if args['config'] is None:
+    # if a config path file was not provided, then search for a config file in the input directory
+    config_path = flag_multiple_files(file_path=input_path, search_for=f'*{CONFIG_FORMAT}')
+else:
+    # if a config path was provided, then ensure the file exists and is a path object
+    config_path = import_filepath(args['config'], must_exist=True)
+
+
+## OUTPUT FILE PATH FOR RENAMED SEQUENCES
+# if an output path is not provided...
+if args['output'] is None:
+    # leave as empty string for now; need to gather info on sequencing run before naming
+    rename_path = input_path.parent / f'illumina_soil-litter_{run_date}_file-rename-conversion.csv'
+# if an output path is provided...
+else:
+    # then make sure it is a Path object
+    rename_path = Path(args['output'])
+
+
+## OPTION TO NOT MAKE COPY OF ORIGINAL FILES
+# ensure that the --no-copy setting used is what is desired
+if args['no_copy']:
+    msg = (f'A copy of the files with their original file names will *not* be created, so it'
+           f'is advised that you have your own backup of these files with their original file names.'
+           f'is advised that you have your own backup of these files with their original file names.'
+           f'Do you wish to continue?')
+else:
+    msg = (f'A copy of the files with their original file names will be created, and may'
+           f'be time intensive. Do you wish to continue?')
+
+# if 'yes', returns None and will continue; if 'no' or 'quit', will exit here
+prompt_yes_no_quit(message=msg, auto_respond=False)
+
+# save whatever input was received for --no-copy once confirmed
+no_copy = args['no_copy']
+
+
+## OPTION TO NOT MAKE TABLE OF OLD AND NEW FILE NAMES
+# ensure that the --no-track setting used is what is desired
+if args['no_track']:
+    msg = (f'A conversion table showing the original and renamed sequencing file names will *not* be created. It is '
+           f'advised that you allow a conversion table to be created. Would you like to continue without creating a'
+           f'conversion table? You will not have a record of what the original sequencing files names will be in '
+           f'this case.')
+    prompt_yes_no_quit(message=msg, auto_respond=False)
+
+# save whatever input was receipt for --no-track once confirmed
+no_track = args['no_track']
+
+
+##########################################################
+## IMPORT CONFIGURATION FILE #############################
+##########################################################
+print('section 03: import configuration file\n')
+
+# read in the configuration file
+# not using get_settings function because it won't work and is too complicated for this simple import
+with open(config_path, 'rt') as fin:
+    config_dict = tomlkit.parse(fin.read())
+
+# define constants
+# SEQ_FILE_REGEX now SEQ_FILE_RE
+# MOCK_REGEX now MOCK_COMM_RE
+# NTC_REGEX now NEG_CTRL_RE
+# UNDET_REGEX now UNDET_RE
+VALID_ENTRY_REGEX = r'[^(^NA$)|^(^None$)]'  # CHECK HOW USED, NEED TO ADD TO CONSTANTS.PY?
+
+# get the file delimiter from the configuration file
+# DELIMITER now file_delim
+file_delim = config_dict['delimiter']['delimiter']
+
+
+##########################################################
+## DEFINE REFERENCE DICTIONARIES #########################
+##########################################################
+
+# create dict of NEON domains, their associated states, and room to add unique site names from original labels
+neon_domains = {'AK': {'D19': set()},
+                'AZ': {'D14': set()},
+                'CO': {'D13': set()},
+                'FL': {'D03': set()},
+                'KS': {'D06': set()},
+                'MA': {'D01': set()},
+                'MN': {'D05': set()},
+                'OR': {'D16': set()}}
+
+
+##########################################################
+## GET INFO FROM ORIGINAL FILENAMES ######################
+##########################################################
+print('section 04: get info from original filenames\n')
+
+# update the neon_domains dictionary to include the site name in the original file names for each domain
+update_domain_dict(neon_domains, configuration_dict=config_dict)
+
+# get tuple of the file paths to the original files, with original file names
+original_file_paths = tuple(file for file in input_path.glob(GZIP_GLOB))  # use tuple, is immutable
+
+# get a tuple of the original file names without their paths
+original_file_names = tuple(file.name for file in original_file_paths)  # use tuple, is immutable
+
+# get the file sizes of each sequencing file before any changes are made
+original_file_sizes = file_size_dict(directory=input_path)
+
+# confirm that the original file names exactly match those in the original file size dictionary
+assert tuple(original_file_sizes.keys()) == original_file_names, ('ERROR. The original file names do not match the file '
+                                                                  'names in the file size dictionary. The final renamed '
+                                                                  'file check will be inaccurate if not fixed.')
+
+# create a copy of the original files in a compressed folder, unless --no-copy flag is used
 if no_copy:
     pass
 else:
-    copy_original_files(directory=path_input)
+    copy_original_files(directory=input_path, copy_directory=(input_path / f'illumina_soil-litter_{run_date}_original-file-names'))
 
-# create a conversion dictionary with pairs of old and new labels for each component
-def create_conversion_dict(filenames, old_new_dictionary=oldnew_dict):
-    '''
-    Create a dictionary with key value pairs of old and new file name components.
-    :param filenames: list of the original file names for which to create
-    the conversion dictionary
-    :param old_new_dictionary: dictionary created using the function get_old_new_labels,
-    which creates a dictionary of old labels and new labels for each component of
-    the new file name; by default, will look for dictionary called 'oldnew_dict'
-    :return: nested dictionary, where primary keys are the file name components,
-    nested keys are the original (old) file name labels and values are the
-    corresponding labels for the new file naming convention.
-    '''
 
-    # helper functions
-    def in_original_filename():
-        '''
-        Checks whether provided component is in the original filename.
+##########################################################
+## GET ORIGINAL LABELS USED FOR EACH COMPONENT ###########
+##########################################################
+print('section 05: get original labels used for each component\n')
+# create a dictionary of the file name components, with the new label values and empty sets for the old labels
+file_name_conversion = {'seq_platform': {'sanger': set(),
+                                         'illumina': set(),
+                                         'pacbio': set()
+                                         },
+                        'compartment': {'litter': set(),
+                                       'soil': set(),
+                                       'spore': set(),
+                                       'sporocarp-f': set(),
+                                       'sporocarp-a': set(),
+                                       'leaf-sp01': set(),
+                                       'leaf-sp02': set(),
+                                       'seed-sp01': set(),
+                                       'seed-sp02': set(),
+                                       'root-sp01': set(),
+                                       'root-sp02': set()
+                                       },
+                        'ecoregion': {'D01': set(),
+                                     'D03': set(),
+                                     'D05': set(),
+                                     'D06': set(),
+                                     'D13': set(),
+                                     'D14': set(),
+                                     'D16': set(),
+                                     'D19': set()
+                                     },
+                        'treatment': {'UC': set(),
+                                     'UO': set(),
+                                     'UG': set(),
+                                     'BC': set(),
+                                     'BO': set(),
+                                     'BG': set()
+                                     },
+                        'subplot': {'01': set(),
+                                   '02': set(),
+                                   '03': set(),
+                                   '04': set(),
+                                   '05': set(),
+                                   '06': set(),
+                                   '07': set(),
+                                   '08': set(),
+                                   '09': set()
+                                   }
+                        }
 
-        Uses the old_new_dictionary to assess, on a collection-wide basis,
-        whether the provided component was a part of the original (old)
-        file name. Does not assess on a per-file name basis, but by using
-        the old_new_dictionary, it looks whether the original file name
-        structure should contain the given component.
-        :return: True/False
-        '''
-        old_labels = component_dict['old_labels']
+# create a dictionary to store the old labels before sorting by updated values
+old_label_dict = {k:set() for k in file_name_conversion.keys()}
 
-        if len(old_labels) == 0:  # if no old labels are listed for given component
-            return False  # return False; component not in old file names
-        else:
-            return True  # return True; component is in old file names
+# add any file names that do not match the label descriptions in the configuration file
+invalid_file_names = set()
 
-    def pair_oldnew_labels(component):
+# for each component in the new file name convention, find the original labels used
+for component in file_name_conversion.keys():
 
-        if component == 'compartment':
-            config_section = 'compartment_labels'
-        else:
-            config_section = 'accepted_labels'
+    ## FIND LABEL FOR THIS COMPONENT IN THE ORIGINAL FILE NAME
 
-        for l in component_dict['new_labels']:
-            if component == 'treatment':  # treatment has two pieces of info collapsed into one string
-                burn, habitat = list(l)
-                new_label_regex = f'^{burn}' + r'.*' + f'{habitat}$'
-                old_labels = [l for l in list(component_dict['old_labels']) if re.search(new_label_regex, l, re.I)]
-                conversion_dict[component][l] = old_labels
-            elif component == 'subplot':
-                subplot_re = re.compile(f"[{re.search(r'[1-9]', l)[0]}]")
-                old_labels = list(filter(subplot_re.search, component_dict['old_labels']))
-                conversion_dict[component][l] = old_labels
-            elif component == 'compartment':
-                old_label_regex = '|'.join(convert_config_regex(config_dict[config_section][l]))
-                old_labels = [l for l in list(component_dict['old_labels']) if re.search(old_label_regex, l, re.I)]
-                conversion_dict[component][l] = old_labels
-            else:
-                print(f'This function was not built to work with {component}.')
+    # from information provided, where is this file component in the original file name?
+    original_position = config_dict['component_positions'][component]
 
-        return None
+    # if this component is in the original file name, position will be tomlkit.items.Integer class
+    if isinstance(original_position, int):
 
-    # create empty dictionary with primary keys for new file name components
-    conversion_dict = {k:{} for k in filename_components.keys() if not k == 'coll_date'}
+        # then go through each file and get the unique labels for this component
+        for original_file in original_file_names:
 
-    # go through each component of the new file name and add key value pairs of old new labels
-    for comp in conversion_dict.keys():
-        component_dict = old_new_dictionary[comp]  # used in both helper functions
+            # get the original label based on the expected position
+            original_label = original_file.split(file_delim)[original_position]
 
-        if in_original_filename():  # is there a conversion to be made?
-            if comp == 'ecoregion':
-                conversion_dict[comp] = extract_nested(neon_domains)
-            else:
-                pair_oldnew_labels(comp)
-        else:  # if no conversion, get info from config file or other means
-            if comp == 'seq_platform':
-                conversion_dict[comp][determine_sequence_platform(filenames[0])] = ''
-            else:
-                print('IDK what to do here yet.')
+            ## CHECK THAT FORMAT OF THIS LABEL MATCHES WHAT IS SPECIFIED IN CONFIGURATION FILE
 
-    return conversion_dict
+            # get the accepted label values for this component from the configuration file
+            accepted_labels = config_dict['accepted_labels'][component]
 
-conversion_dict = create_conversion_dict(filenames=valid_filenames)
+            # convert the glob format from the configuration file to regex
 
-def find_colldate(config_path):
-    coll_dates = re.findall(r'\d{4}-\d{2}', str(path_init).split('/')[-1])
-    if len(coll_dates) == 1:
-        return coll_dates[0]
-    else:
-        print(f'\nMultiple collection dates ({coll_dates}) inferred from the name of the provided '
-              f'configuration file (.ini). Please rename the file so that it only contains one '
-              f'collection date with the format YYYY-MM (typically 202#-05 for spring collections, 202#-10 '
-              f'for fall collections), or specify the collection date for this group of sequences '
-              f'with the command line argument \'--coll_date\' following this same date format.')
-        return sys.exit()
+            # if acceptable original labels are a list (i.e., multiple possible values)...
+            if isinstance(accepted_labels, list):  # e.g., treatment
 
-def rename_invalid_files(filename, conversion_dictionary=conversion_dict):
-    if not 'id_index' in globals():
-        id_index = 0
+                # join together possible values
+                # sub glob wildcard (*) for regex wildcard (.) w/ zero or more (*) instances of a wildcard
+                accepted_labels_regex = '|'.join([convert_glob_to_regex(l) for l in accepted_labels])
 
-    unique_id = filename.split(DELIMITER)[id_index]
+            # if acceptable original labels are a dictionary (i.e., changing values depend on compartment type)...
+            elif isinstance(accepted_labels, dict):  # e.g., compartment like soil, litter, etc.
 
-    # format known/excepted invalid file name identifiers
-    if re.search(MOCK_REGEX, unique_id, re.I):
-        unique_id_lower = unique_id.lower()
-        mock_break = re.search(MOCK_REGEX, unique_id_lower, re.I).span()[1]
-        unique_id = unique_id_lower[:mock_break] + '-' + unique_id_lower[mock_break:]
-    elif re.search(UNDET_REGEX, unique_id, re.I):
-        unique_id = unique_id.lower()
-    elif re.search(NTC_REGEX, unique_id, re.I):
-        ntc_break = re.search(NTC_REGEX, unique_id, re.I).span()[1]
-        ntc_num = unique_id[ntc_break:]
-        if int(ntc_num) < 10:
-            unique_id = unique_id[:ntc_break] + '-0' + unique_id[ntc_break:]
-        else:
-            unique_id = unique_id[:ntc_break] + '-' + unique_id[ntc_break:]
-    else:
-        pass
-
-    compartment = '-'.join(list(conversion_dictionary['compartment'].keys()))
-    new_name = {k: v for k, v in zip(['platform', 'compartment', 'coll_date', 'description'],
-                                     ['illumina', compartment, '', unique_id])}
-    if colldate_group is None:
-        new_name['coll_date'] = find_colldate(config_path=path_init)
-    else:
-        new_name['coll_date'] = colldate_group
-
-    return new_name
-
-# main function that creates new file name
-def rename_sequence_files(filenames, conversion_dictionary=conversion_dict):
-
-    filename_change = {}
-
-    positions = config_dict['component_positions']
-
-    for old_filename in filenames:
-        # haven't figured out pacbio yet so just filter everything that isn't illumina
-        if (determine_sequence_platform(old_filename) == 'illumina'):
-            components = old_filename.split(DELIMITER)
-            if (re.search(UNDET_REGEX, old_filename, re.I)) or (old_filename in invalid_filenames):
-                new_name = rename_invalid_files(old_filename)
-            else:
-                new_name = {k:'' for k in filename_components.keys()}
-
-                for c in new_name.keys():  # search for each new component in old file name
-                    try:
-                        if is_valid_entry(positions[c]):
-                            old_value = remove_punctuation(components[int(positions[c][0])])
-                            new_value = [k for k in conversion_dict[c].keys() if old_value in conversion_dict[c][k]]
-                            new_name[c] = new_value[0]
-                    except:
-                        if c == 'coll_date':
-                            site = components[int(positions['ecoregion'][0])]
-                            domain = \
-                                [k for k in extract_nested(neon_domains).keys() if site in extract_nested(neon_domains)[k]][0]
-                            state = [k for k in neon_domains.keys() if domain in list(neon_domains[k].keys())][0]
-                            coll_dates = config_dict['collection_date'][state]
-                            if len(coll_dates) > 1:
-                                coll_date_index = config_dict['site_name'][state].index(site)
-                                coll_date = coll_dates[coll_date_index]
-                            else:
-                                coll_date = config_dict['collection_date'][state][0]
-                            new_name[c] = coll_date
+                # gather all possible accepted original labels into a list
+                accepted_labels_list = []
+                for label in accepted_labels.values():
+                    if label == "":
+                        continue
                     else:
-                        if c == 'seq_platform':
-                            new_name[c] = list(conversion_dict[c].keys())[0]
+                        accepted_labels_list.append(label)
 
-            read_id_regex = re.compile(r'^R1$|^R2$', re.I)
-            read_id = list(filter(read_id_regex.search, components))
-            new_name['read_id'] = read_id[0]
+                # then join these labels together into one regex with same method as for if labels were list
+                accepted_labels_regex = '|'.join([convert_glob_to_regex(l) for l in accepted_labels_list])
 
-            # join together new file name, add to file name dictionary
-            new_filename = '_'.join(list(get_dict_values(new_name)))
-            filename_change[old_filename] = new_filename
+            # if acceptable original labels are strings...
+            elif isinstance(accepted_labels, str):
 
-    # check for duplicates in the new file names
-    def check_duplicate_filenames(filename_change):
-        def find_duplicates(dictionary):
-            checked = set()
-            duplicate_names = {}
+                # if there is no label in original file name, it will be an empty string; therefore, pass over this
+                if len(accepted_labels) == 0:
+                    if component == 'ecoregion':
+                        accepted_labels_list = []
 
-            for pair in dictionary.items():
-                if pair[1] in checked:
-                    duplicate_names.update({pair})
+                        for lab in config_dict['site_name'].values():
+                            if isinstance(lab, str):
+                                accepted_labels_list.append(lab)
+                            elif isinstance(lab, list):
+                                accepted_labels_list = accepted_labels_list + lab
+                            else:
+                                print(f'Type of data entry not recognized.\n')
+
+                        accepted_labels_regex = '|'.join(accepted_labels_list)
+
+                # if there is an acceptable label for this file name component...
                 else:
-                    checked.add(pair[1])
 
-            # ensures that all duplicate file names, even first encountered instance, included in duplicates
-            for pair in dictionary.items():
-                if (pair[1] in get_dict_values(duplicate_names)) and not (pair[0] in duplicate_names.keys()):
-                    duplicate_names.update({pair})
-                else:
-                    continue
+                    # then convert glob format to regex for this string
+                    accepted_labels_regex = convert_glob_to_regex(accepted_labels)
 
-            return duplicate_names
-
-        wc_compartment = [l[1] for l in config_dict['compartment_labels'].items() if re.search(r'\*', l[1][0])][0]
-        compart_regex = convert_config_regex(wc_compartment)[0].replace(r'.*',
-                                                                        r'\w+')  # only find labels with S + another letter
-        compart_pos = int(positions['compartment'][0])
-
-        def get_original_basename(filename, include_added_value=False, return_max=False):
-            '''
-            Extracts the base sample name from original file name.
-
-            Separates the original filename input by the delimiter designated in the configuration
-            file. Uses the positions sections of the configuration file to determine the maximum
-            index of the file name components. Returns the sample's base name as a string. This is
-            helpful for removing any additional information that the sequencer might add onto a
-            sample. Also required for fixing issues of duplicate new names.
-            :param filename: original filename as a string
-            :param include_added_value: if to include an additional value in the original filename
-            that is not accounted for in the configuration file; this is helpful for renaming
-            duplicates, as new names that are duplicates are often because there is additional information
-            that is not accounted for in the standard file name composition of the old file names;
-            default False, will only return base file name as outlined by configuration file.
-            :param return_max: whether to return the maximum index used to find the base file name;
-            default is False, but may be helpful to return at times. If set to True, it will be the
-            second item returned by the function.
-            :return: the file's base name
-            '''
-            max_index = max([int(val[0]) for val in get_dict_values(positions) if is_valid_entry(val)])
-            if include_added_value:
-                max_index += 2
+            # if the acceptable original label is not a string, dictionary, or list...
             else:
-                max_index += 1  # add one to include up to max_index in slice
 
-            basename = DELIMITER.join(filename.split(DELIMITER)[:max_index])
+                # print an error message and exit the script
+                print(f'ERROR. The accepted label format of the original file name for '
+                      f'{component}, provided in the configuration file, is not an accepted data type. Accepted '
+                      f'data types for this section of the configuration file are strings, dictionaries, and lists.'
+                      f'The provided data type in the configuration file for this component is {type(accepted_labels)}.'
+                      f'Please fix this issue in the configuration file, and then rerun the renaming script.\n')
+                print(f'Exiting...\n')
+                # sys.exit(1)
 
-            if return_max is True:
-                return basename, max_index
+            # if this is in fact an accepted label, add to old label dictionary
+
+            if re.search(accepted_labels_regex, original_label, re.I):
+
+                # add value(s) to the old dictionary for this component
+                old_label_dict[component].add(original_label)
+
+            # otherwise, add to the invalid file names set
             else:
-                return basename
 
-        def find_similar_names(filename, search_dict, include_added_value=False, return_max=False):
-            basename = get_original_basename(filename, include_added_value=include_added_value, return_max=return_max)
-            base = re.compile(r'^(' + f'{basename}' + r')', re.I)
-            similar = list(filter(base.search, search_dict.keys()))
-            return [s for s in similar if s != filename]
+                invalid_file_names.add(original_file)
 
-        def add_subplot_letter(duplicate_new_name):
-            subplot_pos = list(filename_components.keys()).index('subplot')
-            subplot = duplicate_new_name.split(DELIMITER)[subplot_pos]
-            name = duplicate_new_name
+    # if this component is not in the original file name, and therefore its value is nan, it will be a tomlkit.items.Float class
+    elif isinstance(original_position, float):
+        continue
 
-            ascii_start = ord('A')  # start with A
-            while name in get_dict_values(duplicate_names):  # while it remains a duplicate
-                name = re.sub(f'_{subplot}_', f'_{subplot}{chr(ascii_start)}_', duplicate_new_name)
-                ascii_start += 1  # move through alphabet
-                if ascii_start == ord('Z'):  # stop if end of alphabet reached
-                    return print('Reached end of alphabet and ran out of letters; probably issues elsewhere in code.')
+    # if it is neither a float or an integer, an incorrect value was provided, so print ERROR and exit
+    else:
+        print(f'ERROR. The value for the component {component_name} in the file rename configuration file must '
+              f'be either an integer, or \'nan\' if this component does not exist in the original file name. The '
+              f'provided component value, {original_position}, is of type {type(original_position)}. Please '
+              f'update the file rename configuration file and then rerun file renaming.\n')
+        # sys.exit(1)
+
+
+##########################################################
+## MATCH ORIGINAL LABELS TO UPDATED LABELS ###############
+##########################################################
+print('section 06: match original labels to updated labels\n')
+# go through each of the updated file name components, and sort the old label values to their corresponding new labels
+for component in file_name_conversion.keys():
+
+    # get the old labels that were found in the previous step for this component
+    old_labels = old_label_dict[component]
+
+    # if this component is not present in any original file names...
+    if len(old_labels) == 0:
+
+        # get the value to use from the missing_components section of the configuration file
+        missing_component = config_dict['missing_components'][component].lower()
+
+        # if a value is provided...
+        if len(missing_component) > 0:
+
+            # use this value as the 'old' label so that it is clear which new label to add
+            file_name_conversion[component][missing_component] = missing_component
+
+        # if no substitute value is provided...
+        else:
+
+            # print error message and exit
+            print(f'ERROR. Missing a substitute value for the missing component {component} in the original file '
+                  f'name. Please update the configuration file so that a default value for this component can be '
+                  f'used despite it missing from the original file name.\n')
+            # sys.exit(1)
+
+    # if this component was found in any original file names...
+    else:
+
+        # go through each original label found, and sort into the corresponding new label
+        for label in old_labels:
+
+            # handle sorting of compartments for soil and litter
+            if component == 'compartment':
+                for new_lab, old_lab in config_dict['accepted_labels'][component].items():  # key in config corresponds to new label
+                    # this script currently ignores the wildcards from the config file, so remove here or won't match
+                    old_lab = old_lab.replace('*', '')
+                    if old_lab == label:
+                        file_name_conversion[component][new_lab].add(old_lab)
+
+            # pull the ecoregion values from the neon_domains dictionary
+            elif component == 'ecoregion':
+                file_name_conversion[component].update(extract_nested(neon_domains))
+
+            # sort treatment (burn/unburn, conifer/oak/grassland)
+            elif component == 'treatment':
+
+                # separate burn treatment and habitat from this label
+                burn_treatment, habitat = label.split('-')
+
+                # construct new label based on old, and use this to add to correct dictionary key
+                new_label = ''
+
+                # burn/unburn treatment in old label is one or two letters; find correct one
+                if re.search(r'^U', burn_treatment, re.I):
+                    new_label += 'U'
+                elif re.search(r'^B', burn_treatment, re.I):
+                    new_label += 'B'
+
+                # habitat in old label, like new, is only one letter (matches)
+                new_label += habitat
+
+                # use this new label to add entire old label
+                file_name_conversion[component][new_label].add(label)
+
+            # remove S prefix from subplot values, add leading zero
+            elif component == 'subplot':
+
+                try:
+
+                    # search for a number in the subplot label, excluding 0s as a 0 will be added to the number below
+                    subplot_num = re.search(r'[1-9]', label).group(0)
+
+                except AttributeError:
+                    print(f'ERROR. The subplot number cannot be located in the original label for subplot for '
+                          f'this group of samples. Please confirm that the information in the configuration file '
+                          f'for file renaming is consistent with the original file naming convention used. \n')
+                    # sys.exit(1)
+
+                # add leading zero (all values are single-digits, no need to check whether leading zero necessary)
+                num_with_zero = '0' + subplot_num
+
+                # use this updated label to add original label to conversion dict
+                file_name_conversion[component][num_with_zero].add(label)
+
+
+##########################################################
+## CREATE NEW FILE NAMES FOR EACH OLD FILE NAME ##########
+##########################################################
+print('section 07: create new file names for each old file name\n')
+# create a conversion dict for the file paths, important for renaming process
+conversion_path_dict = {k:'' for k in original_file_paths}
+
+# create a search regex for finding the read orientation for a file name
+#  this will be added to if it doesn't work for the original file names, and a user provides input
+#  i.e., it will learn and use this information for future file names as well
+read_orientation_regex = r'R1|R2'
+
+# create an empty list to add any original file names that couldn't be renamed using this section of the code
+cannot_rename = []
+
+# go through each original file and assemble its new file name and file path
+for file in conversion_path_dict.keys():
+
+    # set Boolean to determine whether this file name can be automatically renamed or not
+    valid_name = True
+
+    # get just the file name from this file path
+    original_file_name = file.stem.replace('.fastq', '')  # stem will only return one of two file extensions, so use replace too
+
+    # create a dictionary for this file to add the updated file name components to
+    update_dict = {'seq_platform': '',
+                   'compartment': '',
+                   'coll_date': '',
+                   'ecoregion': '',
+                   'treatment': '',
+                   'subplot': '',
+                   'read_orientation': ''}
+
+    # create a list of the original labels used in the file name for this file
+    original_labels = original_file_name.split(file_delim)
+
+    ## FIND THE NEW LABEL, GIVEN THE OLD LABEL FOR EACH FILE NAME COMPONENT
+
+    # go through each component and find the corresponding new label for this original file name
+    for component in update_dict.keys():
+
+        # check if the file name component is a key in the component_positions section of the config file
+        if component in config_dict['component_positions'].keys():
+
+            # get the position of this component from the original file name
+            original_position = config_dict['component_positions'][component]
+
+            # use the position from the config file to get the old label for this file
+            if isinstance(original_position, int):
+                original_label = original_labels[original_position]
             else:
-                return name
-
-        def are_read_pairs(file01, file02):
-
-            def check_input_type(file):
-                if isinstance(file, str):
-                    return file
-                elif isinstance(file, list) and len(file) == 1:
-                    return file[0]
-                else:
-                    return print('Function only handles strings or lists of single string value.')
-
-            file01 = check_input_type(file01)
-            file02 = check_input_type(file02)
-
-            parts1 = file01.split(DELIMITER)
-            parts2 = file02.split(DELIMITER)
-
-            match = 0
-            for p1, p2 in zip(parts1, parts2):  # confirm they're exactly same at each location except that R1 == R2
-                if (p1 == p2) or ((p1 in ['R1', 'R2']) and (p2 in ['R1', 'R2']) and (p1 != p2)):
-                    match += 1
-                    continue
-                else:
-                    match += 0
-
-            if match == len(parts2):
-                return True
-            else:
-                return False
-
-        def read_pair_name_match(file01, file02):
-            subplot_index = list(filename_components.keys()).index('subplot')
-            f1 = DELIMITER.join(file01.split(DELIMITER)[:subplot_index + 1])
-            f2 = DELIMITER.join(file02.split(DELIMITER)[:subplot_index + 1])
-            if f1 == f2:
-                return True
-            else:
-                return print(f'File renaming issue. Paired read files do not match:\n'
-                             f'\t{file01}\n'
-                             f'\t{file02}')
-
-        duplicate_names = find_duplicates(filename_change)
-        encountered = set()
-        for pair in duplicate_names.items():
-            old = pair[0]
-            new = pair[1]
-            compartment_old = old.split(DELIMITER)[compart_pos]
-
-            if old in encountered:  # because some names changed pairwise, don't try renaming same file twice
                 continue
 
-            if re.search(compart_regex, compartment_old, re.I):
-                similar = find_similar_names(old, duplicate_names)
+            # get a list of old labels for this file name component, to confirm the original label in this list
+            old_labels = flatten_dict_values(file_name_conversion[component])
+
+            # add the new label to the update dictionary for this component
+            #   (if original label in the list of old labels)
+            if original_label in old_labels:
+                update_dict[component] = search_conversion_dict(file_name_conversion[component], search_val=original_label)
             else:
-                similar = find_similar_names(old, duplicate_names, include_added_value=True)
+                print(f'WARNING. The label {original_label} for {component} in the original file name,\n'
+                      f'  {original_file_name}\n'
+                      f'was not located in the file name conversion dictionary: {old_labels}. '
+                      f'This is likely a coding issue. Check the code to see where this error may have occurred.\n')
+                valid_name = False
+                no_warnings = False
 
-            if are_read_pairs(old, similar):
-                fixed_name = add_subplot_letter(new)
-                fixed_paired_name = add_subplot_letter(duplicate_names[similar[0]])
-                if read_pair_name_match(fixed_name, fixed_paired_name):
-                    duplicate_names[old] = fixed_name
-                    duplicate_names[similar[0]] = fixed_paired_name
-
-            encountered.add(similar[0])
-            encountered.add(old)
-
-        if len(list(find_duplicates(duplicate_names).keys())) == 0:
-            for old in list(duplicate_names.keys()):
-                filename_change[old] = duplicate_names[old]
-            return print(
-                f'\n{len(list(duplicate_names.keys()))} files were detected to have duplicate new '
-                f'names, and have been renamed so that they are unique. A letter has been added to the subplot.')
+        # if it is not a key in the component_positions section, it will be handled in the next section, so skip over it
         else:
-            print(f'ERROR: Did not solve all instances of duplicate new name values. Need to check manually.\n'
-                  f'duplicate sets:\n\t {find_duplicates(duplicate_names)}')
-            return sys.exit()
+            continue
 
-    check_duplicate_filenames(filename_change)
+    ## CHECK FOR MISSING FILE NAME COMPONENTS FOR THE NEW FILE NAME LABELS
 
-    renamed_file_count = 0
-    for i in range(len(list(filename_change.items()))):  # go through each old-new name pair and change file name
-        renamed_file_count += 1
-        old, new = list(filename_change.items())[i]
+    # once all components are searched for the new label, check for any missing fields
+    for comp, label in update_dict.items():
 
-        original_filename = Path((path_input + old + file_ext))  # need file extension?
-        updated_filename = Path((path_input + new + file_ext))  # don't need file extension?
+        # if the label is missing after searching the file_name_conversion dictionary...
+        if label == '':
+            # check the configuration file for any additional information that may be provided for this missing label
+            # if this component has a key in the config file under missing_components section...
+            if comp in config_dict['missing_components']:
+                # check if it has a corresponding value as well
+                if config_dict['missing_components'][comp] != '':
+                    # if a value is found for this component, use this for the new label
+                    update_dict[comp] = config_dict['missing_components'][comp]
+                else:
+                    # if a value is not found, but there is a place in the config to add a value, then print warning
+                    print(f'WARNING. The file name:\n'
+                          f'  {original_file_name}\n'
+                          f'is missing information for the file name component {comp}. If this information was not '
+                          f'included in the original file name, then add this information to the configuration file '
+                          f'in the section missing_components, and rerun renaming.\n')
+                    valid_name = False
+                    no_warnings = False
 
-        # rename file
-        original_filename.replace(updated_filename)
+            # read orientation is expected to be missing, but will be located from the original file name with regex
+            elif comp == 'read_orientation':
+                # search using standard regex
+                try:
+                    # search for the read orientation using the regex at the top of this section
+                    read_orient = re.search(read_orientation_regex, original_file_name, re.I).group(0)
+                # if this doesn't return a match, ask user to add value for match
+                except AttributeError:
+                    # if a match isn't found using the standard regex, ask user for string of the file name
+                    #  that corresponds to the read orientation
+                    print(f'WARNING. The read orientation could not be located in the file name:\n'
+                          f'  {original_file_name}\n'
+                          f'Please enter the read orientation string used in this file name:\n')
+                    no_warnings = False
+                    # add the provided read orientation regex to the search regex, with or '|' operator
+                    read_orientation_regex = read_orientation_regex + '|' + input()
+                    read_orient = re.search(read_orientation_regex, original_file_name, re.I).group(0)
 
-    if table_out:
-        combo_compart = '-'.join(list(conversion_dictionary['compartment'].keys()))
-        out_table_path = f'{path_input}illumina_{find_colldate(path_init)}_{combo_compart}_file-rename-conversion.csv'
+                update_dict[comp] = read_orient
 
-        if os.path.isfile(out_table_path):
-            current_df = pd.read_csv(out_table_path)
-            added_df = pd.DataFrame.from_dict(filename_change, orient='index').reset_index()
-            added_df.columns = ['old_name', 'new_name']
-            output_df = pd.concat([current_df, added_df])
-        else:
-            output_df = pd.DataFrame.from_dict(filename_change, orient='index').reset_index()
-            output_df.columns = ['old_name', 'new_name']
+            # collection date may be missing (it is from UO samples for soil/litter), so check config section to get
+            #   the collection date for this site
+            elif comp == 'coll_date':
+                # get the name of the original site name used
+                original_site_name = original_file_name.split(file_delim)[config_dict['component_positions']['ecoregion']]
+                # look up the corresponding state for this site name
+                for state, site in config_dict['site_name'].items():
+                    # if there is more than one site in this state (i.e., Oregon)
+                    if isinstance(site, list):
+                        # iterate through the sites associated with this state
+                        for i in range(len(site)):
+                            # look for the site name that matches the original site name in the file name
+                            if site[i] == original_site_name:
+                                # use the index value for the match to get the correct collection date for this state
+                                update_dict[comp] = config_dict['collection_date'][state][i]
+                    # if there is only one site in this state
+                    else:
+                        # and the site matches the original site name
+                        if site == original_site_name:
+                            # add the collection date for this site/state to the update dictionary for the new file name
+                            update_dict[comp] = config_dict['collection_date'][state]
 
-        output_df.to_csv(out_table_path, index=False)
+            # if a file name component is missing that is expected to be present, tell user to update the config file
+            #  with a key/value pair for this file name component in the configuration file
+            else:
+                print(f'WARNING. The file name:\n'
+                      f'  {original_file_name}\n'
+                      f'is missing information for the file name component {comp}. This information does not currently '
+                      f'have a section in the configuration file under the missing_components section. If this component '
+                      f'is missing from the original file name, add a key/value pair for this file name component in '
+                      f'the missing_components section of the configuration file, using one of the following as the '
+                      f'key:')
+                print_indented_list(list(update_dict.keys()))
+                valid_name = False
+                no_warnings = False
 
-    return print(f'\n{renamed_file_count} files were successfully renamed.\n')
+    ## USE THE NEW LABELS TO CREATE A NEW FILE NAME AND FILE PATH
 
-rename_sequence_files(valid_filenames)
+    # first check that no warning has been triggered above
+    if valid_name:
+        # join the labels from the update dictionary; already order in the correct order
+        updated_file_name = '_'.join(list(update_dict.values()))
 
-ntc_example = [f for f in invalid_filenames if re.search(NTC_REGEX, f, re.I)]
-mock_example = [f for f in invalid_filenames if re.search(MOCK_REGEX, f, re.I)]
-fix_error_files = input(f'{len(invalid_filenames)} of {len(original_filenames)} files in this directory '
-                        f'were not renamed because they did not follow the naming convention of the old '
-                        f'file names provided in the configuration file.\n'
-                        f'If these sequences are related to the CliMush project, they can still be renamed '
-                        f'using the first component of the old file name for these files (e.g., '
-                        f'{ntc_example[0]}, {mock_example[0]}).\n'
-                        f'Do you wish to continue with renaming these files this way? [Y/N]\n')
+        # create a file path from the new file name; use the same parent directory as the original files
+        #  so that the original file names are replaced by the new file names
+        updated_file_path = (file.parent / (updated_file_name + '.fastq.gz'))
 
-def move_unnammed(destination, files):
-    print(f'Moving all remaining files that have not been renamed to {dest_path} in this current directory.\n')
+        conversion_path_dict[file] = updated_file_path
 
-    if os.path.isdir(dest_path):  # if a directory already exists with this name...
-        if len(os.listdir(dest_path)) > 0:  # if the directory isn't empty...
-            ask_to_delete = f'\nA directory with the name {dest_path} already exists in {path_input}. Do you ' \
-                            f'want to delete this directory and continue? If you choose no (\'N\') and do not want ' \
-                            f'to delete the directory, then the program will exit. (Y/N)\n'
-            response = input(ask_to_delete)  # ask if you want to delete it
-            if positive_response(response):  # if CLI response yes, delete old directory and create new
-                shutil.rmtree(dest_path)
-                os.mkdir(dest_path)
-            else:  # otherwise, exit program
-                sys.exit()
-        else:
-            shutil.rmtree(dest_path)  # remove existing (empty) directory
-            os.mkdir(dest_path)  # create new directory
-    else:  # if the directory doesn't exist...
-        os.mkdir(dest_path)  # create it
-
-    # copy each sequence file to the copy directory
-    for file in files:
-        shutil.move((path_input+file+file_ext), dest_path)
-    sys.exit()
-
-dest_path = f'{path_input}non-climush_sequences'
-if positive_response(fix_error_files):
-    able_to_rename = [f for f in invalid_filenames if re.search(f'{MOCK_REGEX}' + r'|' + f'{NTC_REGEX}' + r'|' + f'{UNDET_REGEX}', f, re.I)]
-    cannot_rename = list(set(invalid_filenames).difference(able_to_rename))
-    rename_sequence_files(able_to_rename)
-    if len(cannot_rename) == 0:
-        print('All invalid file names were successfully renamed.\n')
+    # if warning was triggered, do not create a new file name and instead add the original file name to error list
     else:
-        move_unnammed(dest_path, cannot_rename)
-else:
-    move_unnammed(dest_path, invalid_filenames)
+        cannot_rename.append(file)
 
-# try_other = input(f'If you do not want to continue with renaming these files, you can specify a different '
-#                   f'index to get the identifying component from the invalid filename. If you\'d like to '
-#                   f'provide an index, do so now (zero-indexing). If not, enter \'N\' to exit. This will '
-#                   f'move all invalid file names to a sub directory called \'non-climush_sequences\'.\n')
-# if isinstance(try_other, int):
-#     id_index = try_other
-#     rename_sequence_files(invalid_filenames)
+##########################################################
+## RENAME ORIGINAL FILES WITH NEW CONVENTION #############
+##########################################################
+print('section 08: rename original files with new convention\n')
+
+## CHECK FOR DUPLICATE NEW NAMES
+print('section 08.01: check for duplicate new names\n')
+# create a list of all new file names, and then create a set from this list (to keep only the unique values)
+all_new_names = [new_path for new_path in conversion_path_dict.values() if not new_path == '']
+unique_new_names = set(all_new_names)
+
+# if the number of unique values matches the number of all new file names, do nothing here (means no duplicates)
+if len(all_new_names) == len(unique_new_names):
+    pass
+# if there is a difference between the unique values and all file names, then determine which file names are duplicated
+else:
+    duplicate_new_names = []  # list to add duplicate file names to
+    unique_new_names = set()  # recreate this set, but only add to it if it isn't already in this set
+
+    # go through each new file name
+    for new_name in all_new_names:
+
+        # if this new name is already in the set of unique new names (meaning it is a duplicate), add to duplicate list
+        if new_name in unique_new_names:
+            duplicate_new_names.append(new_name)
+
+        # if this new name isn't yet in the set of unique new names, then add it
+        else:
+            unique_new_names.add(new_name)
+
+    # check if there are duplicate names (there should be, if here)
+    if len(duplicate_new_names) > 0:
+        print(f'The new file names contain duplicate names for the following files:\n')
+        # go through each duplicate file name and print the new name and the original file name
+        for old_path, new_path in conversion_path_dict.items():
+            if new_path.stem in duplicate_new_names:
+                print(f'{new_path.stem}  /   {old_path.stem}')
+
+## TRY TO FIX ANY INVALID NEW NAMES
+print(' section 08.02: try to fix invalid new names\n')
+for invalid_path in cannot_rename:
+
+    invalid_name = invalid_path.stem.replace('.fastq', '')
+
+    # negative control sequence files
+    if re.search(NEG_CTRL_RE, invalid_name, re.I):
+        try:
+            read_orientation = re.search(read_orientation_regex, invalid_name, re.I).group(0)
+            neg_ctrl_num = re.search(r'(?<=ntc)\d', invalid_name, re.I).group(0)
+            replacement_file = '_'.join(['illumina', 'soil-litter', run_date, f'NTC-{neg_ctrl_num}', read_orientation])
+            replacement_name = invalid_path.parent / (replacement_file + '.fastq' + '.gz')
+        except AttributeError:
+            replacement_name = 'NA'
+
+    # mock community sequence files
+    elif re.search(MOCK_COMM_RE, invalid_name, re.I):
+        try:
+            read_orientation = re.search(read_orientation_regex, invalid_name, re.I).group(0)
+            replacement_file = '_'.join(['illumina', 'soil-litter', run_date, 'mock-community', read_orientation])
+            replacement_name = invalid_path.parent / (replacement_file + '.fastq' + '.gz')
+        except AttributeError:
+            replacement_name = 'NA'
+
+    # undetermined reads, those that couldn't be sorted into samples during demultiplexing
+    elif re.search(UNDET_RE, invalid_name, re.I):
+        try:
+            read_orientation = re.search(read_orientation_regex, invalid_name, re.I).group(0)
+            replacement_file = '_'.join(['illumina', 'soil-litter', run_date, 'undetermined', read_orientation])
+            replacement_name = invalid_path.parent / (replacement_file + '.fastq' + '.gz')
+        except AttributeError:
+            replacement_name = 'NA'
+
+    # usually just non-climush samples, but also a catch-all for any other unsortable files
+    else:
+        new_dir_name = invalid_name.split('_')[0].lower()
+        new_dir_parent = mkdir_exist_ok('non-climush_sequences', parent_dir=input_path.parent)  # make dir for non-climush seqs
+        new_dir_path = mkdir_exist_ok(new_dir_name, parent_dir=new_dir_parent)  # make subdir for these seqs by group
+        replacement_name = new_dir_path / (invalid_name + '.fastq' + '.gz')
+
+    conversion_path_dict[invalid_path] = replacement_name
+
+## RENAME FILES
+print('  section 08.03: rename files\n')
+renamed_file_counter = 0
+old_names = []
+new_names = []
+not_renamed = []
+for old_path, new_path in conversion_path_dict.items():
+
+    # add the old name to the list of old names
+    try:
+        old_names.append(old_path.stem.replace('.fastq', ''))
+    except AttributeError:
+        print(f'old path issue: {old_path}\n'
+              f'  object type = {type(old_path)}')
+        continue
+
+    if is_pathclass(new_path, exit_if_false=False):
+
+        new_stem = new_path.stem.replace('.fastq', '')
+
+        # print(f'Renaming {old_names[-1]} to {new_stem}...\n')
+
+        # add to the counter
+        renamed_file_counter += 1
+
+        # rename the file
+        old_path.replace(new_path)
+
+        # add new name to the list of new names
+        new_names.append(new_stem)
+
+    else:
+
+        # print(f'NOT renaming {old_names[-1]}...\n')
+
+        # if the new_path doesn't exist (an error file), just add an NA value
+        new_names.append('NA')
+
+        # add the full path to a list of file paths that were not renamed (hard to get full path from just name later)
+        not_renamed.append(old_path)
+
+
+print(f'{renamed_file_counter} files out of the {len(original_file_names)} input files were renamed or sorted.\n')
+
+# write a summary file of original file names that were not renamed (if any)
+if len(not_renamed) > 0:
+
+    # sort these files that couldn't be renamed into their own directory, since looping through anyways
+    not_renamed_dir = mkdir_exist_ok('not_renamed', parent_dir=input_path)
+
+    # create a path to write the summary file to, within the new not_renamed/ directory
+    not_renamed_summary_path = (not_renamed_dir / 'not_renamed').with_suffix('.txt')
+
+    print(f'WARNING. {renamed_file_counter} files out of the {len(original_file_names)} input files '
+          f'were renamed. To see the {len(not_renamed)} files that could not be renamed, see the summary '
+          f'file:\n'
+          f'  {not_renamed_summary_path}\n'
+          f'and the files that were not renamed in the directory:\n'
+          f'  {not_renamed_dir}\n')
+    no_warnings = False
+
+    # write the unnamed file names to a summary file
+    with open(not_renamed_summary_path, 'wt') as fout:
+
+        # create a unified header for the document
+        fout.write(f'the following files were not renamed by {__file__}:\n')
+
+        # write the name of the shortened file path, with just the parent directory and the original file name
+        for not_renamed_path in not_renamed:
+
+            # write the path of the original file, shortened to just the parent and the original file name
+            original_file_name = not_renamed_path.stem.replace('.fastq', '')
+            formatted_name = not_renamed_path.parent.name + '/' + original_file_name
+            fout.write(f'  {formatted_name}\n')
+
+            # move the file (without renaming the actual file name) to the not_renamed directory
+            dest = not_renamed_dir / not_renamed_path.name  # use the name so it will have the .fastq.gz file ext still
+            not_renamed_path.rename(dest)
+
+# export summary conversion table, unless --no-track flag invoked
+if no_track:
+    pass
+else:
+    conversion_table = pd.DataFrame({'old_name': old_names,
+                                     'new_name': new_names})
+    conversion_table.to_csv(rename_path, index=False)
+    if rename_path.is_file():
+        print(f'The conversion table was successfully written to:\n'
+              f'  {rename_path}\n')
+    else:
+        print(f'There were issues saving the conversion table successfully to:\n'
+              f'  {rename_path}\n')
+        sys.exit(73)  # can't create output file
+
+if no_warnings:
+    print(f'SUCCESS! {__file___} has completed.\n')
+    sys.exit(0)
+else:
+    print(f'Please see warnings generated by {Path(__file__).name}.\n')
+    sys.exit(0)  # no standard exit code for warnings; only 0 if not strict (same as success) or 1 if strict (same as failure)
+
+##########################################################
+## ADDRESS ANY ISSUES OR ERRORS ##########################
+##########################################################
+#
+# # check if
+# nonclimush_path = input_path.parent / 'non-climush_sequences'
+# if positive_response(fix_error_files):
+#     able_to_rename = [f for f in invalid_filenames if re.search(f'{MOCK_REGEX}' + r'|' + f'{NTC_REGEX}' + r'|' + f'{UNDET_REGEX}', f, re.I)]
+#     cannot_rename = list(set(invalid_filenames).difference(able_to_rename))
+#     rename_sequence_files(able_to_rename)
+#     if len(cannot_rename) == 0:
+#         print('All invalid file names were successfully renamed.\n')
+#     else:
+#         move_unnammed(dest_path, cannot_rename)
 # else:
 #     move_unnammed(dest_path, invalid_filenames)
+#
+# # check if any files were not renamed because they did not match the
+# #   original naming convention as provided in the configuration file
+# if len(invalid_filenames) > 0:
+#
+#     # get examples of filenames that are invalid because they are non-template controls (negative ctrl) or mock communities
+#     invalid_ntc = [file.stem for file in invalid_filenames if re.search(NEG_CTRL_RE, file, re.I)]
+#     invalid_mock = [file.stem for file in invalid_filenames if re.search(MOCK_COMM_RE, file, re.I)]
+#
+#     # gather list of invalid examples from ntc and mock, if available
+#
+#     # if there are no detected ntc or mock files, then presumably nothing can be done here
+#     if len(invalid_ntc + invalid_mock) == 0:
+#
+#         # make a directory to add these invalid file name files to, in the sequencing run's parent directory
+#         still_invalid_dir = mkdir_exist_ok(new_dir='renaming_errors', parent=input_path.parent)
+#
+#         # move any files that could not be renamed to this renaming error directory
+#         for invalid_file in invalid_filenames:
+#             invalid_file.rename(still_invalid_dir / invalid_file.name)
+#
+#         # get run time of renaming process
+#         end_time = datetime.now()
+#         run_time = end_time - start_time
+#
+#         # print warning message and exit
+#         print(f'WARNING. {len(invalid_filenames)} of {len(original_filenames)} original files in:\n'
+#               f'\t{input_path}\n'
+#               f'were not renamed because they did not follow the original naming convention as provided in the file '
+#               f'renaming configuration file. All files that could not be renamed at this point have been moved to a '
+#               f'new directory in this sequencing run\'s main directory:\n'
+#               f'\t{still_invalid_dir}\n'
+#               f'Exiting {Path(__file__).name}...\n'
+#               f'  total run time: {str(run_time)}\n')
+#         sys.exit(1)
+#
+#     # if there are any ntc or mock files, prompt user if they would like them renamed, as suggested
+#     else:
+#         invalid_examples = []
+#         if len(invalid_mock) > 0:
+#             invalid_examples.append(invalid_mock[0])
+#         if len(invalid_ntc) > 0:
+#             invalid_examples.append(invalid_ntc[0])
+#
+#         # compile warning message
+#         fix_error_files = (f'WARNING. {len(invalid_filenames)} of {len(original_filenames)} original files in:\n'
+#                            f'\t{input_path}\n'
+#                            f'were not renamed because they did not follow the original naming convention as provided '
+#                            f'in the file renaming configuration file.\n'
+#                            f'If these sequencing files belong to the CliMush project (e.g., {invalid_examples}), '
+#                            f'they can still be renamed by using the first label of the old file name for these files '
+#                            f'in the new label. Do you wish to continue with renaming these files in this way?')
+#
+#         # prompt user for yes/no/quit input; will continue if 'yes', will quit here if 'no'/'quit'
+#         prompt_yes_no_quit(message=fix_error_files)
+#
+#         ## I DID NOT HAVING ANY FOLLOWING STEPS HERE IN THE ORIGINAL VERSION, NOT SURE OF MY PLAN HERE... #############
+#
+#         # use same directory as for the files that can't be renamed, aren't climush, can't be otherwise sorted, etc.
+#         still_invalid_dir = mkdir_exist_ok(new_dir='renaming_errors', parent=input_path.parent)
+#
+#         # move any files that could not be renamed to this renaming error directory
+#         for invalid_file in invalid_filenames:
+#             invalid_file.rename(still_invalid_dir / invalid_file.name)
+#
+#         # still calculate run time of the renaming process
+#         end_time = datetime.now()
+#         run_time = end_time - start_time
+#
+#         # print error statement, explain that this part of this script is incomplete
+#         print(f'ERROR. This part of the pipeline in {Path(__file__).name} is incomplete and not yet utilizable. Sorry '
+#               f'for any inconveniences. All files that could not be renamed at this point have been moved to a '
+#               f'new directory in this sequencing run\'s main directory:\n'
+#               f'\t{still_invalid_dir}\n'
+#               f'Exiting {Path(__file__).name}...\n'
+#               f'  total run time: {str(run_time)}\n')
+#         sys.exit(1)
+#
+# # otherwise, if the script has not yet exited, then everything has run successfully and as expected
+# end_time = datetime.now()
+# run_time = end_time - start_time
+# print(f'SUCCESS. {rename_success_count} sequencing files were successfully updated to the current file naming '
+#       f'convention and can be found in the following path:\n'
+#       f'\n')
+# print(f'Exiting..n\n'
+#       f'  total run time: {str(run_time)}\n')
+# sys.exit(0)
