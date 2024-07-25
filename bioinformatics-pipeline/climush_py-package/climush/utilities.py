@@ -257,7 +257,7 @@ def print_indented_list(print_list):
     return print(formatted_list)
 
 # run shell command and save stdout and stderr to file
-def run_subprocess(cli_command_list, dest_dir, separate_sample_output=True, auto_respond=False):
+def run_subprocess(cli_command_list, dest_dir, run_name, separate_sample_output=True, auto_respond=False):
     '''
     Run a subprocess, saving the output and error to a log file.
 
@@ -270,6 +270,8 @@ def run_subprocess(cli_command_list, dest_dir, separate_sample_output=True, auto
     out into a list, rather than a single string.
     :param dest_dir: directory to write the file to; should be a Path
     object
+    :param run_name: the name of the bioinformatics run describing the group of sequences
+    being processed by this function; typically read in from the pipeline settings .toml file
     :param separate_sample_output: True/False; whether to include a separator in the output file
     between the standard output for each sample; in most cases, a separator is helpful
     when reviewing the output and seeing a clear distinction between samples, but for some
@@ -292,9 +294,12 @@ def run_subprocess(cli_command_list, dest_dir, separate_sample_output=True, auto
     if re.search(r'.\..', program):
         program = program.split('.')[0]
 
+    # add the run name to the output file name, with the program name
+    output_filename = '_'.join([program, run_name])
+
     run_cmd = subprocess.run(cli_command_list, capture_output=True)
 
-    out_path = dest_dir / f'{program}.out'
+    out_path = dest_dir / f'{output_filename}.out'
     with open(out_path, 'at') as fout:
         out_as_str = run_cmd.stdout.decode('utf-8')
         if separate_sample_output:
@@ -305,7 +310,7 @@ def run_subprocess(cli_command_list, dest_dir, separate_sample_output=True, auto
         else:
             fout.write(f'{out_as_str}\n')
 
-    err_path = dest_dir / f'{program}.err'
+    err_path = dest_dir / f'{output_filename}.err'
     with open(err_path, 'at') as fout:
         err_as_str = run_cmd.stderr.decode('utf-8')
         if separate_sample_output:
@@ -316,7 +321,7 @@ def run_subprocess(cli_command_list, dest_dir, separate_sample_output=True, auto
         else:
             fout.write(f'{err_as_str}\n')
 
-    temp_file = dest_dir / f'{program}.temp'
+    temp_file = dest_dir / f'{output_filename}.temp'
 
     if len(run_cmd.stderr) == 0:
         pass

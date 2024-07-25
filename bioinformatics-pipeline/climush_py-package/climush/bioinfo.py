@@ -1,4 +1,5 @@
 import json, re
+from multiprocessing import Pool, cpu_count
 from pathlib import Path
 from Bio.Seq import Seq
 from datetime import datetime
@@ -313,8 +314,8 @@ def demultiplex(output_dir, file_map, multiplexed_files, verbose, seq_platform='
             # assemble list of commands required to run lima demultiplexing
             lima_cmd = ['lima', pool, barcode_fasta, out_prefix, '--min-score', '93', '--hifi-preset', 'ASYMMETRIC']
 
-            run_subprocess(cli_command_list = lima_cmd, dest_dir = lima_output,
-                           auto_respond = settings['automate']['auto_respond'])
+            run_subprocess(cli_command_list=lima_cmd, dest_dir=lima_output, run_name=run_name,
+                           auto_respond=settings['automate']['auto_respond'])
 
     # CREATE DICTIONARY OF BARCODE PAIRS FOR ALL SAMPLES
     sample_barcodes = {q:{'pool1': {},
@@ -525,7 +526,8 @@ def filter_out_phix(input_files, file_map, kmer=31, hdist=1, keep_log=True, keep
                      f'in2={input_rev}', f'out2={nophix_rev_out}', f'outm2={phix_rev_out}',
                      'ref=phix', f'k={kmer}', f'hdist={hdist}']
 
-        run_subprocess(bbduk_cmd, dest_dir=phix_parent, auto_respond=settings['automate']['auto_respond'])
+        run_subprocess(bbduk_cmd, dest_dir=phix_parent, run_name=run_name,
+                       auto_respond=settings['automate']['auto_respond'])
 
     return nophix_path
 
@@ -570,7 +572,8 @@ def prefilter_fastx(input_files, file_map, maxn=0):
                        ambig_out_fwd, '--fastqout_discarded_rev', ambig_out_rev]
 
         # run CLI VSEARCH command
-        run_subprocess(vsearch_cmd, dest_dir=noambig_parent, auto_respond=settings['automate']['auto_respond'])
+        run_subprocess(vsearch_cmd, dest_dir=noambig_parent, run_name=run_name,
+        auto_respond=settings['automate']['auto_respond'])
 
         # compress the .fastq output from VSEARCH to .fastq.gz format; required for cutadapt input
         # UNDER CONSTRUCTION
@@ -824,7 +827,7 @@ def remove_primers(input_files, file_map, platform, paired_end=True, verbose=Fal
                             file, paired_dict[file]]
 
             run_subprocess(cutadapt_cmd, dest_dir=trim_primers_parent,
-                           separate_sample_output=False,
+                           separate_sample_output=False, run_name=run_name,
                            auto_respond=settings['automate']['auto_respond'])
 
     # compose and execute the command line command to run cutadapt for single-end reads
@@ -849,7 +852,7 @@ def remove_primers(input_files, file_map, platform, paired_end=True, verbose=Fal
 
             # create or append to cutadapt stderr/stdout, all output goes to one file (not one per sample)
             run_subprocess(cutadapt_cmd, dest_dir=trim_primers_parent,
-                           separate_sample_output=False,
+                           separate_sample_output=False, run_name=run_name,
                            auto_respond=settings['automate']['auto_respond'])
 
     # also helpful to see the command that is run during troubleshooting
@@ -916,7 +919,7 @@ def quality_filter(input_files, platform, file_map):
                                 '-fastq_maxee', str(max_error), '--fastq_maxlen', str(max_len),
                                 '--fastq_minlen', str(min_len), '--sizeout']
 
-            run_subprocess(vsearch_filt_cmd, dest_dir=qfilt_parent,
+            run_subprocess(vsearch_filt_cmd, dest_dir=qfilt_parent, run_name=run_name,
                            auto_respond=settings['automate']['auto_respond'])
 
         # if the paired reads dict does have values (i.e., there are R2 files associated with the R1 files)
@@ -940,7 +943,7 @@ def quality_filter(input_files, platform, file_map):
                                     '-fastq_maxee', str(max_error), '--fastq_maxlen', str(max_len),
                                     '--fastq_minlen', str(min_len), '--sizeout']
 
-                run_subprocess(vsearch_filt_cmd, dest_dir=qfilt_parent,
+                run_subprocess(vsearch_filt_cmd, dest_dir=qfilt_parent, run_name=run_name,
                                auto_respond=settings['automate']['auto_respond'])
 
     return qfilt_path
@@ -978,7 +981,7 @@ def merge_reads(input_files, file_map):
                                  '--fastqout_notmerged_rev', nomerge_rev_out,
                                  '--eetabbedout', merge_summary]
 
-            run_subprocess(vsearch_merge_cmd, dest_dir=qfilt_parent,
+            run_subprocess(vsearch_merge_cmd, dest_dir=qfilt_parent, run_name=run_name,
                            auto_respond=settings['automate']['auto_respond'])
 
         # add descriptive header to the merge log file
@@ -1026,7 +1029,7 @@ def dereplicate(input_files, derep_step, platform, file_map):
                              '--output', derep_output,'--minuniquesize', str(min_unique),
                              '--sizeout']
 
-        run_subprocess(vsearch_derep_cmd, dest_dir=derep_parent,
+        run_subprocess(vsearch_derep_cmd, dest_dir=derep_parent, run_name=run_name,
                        auto_respond=settings['automate']['auto_respond'])
 
     return None
@@ -1044,6 +1047,30 @@ def separate_subregions(input_files, file_map, verbose=False):
     itsx_path = mkdir_exist_ok(new_dir=f'./{ITSX_PREFIX}_{run_name}',  parent_dir=itsx_parent)
 
     # run ITSx for each input file
+    # for file in input_files:
+    #
+    #     # create a new directory for each sample, since multiple files per sample are produced
+    #     itsx_sample_dir = add_prefix(file_path=file, prefix=ITSX_PREFIX, dest_dir=itsx_path, action='mkdir')
+    #
+    #     # construct a base name that ITSx will use for the output files
+    #     itsx_output_basename = add_prefix(file_path=file, prefix=ITSX_PREFIX,
+    #                                       dest_dir=itsx_sample_dir, action=None).with_suffix('')
+    #
+    #     # construct the ITSx command; will produce more output if verbose=True (defaults to False)
+    #     if verbose:
+    #         itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'fungi', '--multi_thread', 'T',
+    #                         '--save_regions', 'all']
+    #     else:
+    #         itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'fungi', '--multi_thread', 'T',
+    #                         '--graphical', 'F', '--positions', 'F', '--silent', 'T',
+    #                         '--save_regions', '{ITS1,5.8S,ITS2,LSU}']
+    #
+    #     # run the ITSx command
+    #     run_subprocess(itsx_command, dest_dir=itsx_parent, run_name=run_name,
+    #                    auto_respond=settings['automate']['auto_respond'])
+
+    # WITH MULTI-PROCESSING
+    itsx_command_list = []
     for file in input_files:
 
         # create a new directory for each sample, since multiple files per sample are produced
@@ -1062,9 +1089,20 @@ def separate_subregions(input_files, file_map, verbose=False):
                             '--graphical', 'F', '--positions', 'F', '--silent', 'T',
                             '--save_regions', '{ITS1,5.8S,ITS2,LSU}']
 
-        # run the ITSx command
-        run_subprocess(itsx_command, dest_dir=itsx_parent,
-                       auto_respond=settings['automate']['auto_respond'])
+        itsx_command_list.append(itsx_command)
+
+    # set variables for the run_subprocess function here, don't kknow how to add multiple to .map
+    num_samples = len(itsx_command_list)
+    itsx_parent_repeats = [itsx_parent] * num_samples
+    auto_responses = [settings['automate']['auto_respond']] * num_samples
+
+    if __name__ == '__main__':
+        print(f'Number of cores available: {cpu_count()}')
+
+        p = Process(target=run_subprocess,
+                    args=(itsx_parent_repeats, auto_responses, itsx_command_list))
+        p.start()
+        p.join()
 
     # return the ITSx output path for this sequencing run
     return itsx_path
@@ -1366,7 +1404,7 @@ def check_chimeras(input_files, file_map, ref=None):
                                   '--nonchimeras', nochim_out,
                                   '--uchimeout', uchime_log]
 
-            run_subprocess(vsearch_denovo_cmd, dest_dir=chim_parent,
+            run_subprocess(vsearch_denovo_cmd, dest_dir=chim_parent, run_name=run_name,
                            auto_respond=settings['automate']['auto_respond'])
     else:
         refs_to_use = []
@@ -1390,7 +1428,7 @@ def check_chimeras(input_files, file_map, ref=None):
                                    '--uchimeout', uchime_log,
                                    '--db', chim_ref]
 
-                run_subprocess(vsearch_ref_cmd, dest_dir=chim_parent,
+                run_subprocess(vsearch_ref_cmd, dest_dir=chim_parent, run_name=run_name,
                                auto_respond=settings['automate']['auto_respond'])
 
     return None
@@ -1432,7 +1470,7 @@ def cluster_reads(input_files, file_map):
     vsearch_clust_cmd = ['vsearch', '--cluster_fast', combined_reads, '--clusters',
                          clust_out, '--id', str(min_threshold)]
 
-    run_subprocess(vsearch_clust_cmd, dest_dir=clust_paren,
+    run_subprocess(vsearch_clust_cmd, dest_dir=clust_parent, run_name=run_name,
                    auto_respond=settings['automate']['auto_respond'])
 
     return None
