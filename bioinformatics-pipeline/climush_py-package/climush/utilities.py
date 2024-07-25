@@ -130,7 +130,7 @@ def exit_process(message, config_section='error.message'):
     script_name = sys.argv[0]  # unsure if will get name of script it is executed in or the one it is compiled in
     exit_time = datetime.today().strftime('%Y-%m-%d %H:%M:%S')
     # write_to_config(config_section=config_section, script=script_name, timestamp=exit_time, details=message)
-    print(msg)
+    print(message)
     print(f'Exiting {script_name}...\n')
     return sys.exit()
 
