@@ -27,7 +27,8 @@ def is_pathclass(file_path, exit_if_false=True):
     else:
         if exit_if_false:
             msg = f'The provided path, {file_path}, is not a valid Path object.\n'
-            return exit_process(message=msg)
+            exit_process(message=msg)
+            return None
         else:
             return False
 
@@ -49,15 +50,17 @@ def flag_multiple_files(file_path, search_for, auto_respond=False):
         if which_file in all_files:
             return which_file
         else:
-            return exit_process(message=f'The response \'none of these\' was chosen when searching for the correct'
-                                        f'file matching the pattern: {search_for}')
+            exit_process(message=f'The response \'none of these\' was chosen when searching for the correct'
+                                 f'file matching the pattern: {search_for}')
+            return None
     else:
         print(f'{len(result)} files matching the pattern \'{search_for}\' were detected in the file path: '
               f'{file_path}. Please type the number corresponding to the correct file to use:')
         which_file = prompt_print_options([result, 'none of these (exit)'], auto_respond=auto_respond)
         if which_file == 'none of these (exit)':
-            return exit_process(message=f'The response \'none of these\' was chosen when searching for the correct'
-                                        f'file matching the pattern: {search_for}.')
+            exit_process(message=f'The response \'none of these\' was chosen when searching for the correct'
+                                 f'file matching the pattern: {search_for}.')
+            return None
         else:
             return which_file
 
@@ -127,6 +130,7 @@ def exit_process(message, config_section='error.message'):
     script_name = sys.argv[0]  # unsure if will get name of script it is executed in or the one it is compiled in
     exit_time = datetime.today().strftime('%Y-%m-%d %H:%M:%S')
     # write_to_config(config_section=config_section, script=script_name, timestamp=exit_time, details=message)
+    print(msg)
     print(f'Exiting {script_name}...\n')
     return sys.exit()
 
@@ -339,7 +343,8 @@ def run_subprocess(cli_command_list, dest_dir, run_name, separate_sample_output=
                     with open(temp_file, 'wt') as fout:
                         fout.write('stop_prompt')
                 else:
-                    return exit_process(message=f'Running {program} produced an error. See {err_path.name} for details.')
+                    exit_process(message=f'Running {program} produced an error. See {err_path.name} for details.')
+                    return None
 
     return None
 
@@ -726,7 +731,8 @@ def flag_if_not_path_exists(file_path, absolute=True, exit_if_false=True):
               f'flags while running this script.\n'
         print(msg)
         if exit_if_false:
-            return exit_process(message=msg)
+            exit_process(message=msg)
+            return None
         else:
             return None
 
@@ -891,7 +897,8 @@ def gzip_compress(uncompressed_path, delete_uncompressed=True, **kwargs):
             msg = (f'The path provided, {uncompressed_path}, was not originally a Path object, and could not be '
                    f'automatically converted to a Path object. Please provide a Path object to '
                    f'the parameter \'uncompressed_path\' to continue.\n')
-            return exit_process(message=msg)
+            exit_process(message=msg)
+            return None
 
     # if the compressed path is provided as a keyword argument...
     if 'compressed_path' in kwargs.keys():
@@ -907,7 +914,8 @@ def gzip_compress(uncompressed_path, delete_uncompressed=True, **kwargs):
                 msg = (f'The path provided, {kwargs["compressed_path"]}, was not originally a Path object, '
                        f'and could not be automatically converted to a Path object. Please provide a Path '
                        f'object to the keyword \'compressed_path\' to continue.\n')
-                return exit_process(message=msg)
+                exit_process(message=msg)
+                return None
     # if no keyword argument for compressed path is included...
     else:
         # create compressed path by adding .gz to input uncompressed path
@@ -924,7 +932,8 @@ def gzip_compress(uncompressed_path, delete_uncompressed=True, **kwargs):
     if compressed_path.stat().st_size == 0:
         msg = (f'ERROR. The uncompressed file, {uncompressed_path.name}, was not successfully written to the '
                f'compressed file {compressed_path.name}, as the compressed file size is zero (0).\n')
-        return exit_process(message=msg)
+        exit_process(message=msg)
+        return None
 
     # check that the compressed file is properly compressed
     with open(compressed_path, 'r') as comp_in:
@@ -934,7 +943,8 @@ def gzip_compress(uncompressed_path, delete_uncompressed=True, **kwargs):
             msg = (f'ERROR. The uncompressed file, {uncompressed_path.name}, was not successfully written to the '
                    f'compressed file {compressed_path.name}, as the compressed filee was flagged as BadGzipFile '
                    f'by the gzip Python library.\n')
-            return exit_process(message=msg)
+            exit_process(message=msg)
+            return None
 
     # remove uncompressed file, if delete_uncompressed set to True (default)
     if delete_uncompressed:
@@ -1004,7 +1014,8 @@ def add_prefix(file_path, prefix, dest_dir, action='rename', f_delim='_'):
     else:
         msg = (f'FAILURE. Unrecognized '
                f' file; cannot recognize as either a directory or file.\n')
-        return exit_process(msg)
+        exit_process(msg)
+        return None
 
     # filename_start = file_name.name.split('_')[0]
     # if re.search(ANY_PLATFORM_REGEX, filename_start, re.I):
@@ -1161,7 +1172,8 @@ def get_sample_id(file_path, platform=None):
         msg = (f'ERROR. The provided file name, {file_path.name}, does not follow the expected '
                f'naming convention, so the sample ID cannot be inferred from the file name. '
                f'This will affect the logging of summary data to output files.\n')
-        return exit_process(message=msg)
+        exit_process(message=msg)
+        return None
 
 def get_read_orient(file_path):
     '''
@@ -1179,7 +1191,8 @@ def get_read_orient(file_path):
         msg = (f'ERROR. The provided file name, {file_path.name}, does not follow the expected '
                f'naming convention, so the read direction cannot be inferred from the file name. '
                f'This will affect the logging of summary data to output files.\n')
-        return exit_process(message=msg)
+        exit_process(message=msg)
+        return None
 
 #######################
 # CONFIGURATION #######
@@ -1229,7 +1242,8 @@ def get_settings(file_map, default_only=True, config_section='all'):
                   f'in the /config directory:\n'\
                   f'\t{[file.name for file in config_path_default]}\n'\
                   f'Please remove any extraneous default configuration files, then retry.\n'
-            return exit_process(message=msg)
+            exit_process(message=msg)
+            return None
         else:  # update dict so that path is single path and not in list form
             config_path = config_path_default[0]
 
@@ -1261,7 +1275,8 @@ def get_settings(file_map, default_only=True, config_section='all'):
                       f'in the /config directory:\n'\
                       f'\t{[file.name for file in config_paths[t]]}\n'\
                       f'Please remove any extraneous {t} configuration files, then retry.\n'
-                return exit_process(message=msg)
+                exit_process(message=msg)
+                return None
             else:  # update dict so that path is single path and not in list form
                 config_paths[t] = config_paths[t][0]
 
