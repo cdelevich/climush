@@ -7,12 +7,13 @@ from climush.constants import *
 from climush.bioinfo import merge_reads, quality_filter
 from climush.utilities import *
 
+start_time = datetime.now()
 settings = get_settings(fpm)
 run_name = settings['run_details']['run_name']
 
 parser = argparse.ArgumentParser(prog=Path(__file__).stem,
                                  description='Quality filter reads using VSEARCH.',
-                                 epilog='')
+                                 epilog='This script is part of the CliMush bioinformatics pipeline.')
 
 # input directory containing the files to quality filter
 parser.add_argument('-i', '--input',
@@ -91,12 +92,14 @@ if is_input:
               f'quality filtering to confirm that {platform.capitalize()} reads are present.\n')
     else:
         print(f'\nNot merging reads; instead using forward reads only.')
+
+    end_time = datetime.now()
+    run_time = end_time - start_time
+    print(f'{int(len(filtered_files) / 2)} paired-end samples were run through quality filtering and merging '
+          f'in {run_time}.\n')
 else:
     pass
-end_time = datetime.now()
-run_time = end_time - start_time
-print(f'{int(len(filtered_files)/2)} paired-end samples were run through quality filtering and merging '
-      f'in {run_time}.\n')
+
 #####################
 # PACBIO ############
 #####################

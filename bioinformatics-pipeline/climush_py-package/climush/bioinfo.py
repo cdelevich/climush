@@ -957,7 +957,7 @@ def quality_filter(input_files, platform, file_map):
             # create output file paths for the quality filtered and not quality filtered reads for R1 (fwd) files
             qfilt_fwd_out = add_prefix(file_path=fwd_path, prefix=QUALFILT_PREFIX,
                                        dest_dir=qfilt_path, action=None)
-            nofilt_fwd_out = add_prefix(file_path=file, prefix=flip_prefix(QUALFILT_PREFIX),
+            nofilt_fwd_out = add_prefix(file_path=rev_path, prefix=flip_prefix(QUALFILT_PREFIX),
                                         dest_dir=nofilt_path, action=None)
 
             # create output file paths for the quality filtered and not quality filtered reads for R2 (rev) files
