@@ -862,18 +862,44 @@ def remove_primers(input_files, file_map, platform, paired_end=True, verbose=Fal
               f'with verbose set to True. To have the max proportion check, turn verbose to False.\n')
     else:
         # quantify proportion untrimmed; only works if not verbose
-        with open((trim_primers_parent / 'cutadapt.out'), 'r') as fin:
-            cutadapt_df = pd.read_table(fin)
-            sum_in = cutadapt_df['in_reads'].sum(0)
-            sum_out = cutadapt_df['out_reads'].sum(0)
-            percent_lost = ((sum_in - sum_out) / (sum_in)) * 100
-            if percent_lost > max_untrimmed:
-                msg = f'After primer trimming, {percent_lost:.2f}% of the input reads were lost, which is ' \
-                      f'above the user-defined maximum threshold of {max_untrimmed}%.\n'
+        with open((trim_primers_parent / f'cutadapt_{run_name}.out'), 'rt') as fin:
+
+            # counters to add values from the summary file to, for running totals per sample
+            total_reads_in = 0
+            total_reads_out = 0
+            total_warnings = 0
+
+            # read in the lines from the text file, only keeping information for data rows, not headers
+            for line in fin.readlines():
+                if re.search(r'^OK', line, re.I) or re.search(r'^WARN', line, re.I):
+                    # create a list of all the summary info for this sample
+                    cutadapt_sample_info = line.split('\t')
+
+                    # per cutadapt documentation for minimal summary, in_reads is 2nd column (index 1)
+                    total_reads_in += int(cutadapt_sample_info[1])
+                    # out_reads is 7th column (index 6)
+                    total_reads_out += int(cutadapt_sample_info[6])
+
+                    # also create a warning file if any of these lines had the WARN status in 1st column (index 0)
+                    if re.search(r'^WARN', line, re.I):
+                        total_warnings += 1
+
+            # write out the number of warnings, if any (can't get the related sample though...)
+            if total_warnings > 0:
+                with open((trim_primers_parent / f'cutadapt_warnings_{run_name}.txt'), 'wt') as fout:
+                    fout.write(f'Number of samples with WARNING status from cutadapt: {total_warnings}')
+
+            # calculate the percent of reads lost across all samples in this bioinformatics run
+            total_percent_lost = ((total_reads_in - total_reads_out) / total_reads_in) * 100
+
+            if total_percent_lost > max_untrimmed:
+                msg = (f'ERROR. After primer trimming, {total_percent_lost:.2f}% of the input reads were lost, '
+                       f'which is above the user-defined maximum allowable threshold of {max_untrimmed}%.\n')
                 exit_process(message=msg)
             else:
-                print(f'{percent_lost:.2f}% of input reads were lost to primer trimming. This is below the user-provided '
-                      f'input of {max_untrimmed}%, so proceeding to next step...\n')
+                print(f'SUCCESS. {total_percent_lost:.2f}% of input reads were lost to primer trimming. This is below '
+                      f'the user-provided maximum allowable threshold of {max_untrimmed}%, so proceeding to '
+                      f'next step...\n')
 
     return trim_path
 
@@ -958,7 +984,7 @@ def merge_reads(input_files, file_map):
         merge_path = mkdir_exist_ok(new_dir=f'./{MERGED_PREFIX}_{run_name}', parent_dir=qfilt_parent)
         nomerge_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(MERGED_PREFIX)}_{run_name}', parent_dir=qfilt_parent)
 
-        merge_summary = qfilt_parent / 'vsearch_merged.log'
+        merge_summary = qfilt_parent / f'vsearch_merged_{run_name}.log'
 
         paired_dict = pair_reads(input_files)
 
