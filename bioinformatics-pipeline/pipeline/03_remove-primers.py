@@ -14,7 +14,7 @@ run_name = settings['run_details']['run_name']
 
 parser = argparse.ArgumentParser(prog=Path(__file__).stem,
                                  description='Remove primers using cutadapt.',
-                                 epilog='')
+                                 epilog='This script is part of the CliMush bioinformatics pipeline.')
 
 parser.add_argument('-i', '--input',
                     default=fpm['pipeline-output']['prefiltered']['prefilt02_no-ambig'] / f'no-ambig_{run_name}',

@@ -11,7 +11,7 @@ run_name = settings['run_details']['run_name']
 
 parser = argparse.ArgumentParser(prog=Path(__file__).stem,
                                  description='Dereplicate full-length reads.',
-                                 epilog='')
+                                 epilog='This script is part of the CliMush bioinformatics pipeline.')
 
 # input directory containing the files to dereplicate
 parser.add_argument('-i', '--input',

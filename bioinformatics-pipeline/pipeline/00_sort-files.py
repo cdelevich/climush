@@ -12,7 +12,7 @@ parser = argparse.ArgumentParser(prog=Path(__file__).stem,
                                              'Checks file names for correct naming convention. Confirms '
                                              'that sequences have been demultiplexed, and if not, sends '
                                              'sequences to be demultiplexed.',
-                                 epilog='')
+                                 epilog='This script is part of the CliMush bioinformatics pipeline.')
 
 parser.add_argument('-sp', '--seq-path', default=fpm['sequences']['main'],
                     type=pathlib.PosixPath,

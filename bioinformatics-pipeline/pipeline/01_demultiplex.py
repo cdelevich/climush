@@ -13,7 +13,7 @@ run_name = settings['run_details']['run_name']
 parser = argparse.ArgumentParser(prog=Path(__file__).stem,
                                  description='Demultiplex PacBio reads using PacBio\'s Lima demultiplexing '
                                              'tool.',
-                                 epilog='')
+                                 epilog='This script is part of the CliMush bioinformatics pipeline.')
 
 # input directory containing the files to demultiplex
 parser.add_argument('-i', '--input',

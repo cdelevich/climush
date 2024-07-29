@@ -10,9 +10,9 @@ settings = get_settings(fpm)
 
 parser = argparse.ArgumentParser(prog=Path(__file__).stem,
                                  description='Remove PhiX and reads with ambiguous bases',
-                                 epilog='')
+                                 epilog='This script is part of the CliMush bioinformatics pipeline.')
 
-parser.add_argument('-i', '--input', default=fpm['sequences'],
+parser.add_argument('-i', '--input', default=fpm['sequences']['main'],
                     type=pathlib.PosixPath,
                     help='The path to the sequencing files. Will default to the location that is '
                          'expected with the Docker container\'s native file structure.')
