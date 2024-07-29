@@ -928,18 +928,21 @@ def quality_filter(input_files, platform, file_map):
     # attempt to pair together R1/R2 reads from the input files
     paired_dict = pair_reads(input_files)
 
-    # go through each R1 read...
-    for file in paired_dict.keys():
-        # if this R1 read does not have an associated R2 read...
-        if paired_dict[file] == '':
+    # go through each input file, from the paired_dict file dictionary
+    for fwd_path, rev_path in paired_dict.items():
 
-            # then process these sequence files as individuals
-            qfilt_out = add_prefix(file_path=file, prefix=QUALFILT_PREFIX,
-                                           dest_dir=qfilt_path, action=None)
-            nofilt_out = add_prefix(file_path=file, prefix=flip_prefix(QUALFILT_PREFIX),
-                                        dest_dir=nofilt_path, action=None)
+        # if the 'fwd' (R1) read file doesn't also have an associated reverse (R2) read file, then...
+        if rev_path == '':
 
-            vsearch_filt_cmd = ['vsearch', '--fastq_filter', file,
+            # ...process this sequence sample file as non-paired
+
+            # create a output file path for the quality filtered and non-quality filtered reads
+            qfilt_out = add_prefix(file_path=fwd_path, prefix=QUALFILT_PREFIX,
+                                   dest_dir=qfilt_path, action=None)
+            nofilt_out = add_prefix(file_path=fwd_path, prefix=flip_prefix(QUALFILT_PREFIX),
+                                    dest_dir=nofilt_path, action=None)
+
+            vsearch_filt_cmd = ['vsearch', '--fastq_filter', fwd_path,
                                 '--fastqout', qfilt_out,
                                 '--fastqout_discarded', nofilt_out,
                                 '-fastq_maxee', str(max_error), '--fastq_maxlen', str(max_len),
@@ -948,33 +951,35 @@ def quality_filter(input_files, platform, file_map):
             run_subprocess(vsearch_filt_cmd, dest_dir=qfilt_parent, run_name=run_name,
                            auto_respond=settings['automate']['auto_respond'])
 
-        # if the paired reads dict does have values (i.e., there are R2 files associated with the R1 files)
+        # if the 'fwd' (R1) read file has an associated reverse (R2) read file, then process as paired-end reads
         else:
-            # then process reads as R1/R2 pairs
-            for file in paired_dict.keys():
 
-                qfilt_fwd_out = add_prefix(file_path=file, prefix=QUALFILT_PREFIX,
-                                           dest_dir=qfilt_path, action=None)
-                nofilt_fwd_out = add_prefix(file_path=file, prefix=flip_prefix(QUALFILT_PREFIX),
-                                            dest_dir=nofilt_path, action=None)
+            # create output file paths for the quality filtered and not quality filtered reads for R1 (fwd) files
+            qfilt_fwd_out = add_prefix(file_path=fwd_path, prefix=QUALFILT_PREFIX,
+                                       dest_dir=qfilt_path, action=None)
+            nofilt_fwd_out = add_prefix(file_path=file, prefix=flip_prefix(QUALFILT_PREFIX),
+                                        dest_dir=nofilt_path, action=None)
 
-                qfilt_rev_out = add_prefix(file_path=paired_dict[file], prefix=QUALFILT_PREFIX,
-                                           dest_dir=qfilt_path, action=None)
-                nofilt_rev_out = add_prefix(file_path=paired_dict[file], prefix=flip_prefix(QUALFILT_PREFIX),
-                                            dest_dir=nofilt_path, action=None)
+            # create output file paths for the quality filtered and not quality filtered reads for R2 (rev) files
+            qfilt_rev_out = add_prefix(file_path=rev_path, prefix=QUALFILT_PREFIX,
+                                       dest_dir=qfilt_path, action=None)
+            nofilt_rev_out = add_prefix(file_path=rev_path, prefix=flip_prefix(QUALFILT_PREFIX),
+                                        dest_dir=nofilt_path, action=None)
 
-                vsearch_filt_cmd = ['vsearch', '--fastq_filter', file, '--reverse', paired_dict[file],
-                                    '--fastqout', qfilt_fwd_out, '--fastqout_rev', qfilt_rev_out,
-                                    '--fastqout_discarded', nofilt_fwd_out, '--fastqout_discarded_rev', nofilt_rev_out,
-                                    '-fastq_maxee', str(max_error), '--fastq_maxlen', str(max_len),
-                                    '--fastq_minlen', str(min_len), '--sizeout']
+            vsearch_filt_cmd = ['vsearch', '--fastq_filter', fwd_path, '--reverse', rev_path,
+                                '--fastqout', qfilt_fwd_out, '--fastqout_rev', qfilt_rev_out,
+                                '--fastqout_discarded', nofilt_fwd_out, '--fastqout_discarded_rev', nofilt_rev_out,
+                                '-fastq_maxee', str(max_error), '--fastq_maxlen', str(max_len),
+                                '--fastq_minlen', str(min_len), '--sizeout']
 
-                run_subprocess(vsearch_filt_cmd, dest_dir=qfilt_parent, run_name=run_name,
-                               auto_respond=settings['automate']['auto_respond'])
+            run_subprocess(vsearch_filt_cmd, dest_dir=qfilt_parent, run_name=run_name,
+                           auto_respond=settings['automate']['auto_respond'])
 
     return qfilt_path
 
 def merge_reads(input_files, file_map):
+
+    # import settings from the configuration file
     settings = get_settings(file_map)
     run_name = settings['run_details']['run_name']
 
@@ -986,22 +991,29 @@ def merge_reads(input_files, file_map):
 
         merge_summary = qfilt_parent / f'vsearch_merged_{run_name}.log'
 
+        # add descriptive header to the merge log file; NOT SURE HOW TO DO SO WITHOUT BEING OVERWRITTEN
+        # with open(merge_summary, 'w') as fout:
+        #     merge_header = '#fwd_ee_exp\trev_ee_exp\tfwd_ee_obs\trev_ee_obs\n'
+        #     with_header = merge_output.insert(0, merge_header)
+        #     fout.write(with_header)
+
         paired_dict = pair_reads(input_files)
 
         output_list = []
-        for file in paired_dict.keys():
+        for fwd_file, rev_file in paired_dict.items():
 
-            nomerge_fwd_out = add_prefix(file_path=file, prefix=MERGED_PREFIX,
+            # create a file path for the non-merged reads for fwd and rev read files
+            nomerge_fwd_out = add_prefix(file_path=fwd_file, prefix=flip_prefix(MERGED_PREFIX),
                                          dest_dir=nomerge_path, action=None)
-            nomerge_rev_out = add_prefix(file_path=paired_dict[file], prefix=flip_prefix(MERGED_PREFIX),
+            nomerge_rev_out = add_prefix(file_path=rev_file, prefix=flip_prefix(MERGED_PREFIX),
                                          dest_dir=nomerge_path, action=None)
 
-            merge_out_base = add_prefix(file_path=file, prefix=MERGED_PREFIX, dest_dir=merge_path, action=None)
+            merge_out_base = add_prefix(file_path=fwd_file, prefix=MERGED_PREFIX, dest_dir=merge_path, action=None)
             sample_id = re.search(r'.+?(?=_R1)', merge_out_base.stem).group(0)
             merge_output = (merge_out_base.parent / sample_id).with_suffix('.fastq')
             output_list.append(merge_output)
 
-            vsearch_merge_cmd = ['vsearch', '--fastq_mergepairs', file, '--reverse', paired_dict[file],
+            vsearch_merge_cmd = ['vsearch', '--fastq_mergepairs', fwd_file, '--reverse', rev_file,
                                  '--fastqout', merge_output,
                                  '--fastqout_notmerged_fwd', nomerge_fwd_out,
                                  '--fastqout_notmerged_rev', nomerge_rev_out,
@@ -1010,13 +1022,9 @@ def merge_reads(input_files, file_map):
             run_subprocess(vsearch_merge_cmd, dest_dir=qfilt_parent, run_name=run_name,
                            auto_respond=settings['automate']['auto_respond'])
 
-        # add descriptive header to the merge log file
-        # with open(merge_summary, 'w') as fout:
-        #     merge_header = '#fwd_ee_exp\trev_ee_exp\tfwd_ee_obs\trev_ee_obs\n'
-        #     with_header = merge_output.insert(0, merge_header)
-        #     fout.write(with_header)
-
         return output_list
+
+    # if the configuration file does not want fwd and rev reads to be merged, then just return the input files unchanged
     else:
         return input_files
 
