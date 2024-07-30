@@ -654,7 +654,7 @@ def continue_to_next(current_script, config_dict):
         next_script = flag_multiple_files(file_path=current_script.parent, search_for=f'{next_num_str}*',
                                           auto_respond=config_dict['automate']['auto_respond'])
 
-        print(f'\nRunning next step, {next_script.name}...\n')
+        print(f'Running next step, {next_script.name}...\n')
         return subprocess.run(['python3', next_script])
 
 
