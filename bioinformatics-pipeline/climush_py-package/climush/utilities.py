@@ -514,100 +514,150 @@ def import_mapping_df(df_path, filter=True, auto_respond=False):
     else:
         return mapping_tabs
 
-# activate next script in python
-def continue_to_next(this_script, config_dict):
-    '''
+# determine and run the next step in the pipeline
+def continue_to_next(current_script, config_dict):
+    """
     Continue to the next step of the pipeline.
 
-    Will activate the script from the CLI with default
-    parameters. If you do not want to use the default
-    parameters, opt out of automated continuation by
-    responding to the CLI prompt that precedes the use
-    of this function.
-    :param this_script: use __file__ always
+    Determines which script should run next in the pipeline based on
+    the settings in the configuration file. If the settings indicate
+    that nothing should be run automatically, the function causes the
+    input script to silently ext.
+    :param current_script: the file path of the currently running script;
+    input is typically __file__, which will pull the absolute path of
+    the file (script) in which it is run
     :return: None, assembles and runs a shell command.
-    '''
+    """
 
     # if the input is not a Path class, make it a Path class
-    if is_pathclass(this_script, exit_if_false=False):
+    if is_pathclass(current_script, exit_if_false=False):
         pass
     else:
-        this_script = Path(this_script)
+        current_script = Path(current_script)
 
     # read in automation details from the configuration file
-    automate_dict = config_dict['automate']
-    auto = automate_dict['run_all']
-    to_run = automate_dict['run_some']
+    automate = config_dict['automate']['run_all']  # whether to automatically run all steps
+    steps_to_run = config_dict['automate']['run_some']  # which steps should be run automatically
 
-    # get the number of the current script from its prefix, cast as int for comparison
-    current_num = int(this_script.name.split('_')[0])
+    # set a variable so that a single print message can be used at the end for multiple situations
+    no_action_needed = False  # set to False; if no next step to run, will switch to True
 
-    # using the current script's number, create search string for next script to run
-    def format_num_for_search(current_script_number, consecutive=True):
+    # if automation is turned on, figure out which script should run next...
+    if automate:
 
-        # get int of next script based on configuration settings
-        if consecutive:  # if automate = True, run the next consecutive script
-            next_int = current_script_number + 1
-        else:  # if automate = False and len(run_sum) > 0, determine next script to run
-            if len(to_run) > 0:
-                # get the index of this current script in the to_run list
-                current_script_runlist_i = to_run.index(current_script_number)
-                # if it is the last int in this list...
-                if current_script_runlist_i == (len(to_run) - 1):
-                    # return None, which will trigger a print/exit in the parent function
-                    return None
-                # if there are more items in the scripts to run...
-                else:
-                    # next_int will be the next number in that list
-                    next_int = to_run[current_script_runlist_i + 1]
+        ## GET NUMBER OF CURRENT SCRIPT
 
-        # format the next script int as a string, w/ (0-9) or w/o (10+) leading zero
-        if next_int >= 10:  # if in double-digits, don't add a leading zero
-            next_num_search = str(next_int)
-        else:  # if single digit, add leading zero
-            next_num_search = '0' + str(next_int)
+        # get the number of the current script that just completed
+        try:
+            current_script_number = int(re.search(PIPE_SCRIPT_NUM_RE, current_script.name).group(0))
 
-        return next_num_search
+        # if it cannot be located in the current script's file name, print ERROR and exit
+        except AttributeError:
+            msg = f'ERROR. The pipeline script number cannot be located in the following file name:\n'\
+                  f'  {current_script.name}\n'\
+                  f'The pipeline script number should contain at least two digits at the start of the '\
+                  f'file name, indicating the order in which the script is run in the pipeline. If the '\
+                  f'pipeline step is <10, it should be preceded by a 0, e.g., 03_remove-primers.py.\n'
+            exit_process(msg)
+            return None  # not really necessary here, but it is giving me warnings below that are annoying
 
-    # give priority to numbered scripts to run, even if auto left on True
-    if len(to_run) > 0:  # if there are entries in to_run...
+        ## DETERMINE THE NUMBER OF THE NEXT SCRIPT TO RUN, BASED ON USER CONFIGURATION SETTINGS
 
-        # find the next value in this list (*not* consecutive, but based on to_run settings)
-        next_num_search = format_num_for_search(current_num, consecutive=False)
+        # if a list of scripts to run was provided, prioritize these scripts
+        if len(steps_to_run) > 0:
 
-        # if there are none (i.e., current script is last one in this list)
-        if next_num_search is None:
-            # print that steps are completed, and exit
-            print(f'\nThe pipeline has run all steps designated in the run_some section of the configuration '
-                  f'settings. Exiting the pipeline...\n')
-            return sys.exit()
+            ## UPDATE THE PRIORITY STEPS TO RUN LIST, IF NECESSARY
 
-        # if there are scripts after this current one to run
+            # determine whether the current script was included in this list, which it typically will be
+            if current_script_number in steps_to_run:
+
+                # if this current script was among these priority pipeline steps, do nothing to this list
+                pass
+
+            # if the script was not included in this priority list, print a warning and add it to this list
+            else:
+
+                # print a warning that the function will default to the next highest numbered script in the run list
+                print(f'WARNING. The pipeline script that is currently running,\n'
+                      f'  {current_script.name}\n'
+                      f'is not listed in the specific list of pipeline scripts to run from the configuration '
+                      f'file settings. Using the logical next script in the specified list of pipeline scripts '
+                      f'to run, which is the next highest numbered script.\n'
+                      f'\n'
+                      f'This warning usually occurs if you run a specific pipeline script from the command line '
+                      f'and do not update your configuration file list of pipeline scripts to run, run_some, to '
+                      f'include this script.\n')
+
+                # append the current script's number to the list of steps to run, and sort the list
+                steps_to_run.append(current_script_number)  # add current script's number to list
+                steps_to_run.sort()  # numerically sort the list, ascending
+
+
+            ## FIND THE NEXT SCRIPT TO RUN BASED ON THE CURRENT SCRIPT'S POSTION IN THE PRIORITY RUN LIST
+
+            # get the index (location) of th current script's number in the steps_to_run list
+            current_script_runlist_i = steps_to_run.index(current_script_number)
+
+            # if it is the last integer in this list (and therefore last script to run)...
+            if current_script_runlist_i == (len(steps_to_run) - 1):
+
+                # switch the no_action_needed Boolean to True, which will result in same output as no automation
+                no_action_needed = True
+                no_action_reason = ('No further pipeline steps are set to run, based on the run_some list from '
+                                    'the configuration file')
+                next_int = None
+
+            # if the current script is not the last script that needs to run...
+            else:
+
+                # get the integer value of the next script to run
+                next_int = steps_to_run[current_script_runlist_i + 1]
+
+        # if a list of scripts to run was not provided, then run the pipeline scripts in numeric sequence
         else:
-            # find the file of the next script, based on format_num_for_search output
-            next_script = flag_multiple_files(file_path=this_script.parent, search_for=f'{next_num_search}*',
-                                              auto_respond=config_dict['automate']['auto_respond'])
+            next_int = current_script_number + 1
 
-    # if no specific scripts specified...
+
+        ## FIND THE FILE NAME OF THE NEXT SCRIPT TO RUN
+
+        # next_int set to None if there is not another script to run next
+        if next_int is None:
+            pass
+        else:
+            # format the next script integer as a string, w/ (0-9) or w/o (10+) leading zero
+            if next_int >= 10:  # if in double-digits, don't add a leading zero
+                next_num_str = str(next_int)
+            else:  # if single digit, add leading zero
+                next_num_str = '0' + str(next_int)
+
+    # if set not to automatically run any other scripts...
     else:
 
-        # find the next consecutive script
-        next_num_search = format_num_for_search(current_num, consecutive=True)
-        next_script = flag_multiple_files(file_path=this_script.parent, search_for=f'{next_num_search}*',
+        # set the no_action_needed variable to true, as no further scripts will be run
+        no_action_needed = True
+        no_action_reason = 'Pipeline is configured to run manually'
+
+
+    ## DETERMINE FUNCTION RETURNED BASED ON ACQUIRED INFORMATION
+
+    # if pipeline has completed or if it has been set to run only manually...
+    if no_action_needed:
+
+        # print message, in case confusion about a script terminating, and exit with success code
+        print(f'{no_action_reason}. {current_script.name} has completed, exiting pipeline...\n')
+        return sys.exit(0)
+
+    # if another script needs to run...
+    else:
+
+        # find the file name/path of the next script, based on its number prefix determined above
+        next_script = flag_multiple_files(file_path=current_script.parent, search_for=f'{next_num_str}*',
                                           auto_respond=config_dict['automate']['auto_respond'])
 
-        # if set to automatically run, then continue to last print/return statement
-        if auto:
-            pass
+        print(f'\nRunning next step, {next_script.name}...\n')
+        return subprocess.run(['python3', next_script])
 
-        # if not set to auto-run, prompt user to determine whether to continue
-        else:
-            msg = f'The script {this_script} has completed. Would you like to continue '\
-                  f'to the next step in the pipeline, {next_script.stem}?'
-            prompt_yes_no_quit(msg, auto_respond=config_dict['automate']['auto_respond'])  # if response is yes, it will continue to next line; if no, will exit here
 
-    print(f'\n\nRunning next step, {next_script.name}...\n')
-    return subprocess.run(['python3', next_script])
 
 #######################
 # FILE PATHS ##########
