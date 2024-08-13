@@ -1,6 +1,5 @@
 .DS_Store
 .idea
 .venv
-/bioinformatics-pipeline/sequences/
-/bioinformatics-pipeline/pipeline/json-test.py
-/helper-scripts/file-sorting/pacbio_sort_files_old.py
+.env
+__pycache__
