@@ -94,12 +94,15 @@ keep_chimeras =   true      # true/false: keep reads that are chimeras, separate
 
 
 [otu_clustering]
-min_threshold = 0.95              # integer: minimum percent identity to cluster reads into OTUs
-method =        'average'       # 'average': method used to align reads prior to clustering
-group_by =      'community'     # 'community'/'sample: what pool of reads to consider when clustering
-choose_rep_by = 'read count'    # 'read count'/'read_size': how to chose the representative read for each OTU
-choose_top_by = 'read count'    # 'read count'/'read_size': how to chose the top OTU per sample;
-                                #           only relevant for sporocarp samples
+min_threshold = 0.95         # float [between 0.0 and 1.0, inclusive]: minimum percent identity to cluster reads into OTUs
+method =        'size'       # string: method used for clustering, options = 'length', 'size', 'length_fast'
+group_by =      'community'  # 'community'/'sample: what pool of reads to consider when clustering
+choose_rep_by = ''           # string: how to chose the representative read for each OTU, options = '', 'read count',
+                             #    'read length'; if empty string is used (''), will use standard protocol to chose
+choose_top_by = ''           # string: how to chose the top OTU per sample; options = '', 'read count',
+                             #    'read length'; if empty string is used (''), will use standard protocol to chose;
+                             #    only relevant for pacbio sporocarp sequences
+separate_clusters = false    # true/false: whether to write out clusters to their own .fasta file
 
 [taxonomy]
 method = 'amptk'    # method/tool used to assign taxonomy to the OTUs
