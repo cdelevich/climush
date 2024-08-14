@@ -1,7 +1,0 @@
-pandas
-scipy
-numpy
-matplotlib
-seaborn
-Bio
-tomlkit
