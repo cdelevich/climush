@@ -29,8 +29,7 @@ args = vars(parser.parse_args())
 
 # NOT UPDATED FOR ILLUMINA READS
 # check that there are Illumina reads to dereplicate
-# last_output = [dir for dir in fpm['pipeline-output']['chimera-checked'].glob('*') if re.search(f'^{NOCHIM_PREFIX}', dir.stem, re.I)][0]
-# is_input, illumina_files = check_for_input(last_output)
+# is_input, illumina_files = check_for_input(file_dir=args['input'], config_dict=settings, seq_platform=platform)
 #
 # if is_input:
 #     dereplicate(input_files=illumina_files, derep_step=2, platform='illumina', file_map=fpm)
@@ -43,7 +42,7 @@ args = vars(parser.parse_args())
 
 platform = 'pacbio'
 
-is_input, pacbio_files = check_for_input(file_dir=args['input'], seq_platform=platform)
+is_input, pacbio_files = check_for_input(file_dir=args['input'], config_dict=settings, seq_platform=platform)
 
 if is_input:
     dereplicate(input_files=pacbio_files, derep_step=2, platform=platform, file_map=fpm)

@@ -1,13 +1,11 @@
 from mapping import filepath_map as fpm
 
 import argparse, sys, subprocess, pathlib
-from datetime import datetime
 from pathlib import Path
 from climush.constants import *
 from climush.bioinfo import merge_reads, quality_filter
 from climush.utilities import *
 
-start_time = datetime.now()
 settings = get_settings(fpm)
 run_name = settings['run_details']['run_name']
 
@@ -74,15 +72,15 @@ print(f'Currently, this is not updated to accomodate changes to the configuratio
       f'Working on it... \n')
 
 # look for input in the input path that are illumina reads
-is_input, illumina_files = check_for_input(args['input'], seq_platform=platform)
+is_input, illumina_files = check_for_input(args['input'], config_dict=settings, seq_platform=platform)
 
 if is_input:
     # if the --merge-from flag is not included, go through quality filter process
     if merge_from is None:
         filtered_path = quality_filter(input_files=illumina_files, platform=platform, file_map=fpm)
-        is_merge, filtered_files = check_for_input(filtered_path, seq_platform=platform)
+        is_merge, filtered_files = check_for_input(filtered_path, config_dict=settings, seq_platform=platform)
     else:
-        is_merge, filtered_files = check_for_input(filtered_path, seq_platform=platform)
+        is_merge, filtered_files = check_for_input(filtered_path, config_dict=settings, seq_platform=platform)
     # confirm that there are
     if args['merge'] and is_merge:
         print(f'\nMerging reads from {filtered_path}...')
@@ -93,10 +91,6 @@ if is_input:
     else:
         print(f'\nNot merging reads; instead using forward reads only.')
 
-    end_time = datetime.now()
-    run_time = end_time - start_time
-    print(f'{int(len(filtered_files) / 2)} paired-end samples were run through quality filtering and merging '
-          f'in {run_time}.\n')
 else:
     pass
 
@@ -104,14 +98,6 @@ else:
 # PACBIO ############
 #####################
 platform = 'pacbio'
-
-# pacbio_dir = PIPE_OUT_MAIN / Path(f'03_remove-primers/trim_{run_name}')
-#
-# # check that there are Illumina reads to pre-filter
-# if input_files_present(file_path = pacbio_dir):
-#     print(f'PacBio reads were detected in {pacbio_dir.parent}. '
-#           f'Processing {count_files(pacbio_dir, search_for=SEQ_FILE_GLOB)} samples...\n')
-#
 
 
 #####################

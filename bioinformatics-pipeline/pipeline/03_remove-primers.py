@@ -43,14 +43,14 @@ args = vars(parser.parse_args())
 platform = 'illumina'
 
 # check that there are Illumina reads to trim primers from
-is_input, illumina_files = check_for_input(file_dir=args['input'], seq_platform=platform)
+is_input, illumina_files = check_for_input(file_dir=args['input'], config_dict=settings, seq_platform=platform)
 
 if is_input:
     if args['check_only']:
         print(f'Only checking for primers...')
         confirm_no_primers(args['input'], file_map=fpm, platform=platform)
     else:
-        print(f'Running cutadapt...')
+        print(f'Running cutadapt...\n')
         trimmed_path = remove_primers(illumina_files, file_map=fpm, platform=platform, paired_end=True, verbose=args['verbose'])
         confirm_no_primers(trimmed_path, file_map=fpm, platform=platform)
 else:
@@ -62,7 +62,7 @@ else:
 platform = 'pacbio'
 
 # check that there are PacBio reads to trim primers from
-is_input, pacbio_files = check_for_input(file_dir=args['input'], seq_platform=platform)
+is_input, pacbio_files = check_for_input(file_dir=args['input'], config_dict=settings, seq_platform=platform)
 
 if is_input:
     remove_primers(input_files=pacbio_files, file_map=fpm, platform=platform, verbose=args['verbose'], paired_end=False)
@@ -72,13 +72,13 @@ else:
 #####################
 # SANGER ############
 #####################
+platform = 'sanger'
 
-# first check 'nearest' possible directory for sequences
-# last_output = [dir for dir in fpm['pipeline-output']['prefiltered'].glob('*') if re.search('^no-ambig', dir.stem, re.I)][0]
-# is_input, sanger_files = check_for_input(last_output)
+# check if there are Sanger sequences to trim primers from
+# is_input, sanger_files = check_for_input(file_dir=args['input'], config_dict=settings, seq_platform=platform)
 #
 # if is_input:
-#     remove_primers(sanger_files, file_map=fpm, platform='sanger')
+#     remove_primers(sanger_files, file_map=fpm, platform=platform)
 # else:
 #     pass
 
