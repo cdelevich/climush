@@ -1,6 +1,6 @@
 # Globus
 
-[Globus](https://www.globus.org/data-transfer) is the interface that we use to transfer sequencing files among users. The method of transferring data with Globus depends on where your data are located, or where you want your downloaded data to go.
+[Globus](https://www.globus.org/data-transfer) is the interface that we use to transfer sequence files among users. The method of transferring data with Globus depends on where your data are located, or where you want your downloaded data to go.
 
 ## Upload Sequences to the CliMush Sequences Guest Collection
 
