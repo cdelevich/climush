@@ -1056,7 +1056,7 @@ def dereplicate(input_files, derep_step, platform, file_map):
     for file in input_files:
 
         # derep always outputs a fasta format, but need to provide file name as fasta format or will appear as fastq
-        # even though it isn't really fastq when you open it up
+        #   even though it isn't really fastq when you open it up
         derep_output = add_prefix(file_path=file, prefix=derep_prefix, dest_dir=derep_path, action=None).with_suffix('.fasta')
 
         vsearch_derep_cmd = ['vsearch', '--derep_fulllength', file,
@@ -1307,14 +1307,25 @@ def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_
     SeqIO.write(concatenated_records, fasta_out, 'fasta')
     return None
 
-def check_concat_output(itsx_dir, full_len_dir, num_bp_compare, write_to_log=True, same_threshold=99):
+def check_concat_output(itsx_dir, full_len_dir, num_bp_compare, file_map, write_to_log=True, same_threshold=99, header_delim=None):
+
+    # import configuration settings
+    settings = get_settings(file_map)
+    run_name = settings['run_details']['run_name']
+
+
+    # check which value to use for the read header delimiter
+    if header_delim is None:
+        header_delim = settings['formatting']['header_delim']
+    else:
+        pass
 
     bp = int(num_bp_compare)
 
     # import records as dictionary, where the read ID is the key
     def name_as_key(record):
         header = record.id
-        sample_read_id = header.split(';')[0]
+        sample_read_id = header.split(header_delim)[0]
         return sample_read_id
 
     # import full ITS records and LSU (for revcomp comparison)
@@ -1413,101 +1424,548 @@ def check_concat_output(itsx_dir, full_len_dir, num_bp_compare, write_to_log=Tru
 
     return None
 
-def check_chimeras(input_files, file_map, ref=None):
-    chim_ref_files = file_map['config']['reference-db']['chimera'].glob(SEQ_FILE_GLOB)
+def create_query_fasta(input_dir, output_path, file_map):
 
+    # define a variable to use for SeqIO, for the file format (no .)
+    file_fmt = 'fasta'
+
+    # process input_dir to allow for either a directory or list of files; either way, must be Path object(s)
+
+    # if the input directory is a list...
+    if isinstance(input_dir, list):
+        # go through each item in the list and confirm that they are path objects
+        for i in input_dir:
+            if is_pathclass(i, exit_if_false=False):
+                pass
+    elif is_pathclass(input_dir, exit_if_false=False):
+        if input_dir.is_dir():
+            pass
+    else:
+        err_msg = (f'The input for the function {create_query_fasta.__name__} can be either a PosixPath to a directory, '
+                   f'or a list of PosixPaths. However, the input provided:\n'
+                   f'   {input_dir}\n'
+                   f'is neither of these. Please provide either a PosixPath to a directory, or a list of PosixPath file'
+                   f'paths.\n')
+        exit_process(messages=err_msg)
+
+    # import settings from the configuration .toml file
     settings = get_settings(file_map)
     run_name = settings['run_details']['run_name']
 
+    # rename the read headers, post-chimera detection, so that the read ID contains the sample ID
+    rename_read_header(input_dir=input_dir, run_name=run_name)
+
+    # create an empty list to add all records (reads) from all input fasta files in input_dir
+    total_record_list = []
+
+    # create a set of input sample IDs, to be used when checking the output fasta file that is created
+    samples_in_input = set()
+
+    # count number of reads read in from input file
+    input_read_count = 0
+
+    # go through each sequence file in the input path...
+    for file in input_dir.glob(SEQ_FILE_GLOB):
+
+        # get the sample ID from the file name, and add it to the input sample set
+        samples_in_input.add(get_sample_id(file))
+
+        # parse each record (read) from each sample file...
+        for record in SeqIO.parse(file, file_fmt):
+
+            # add to input read counter
+            input_read_count += 1
+
+            # add it to the total record list
+            total_record_list.append(record)
+
+    # write out the list of all records across all samples to a query fasta file
+    combined_out_dir = mkdir_exist_ok(new_dir=output_path)
+    combined_out_file = (combined_out_dir / f'{run_name}_query').with_suffix(file_fmt)
+    SeqIO.write(total_record_list, combined_out_file, file_fmt)
+
+    ## CHECK OUTPUT FILE
+
+    # create an empty set of read IDs (which are the sample IDs, after renaming) to add IDs in output to
+    samples_in_output = set()
+
+    # check read counts in output
+    output_read_count = 0
+
+    # read in the output file to confirm that all samples that should be represented, are represented
+    with open(combined_out_file) as fasta_in:
+
+        # go through each record in the output file...
+        for record in SeqIO.parse(fasta_in, file_fmt):
+
+            # add to the output file read count counter
+            output_read_count += 1
+
+            # get the sample ID portion of the read header (i.e., the first item,
+            #   removing the read abundance annotation)
+            read_id = record.id.split(settings['header_delim'])[0]
+
+            # add the read_id to the set of samples confirmed to be in the output
+            samples_in_output.add(read_id)
+
+    # compare the samples that are in the input to those in the output
+    dropped_samples = list(samples_in_input.difference(samples_in_output))
+
+    # if there are samples from the input that aren't in the output file...
+    if len(dropped_samples) > 0:
+
+        # check if the samples are missing because the non-chimera fasta files are empty (no reads)
+
+        # locate the samples with empty non-chimera fasta files by checking the
+        #    no-nonchim summary from check_chimeras()
+        no_nonchim_path = input_dir.parent / f'{run_name}_no-nonchim-reads.txt'
+        empty_samples = pd.read_table(no_nonchim_path, delimiter='\t')['sample id'].to_list()
+
+        # if the list of no-nonchim samples matches the list of dropped samples, then everything worked as expected
+        if empty_samples == dropped_samples:
+            pass
+        else:
+            dropped_samples_unaccounted = list(set(empty_samples).difference(set(dropped_samples)))
+            print(f'ERROR. {len(dropped_samples_unaccounted)} samples are missing from the query fasta file output:\n'
+                  f'  {combined_out_file.name}\n'
+                  f'This fasta file should contain reads from every sample that has reads in the non-chimera output '
+                  f'fasta files. After accounting for samples with no non-chimeric reads, the following samples '
+                  f'were expected to be present in the query fasta file but are not:\n')
+            print_indented_list(dropped_samples_unaccounted)
+            exit_process(message='')  # leave out message, I print above so I can use my fnc to print the indented list
+
+    # if there are no dropped samples detected, then the everything worked as expected, and none of the samples were
+    #   devoid of non-chimera reads after chimera detection
+    else:
+        pass
+
+    print(f'Number of input reads = {input_read_count}\n'
+          f'Number of output reads = {output_read_count}\n')
+
+    return combined_out_file
+
+
+def denoise(input_files, file_map, alpha, minsize, clust_threshold, pool_samples=True):
+
+    ## GET SETTINGS ###################################
+
+    # read in the configuration settings, get bioinformatics run name from settings
+    settings = get_settings(file_map)
+    run_name = settings['run_details']['run_name']
+
+
+    ## CREATE OUTPUT DIRECTORIES ######################
+
+    # make the main output directory for denoised output
+    denoise_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['denoised'])
+
+    # within main denoise output directory, create a subdirectory for the centroid sequence outputs
+    denoise_path = mkdir_exist_ok(new_dir=f'{DENOISE_PREFIX}_{run_name}', parent_dir=denoise_parent)
+
+
+    ## FILTER OUT NON-ILLUMINA FILES ###################
+
+    illumina_files = []
+    non_illumina_files = []
+
+    for file in input_files:
+
+        # infer the sequencing platform from the file name
+        file_platform = get_seq_platform(file)
+
+        # sort file paths based on whether illumina, or generally not illumina
+        if file_platform == 'illumina':
+            illumina_files.append(file)
+        else:
+            non_illumina_files.append(file)
+
+
+    ## DENOISE #########################################
+
+    # if you want to pool all reads across samples...
+    if pool_samples:
+
+        # use create_query_fasta to rename read headers, combine into one fasta, and return the path to this new file
+        combined_fasta = create_query_fasta(input_dir=illumina_files, file_map=file_map)
+
+        # create an output file path to write denoised centroid sequences to
+        denoise_out = denoise_path / f'{run_name}_denoised.fasta'
+
+        # assemble the vsearch UNOISE command for the command line
+        vsearch_unoise_cmd = ['vsearch', '--cluster_unoise', combined_fasta,
+                              '--centroids', denoise_out,
+                              '--minsize', str(minsize),
+                              '--unoise_alpha', str(alpha),
+                              '--id', str(clust_threshold)]
+
+        # execute the vsearch UNOISE command
+        run_subprocess(vsearch_unoise_cmd, dest_dir=denoise_parent, run_name=run_name, program='unoise',
+                       auto_respond=settings['automate']['auto_respond'])
+
+    else:
+
+        # create a dictionary of the input and output files for each sample, to use further down when comparing read
+        #   counts before and after denoising
+        input_output_dict = {}
+
+        # go through each Illumina sample...
+        for illumina_file in illumina_files:
+
+            # create an output file path to write denoised centroid sequences to
+            denoise_out = add_prefix(file_path=illumina_file, prefix=DENOISE_PREFIX,
+                                     dest_dir=denoise_path, action=None)
+
+            # add this sample's input and output paths to the input/output dictionary
+            input_output_dict.update({illumina_file: denoise_out})
+
+            # assemble the vsearch UNOISE command for the command line
+            vsearch_unoise_cmd = ['vsearch', '--cluster_unoise', illumina_file,
+                                  '--centroids', denoise_out,
+                                  '--minsize', str(minsize),
+                                  '--unoise_alpha', str(alpha),
+                                  '--id', str(clust_threshold)]
+
+            # execute the vsearch UNOISE command
+            run_subprocess(vsearch_unoise_cmd, dest_dir=denoise_parent, run_name=run_name, program='unoise',
+                           auto_respond=settings['automate']['auto_respond'])
+
+
+    ## LOG FILES THAT WERE NOT DENOISED ###############
+
+    # if any of the input files were not Illumina sequences
+    if len(non_illumina_files) > 0:
+
+        # print a warning, and log these files to a .log file
+
+        non_illumina_log = (denoise_parent / f'{run_name}_not-denoised').with_suffix('.log')
+
+        print(f'WARNING. {len(non_illumina_files)} sequencing files that were provided to the function '
+              f'{func.__name__} were not detected as Illumina sequences. UNOISE is only suitable for denoising '
+              f'Illumina sequences, so these files were not denoised. See the output file\n'
+              f'  {non_illumina_log.name}\n'
+              f'for a list of the files that were not denoised.\n')
+
+        with open(non_illumina_log, 'wt') as log_out:
+
+            # write a header for the file
+            log_out.write(f'bioinformatics run = {run_name}\n')
+            log_out.write(f'The following sequences were determined to be non-Illumina sequencing files, and therefore '
+                          f'were not denoised by UNOISE:\n')
+
+            for err_file in non_illumina_files:
+                logout.write(f'  {err_file}\n')
+
+    # if all of the input reads are Illumina sequences, do nothing
+    else:
+        pass
+
+    ## CONFIRM READ COUNTS DECREASED ##################
+
+    # create a dictionary of unwanted read changes, either increase or no change of read counts after denoising
+    read_count_change_issues = {'increase': {'num samples': 0,
+                                             'samples': []},
+                                'no change': {'num samples': 0,
+                                              'sample': []}}
+
+    # go through each pair of input and output files (i.e., for every sample)
+    for file_in, denoise_out in input_output_dict.items():
+
+        ## BEFORE DENOISING
+        # instantiate counter to track the number of sequences before denoising
+        read_count_before = 0
+
+        # go through each record in this sample, and add to counter for each distinct read that is parsed
+        with open(file_in) as input_fasta:
+            for record in SeqIO.parse(input_fasta, 'fasta'):
+                read_count_before += 1
+
+        ## AFTER DENOISING
+        # instantiate counter to track the number of sequences after denoising
+        read_count_after = 0
+
+        # go through each record in this sample, and add to counter for each distinct read that is parsed
+        with open(denoise_out) as denoise_fasta:
+            for record in SeqIO.parse(denoise_fasta, 'fasta'):
+                read_count_after += 1
+
+        ## COMPARISON
+        # if there was no change in read count, this might be an issue
+        if read_count_after == read_count_before:
+            result = 'no change'
+
+        # if there was an *increase* in read count, this is almost surely an issue
+        elif read_count_after > read_count_before:
+            result = 'increase'
+
+        # if there was a decrease in read count, this would make sense, do nothing and move to next sample
+        else:
+            continue
+
+        # if either read change error/warning conditions are met, then add to corresponding location in dictionary
+        sample_id = get_sample_id(file_in)
+        read_count_change_issues[result]['sample'].append(sample_id)
+        read_count_change_issues[result]['num samples'] += 1
+
+    ## ASSESS READ COUNT CHANGES
+
+    # pull the number of samples for each situation, used several times below
+    increase_count = read_count_change_issues['increase']['num samples']  # how many samples increased in read count?
+    nochange_count = read_count_change_issues['no change']['num samples']  # how many samples didn't change read count?
+
+    # if either issue contains samples...
+    if (increase_count > 0) or (nochange_count > 0):
+
+        # create a path for an output log file, with .json format
+        change_error_path = (denoise_parent / f'{run_name}_read-count-issues').with_suffix('.json')
+
+        # write the dictionary out to a .json file; write out both increase and no change, even if one has no samples
+        with open(change_error_path, 'wt') as json_out:
+            json.dump(read_count_change_issues, json_out)
+
+        # calc percent of total input samples that had undesirable read count changes
+        perc_issue = ((increase_count + nochange_count) / len(illumina_files))*100
+
+        # print a warning before completing function
+        print(f'WARNING. {increase_count + nochange_count} out of {len(illumina_files)} samples ({perc_issue:.2f}%) '
+              f'had an unusual change in read count after denoising with vsearch:\n'
+              f'  increase in read count  = {increase_count}\n'
+              f'  no change in read count = {nochange_count}\n'
+              f'Please see the samples belonging to each of these unusual changes in read counts in the summary '
+              f'file:\n'
+              f'  {change_error_path}')
+
+    return None
+
+def check_chimeras(input_files, file_map, method, keep_chimeras):
+
+    ## GET SETTINGS ###################################
+
+    # read in the configuration settings, get bioinformatics run name from settings
+    settings = get_settings(file_map)
+    run_name = settings['run_details']['run_name']
+
+
+    ## CREATE OUTPUT DIRECTORIES ######################
+
+    # make the main output directory for chimera check output
     chim_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['chimera-checked'])
 
+    # within main chimera check output directory, create a subdirectory for the chimeric and non-chimeric reads
     nochim_path = mkdir_exist_ok(new_dir=f'./{NOCHIM_PREFIX}_{run_name}', parent_dir=chim_parent)
     chim_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(NOCHIM_PREFIX)}_{run_name}', parent_dir=chim_parent)
 
-    uchime_log = chim_parent / 'uchime.log'
+    # create a log file for any UCHIME summary content produce by vsearch flag --uchimeout
+    uchime_log = chim_parent / f'uchime_{run_name}.log'
 
-    if ref is None:
+    ## DE NOVO CHIMERA DETECTION #######################
+
+    # if the method is set to denovo, then do de novo chimera detection
+    if method == 'denovo':
+
+        # de novo chimera detection is platform-dependent, so sort input files by platform
+
+        # create dictionary, where key (p) is name of platform, value is list of files from this platform
+        input_sorted = {p: [] for p in SEQ_PLATFORM_OPTS}
+
+        # go through each input file, and sort by platform
         for file in input_files:
-            nochim_out = add_prefix(file_path=file, prefix=NOCHIM_PREFIX,
-                                    dest_dir=nochim_path, action=None)
-            chim_out = add_prefix(file_path=file, prefix=flip_prefix(NOCHIM_PREFIX),
-                                  dest_dir=chim_path, action=None)
 
-            vsearch_denovo_cmd = ['vsearch', '--uchime3_denovo', file,
-                                  '--chimeras', chim_out,
+            # get the platform based on the sequence file name
+            file_platform = get_seq_platform(file)
+
+            # add the file to the correct platform key in the sorted input file dictionary
+            input_sorted[file_platform].append(file)
+
+        # then go through the Illumina reads, and run UNOISE then UCHIME2
+        for illumina_file in input_sorted['illumina']:
+
+            # require that the input Illumina files have the prefix denoise_, which indicates that
+            #  denoising has already been carried out; is required for de novo chimera detection
+            if illumina_file.name.startswith(DENOISE_PREFIX):
+                pass
+            else:
+                err_msg = (f'ERROR. The input Illumina files provided to {check_chimeras.__name__} do not appear to '
+                           f'have been run through denoising. In order to do de novo chimera detection of Illumina '
+                           f'reads, they must be run through denoising. If these sequences have been run through '
+                           f'denoising, make sure the file names start with the prefix {DENOISE_PREFIX}, and rerun.\n')
+                exit_process(message=err_msg)
+
+            ## CHIMERA CHECK
+
+            # create an output file path for the non-chimeric read output
+            nochim_out = add_prefix(file_path=illumina_file, prefix=NOCHIM_PREFIX,
+                                    dest_dir=nochim_path, action=None)
+
+            # assemble the vsearch UCHIME command for the command line
+            vsearch_denovo_cmd = ['vsearch', '--uchime3_denovo', illumina_file,
                                   '--nonchimeras', nochim_out,
                                   '--uchimeout', uchime_log]
 
-            run_subprocess(vsearch_denovo_cmd, dest_dir=chim_parent, run_name=run_name,
-                           auto_respond=settings['automate']['auto_respond'])
-    else:
-        refs_to_use = []
-        for r in chim_ref_files:
-            result = re.search(ref, r, re.I)
-            if result:
-                refs_to_use.append(result.group(0))
-            else:
-                continue
+            if keep_chimeras:
 
-        for chim_ref in refs_to_use:
-            for file in input_files:
-                nochim_out = add_prefix(file_path=file, prefix=NOCHIM_PREFIX,
-                                        dest_dir=chim_path, action=None)
-                chim_out = add_prefix(file_path=file, prefix=flip_prefix(NOCHIM_PREFIX),
+                # if configured to keep chimeras, create an output file path for chimeric reads
+                chim_out = add_prefix(file_path=illumina_file, prefix=flip_prefix(NOCHIM_PREFIX),
                                       dest_dir=chim_path, action=None)
 
-                vsearch_ref_cmd = ['vsearch', '--uchime_ref', file,
-                                   '--chimeras', chim_out,
-                                   '--nonchimeras', nochim_out,
-                                   '--uchimeout', uchime_log,
-                                   '--db', chim_ref]
+                # insert the command to keep chimeras into the uchime command
+                vsearch_denovo_cmd.insert(-2, '--chimeras')
+                vsearch_denovo_cmd.insert(-2, chim_out)
 
-                run_subprocess(vsearch_ref_cmd, dest_dir=chim_parent, run_name=run_name,
-                               auto_respond=settings['automate']['auto_respond'])
+            else:
+                pass
+
+            # execute the vsearch UCHIME command
+            run_subprocess(vsearch_denovo_cmd, dest_dir=chim_parent, run_name=run_name, program='uchime',
+                           auto_respond=settings['automate']['auto_respond'])
+
+    ## REFERENCE-BASED CHIMERA DETECTION #################
+
+    # if reference is NOT set to None, it should ... ?
+    # else:
+    #
+    #     # get the path to the chimera reference datasets
+    #     chim_ref_files = file_map['config']['reference-db']['chimera'].glob(SEQ_FILE_GLOB)
+    #
+    #     refs_to_use = []
+    #     for r in chim_ref_files:
+    #         result = re.search(ref, r, re.I)
+    #         if result:
+    #             refs_to_use.append(result.group(0))
+    #         else:
+    #             continue
+    #
+    #     for chim_ref in refs_to_use:
+    #         for file in input_files:
+    #             nochim_out = add_prefix(file_path=file, prefix=NOCHIM_PREFIX,
+    #                                     dest_dir=chim_path, action=None)
+    #             chim_out = add_prefix(file_path=file, prefix=flip_prefix(NOCHIM_PREFIX),
+    #                                   dest_dir=chim_path, action=None)
+    #
+    #             vsearch_ref_cmd = ['vsearch', '--uchime_ref', file,
+    #                                '--chimeras', chim_out,
+    #                                '--nonchimeras', nochim_out,
+    #                                '--uchimeout', uchime_log,
+    #                                '--db', chim_ref]
+    #
+    #             run_subprocess(vsearch_ref_cmd, dest_dir=chim_parent, run_name=run_name,
+    #                            auto_respond=settings['automate']['auto_respond'])
+
+    ## OUTPUT SUMMARY FILE WITH TABLE OF SAMPLES WITHOUT NON-CHIMERA READS
+
+    # create an empty dictionary to add sample IDs and read counts of empty files only (no sequences)
+    empty_nonchim = {}
+
+    # go through each non-chimeric file that was just created
+    for nonchim_file in nonchim_path.glob(f'{NOCHIM_PREFIX}*fasta'):
+
+        # for each non-chimeric file, count the number of sequences (read count)
+        read_count = 0
+        with open(dfile) as fasta_in:
+            for record in SeqIO.parse(fasta_in, 'fasta'):
+                read_count += 1
+
+        # if there are no sequences in the non-chim file for this sample...
+        if read_count == 0:
+
+            # get the sample ID
+            sample_id = get_sample_id(file_path=nonchim_file)
+
+            # append the sample ID and read count to the empty non-chim dictionary
+            empty_nonchim.update({sample_id: read_count})
+
+    # after going through each non-chimeric file, write out the empty non-chimeric samples to a summary file
+    empty_nonchim_out = chim_parent / f'{run_name}_no-nonchim-reads.txt'
+    with open(empty_nonchim_out, 'wt') as fout:
+        fout.write(f'read count\tsample id\n')
+        for sample_id, read_count in empty_nonchim.items():
+            fout.write(f'{read_count}\t{sample_id}\n')
 
     return None
 
-def combine_all_reads(input_files, file_map):
 
+def create_otu_fasta(query_fasta, file_map, otu_label='OTU', keep_abund=True, clust_threshold=None):
+
+    # confirm that the input directory is a Path object
+    is_pathclass(input_dir, exit_if_false=False)
+
+    # import settings from the configuration .toml file
     settings = get_settings(file_map)
     run_name = settings['run_details']['run_name']
 
-    total_record_list = []
-    for file in input_files:
-        rename_read_header(file, header_delim=';')
-        for record in SeqIO.parse(file, 'fasta'):
-            total_record_list.append(record)
+    # if no clustering threshold is provided directly to the function, then look in the settings config file to
+    #  find the clustering threshold to use
+    if clust_threshold is None:
+        clust_threshold = settings['otu_clustering']['min_threshold']
+    else:
+        pass
 
-    combined_out = file_map['pipeline-output']['otus-clustered'] / f'combined_otus_{run_name}.fasta'
-    SeqIO.write(total_record_list, combined_out, 'fasta')
+    # confirm that the clustering threshold is a float between 0 and 1; if not, try to scale to value between 0 and 1
 
-    return combined_out
+    # if it between 0 and 1, continue without doing anything
+    if 0 <= clust_threshold <= 1:
+        pass
 
-def cluster_reads(input_files, file_map):
+    # if it is not between 0 and 1...
+    else:
 
-    settings = get_settings(file_map)
-    run_name = settings['run_details']['run_name']
+        # see if creating a fraction percentage from the provided value will force between 0 and 1
+        if 0 <= (clust_threshold/100) <= 1:
+            clust_threshold = clust_threshold / 100
 
-    min_threshold = settings['otu_clustering']['min_threshold']
+        # if it can't be automatically scaled to the correct float range, then return an error and exit
+        else:
+            err_msg = (f'ERROR. The provided clustering threshold of {clust_threshold} must be between 0 and 1, and '
+                       f'could not automatically be scaled to a float. Please adjust this setting in the '
+                       f'configuration to a value between 0 and 1, then proceed (e.g., a 97% clustering threshold '
+                       f'should be entered as 0.97, not 97.\n')
+            exit_process(message=err_msg)
 
-    clust_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['otus-clustered'])
+    # create an output name for the otu fasta file, in same location as the query fasta file
+    otus_out = query_fasta.parent / f'{run_name}_otus.fasta'
+    otu_tab_out = query_fasta.parent / f'{run_name}_otu-tab.txt'
 
-    # rename headers for each file to retain source of sample
-    # rename_read_headers()
+    # determine whether to keep the read abundance part of the header in the OTU .fasta output
+    if keep_abund:
+        abund_cmd = '--sizeout'
+    else:
+        abund_cmd = ''
 
-    # combine all reads into one fasta file
-    combined_reads = combine_all_reads(input_files, file_map)
+    # cluster the reads in the query fasta, which contain all denoised reads in this bioinformatics run, across all
+    #   samples
+    vsearch_clust_cmd = ['vsearch', '--cluster_size', query_fasta, '--centroids', otus_out,
+                         '--otutabout', otu_tab_out,'--id', clust_threshold, '', otu_label, abund_cmd]
 
-    clust_out = add_prefix(file_path=combined_reads, prefix=CLUSTER_PREFIX,
-                           dest_dir=clust_parent, action=None)
-    # cluster
-    vsearch_clust_cmd = ['vsearch', '--cluster_fast', combined_reads, '--clusters',
-                         clust_out, '--id', str(min_threshold)]
+    run_subprocess(vsearch_clust_cmd, dest_dir=query_fasta.parent, run_name=run_name,
+                   program='uclust', separate_sample_output=True, auto_respond=settings['automate']['auto_respond'])
 
-    run_subprocess(vsearch_clust_cmd, dest_dir=clust_parent, run_name=run_name,
-                   auto_respond=settings['automate']['auto_respond'])
+    return query_fasta.parent
 
-    return None
+
+# def cluster_reads(input_files, file_map):
+#
+#     settings = get_settings(file_map)
+#     run_name = settings['run_details']['run_name']
+#
+#     min_threshold = settings['otu_clustering']['min_threshold']
+#
+#     clust_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['otus-clustered'])
+#
+#     # rename headers for each file to retain source of sample
+#     # rename_read_headers()
+#
+#     # combine all reads into one fasta file
+#     combined_reads = combine_all_reads(input_files, file_map)
+#
+#     clust_out = add_prefix(file_path=combined_reads, prefix=CLUSTER_PREFIX,
+#                            dest_dir=clust_parent, action=None)
+#     # cluster
+#     vsearch_clust_cmd = ['vsearch', '--cluster_fast', combined_reads, '--clusters',
+#                          clust_out, '--id', str(min_threshold)]
+#
+#     run_subprocess(vsearch_clust_cmd, dest_dir=clust_parent, run_name=run_name,
+#                    auto_respond=settings['automate']['auto_respond'])
+#
+#     return None
 
 def choose_representative(input_files, file_map):
     '''
@@ -1586,34 +2044,56 @@ def choose_representative(input_files, file_map):
 #     run_subprocess(blast_cmd, dest_dir = output_db)
 #
 #     return output_db
-#
-# def assign_taxonomy(config_dict, file_map, taxa_list=None):
-#     '''
-#     Assign taxonomy to sequences.
-#
-#     :param config_dict:
-#     :param file_map:
-#     :return:
-#     '''
-#     tax_output = file_map['pipeline-output']['taxonomy']
-#
-#     run_name = config_dict['run_details']['run_name']
-#
-#     if config_dict['taxonomy']['algorithm'] == 'blastn':
-#         ref_db = create_blast_db(config_dict, file_map, taxa_list=None)
-#
-#         blast_out = (tax_output / f'{run_name}').with_suffix('.txt')
-#         blast_cmd = ['blastn', '-query', ref_db, '-out', blast_out]
-#
-#         run_subprocess(blast_cmd, dest_dir = tax_output)
-#
-#     elif config_dict['taxonomy']['algorithm'] == 'rdp':
-#         print(f'Not sure how to set up RDP yet...')
-#         rdp_cmd = []
-#
-#         run_subprocess(rbp_cmd, dest_dir = tax_output)
-#
-#     else:
-#         print(f'I don\'t yet have an option for that algorithm.')
-#
-#     return None
+
+def assign_taxonomy(otu_fasta, query_fasta, file_map, method=None):
+
+    # import settings from the configuration file
+    settings = get_settings(file_map)
+    run_name = settings['run_details']['run_name']
+
+    # define list of available methods
+    available_methods = ['amptk', 'rdp', 'blastn']
+
+    # if a method to assign taxonomy isn't provided to the function, then look in the configuration file
+    if method is None:
+        method = settings['taxonomy']['method']
+
+    # based on the specified method, compile the command for the CLI
+    if method == 'blastn':
+        pass
+        # ref_db = create_blast_db(config_dict, file_map, taxa_list=None)
+        #
+        # blast_out = (tax_output / f'{run_name}').with_suffix('.txt')
+        # blast_cmd = ['blastn', '-query', ref_db, '-out', blast_out]
+        #
+        # run_subprocess(blast_cmd, dest_dir = tax_output)
+
+    elif method == 'rdp':
+        pass
+
+
+    ## AMPTK
+
+    elif method == 'amptk':
+
+        # import the amptk databases based on type of sequences to assign taxonomy to
+        # hm easier in theory; could be a mix, filename wouldn't indicate, only read headers would
+        amptk_db_install_cmd = ['amptk', 'install', '-i', 'ITS']
+        run_subprocess(amptk_db_install_cmd, dest_dir=otu_fasta.parent, run_name=run_name, program='amptk-db',
+                       separate_sample_output=True, auto_respond=False)
+
+        amptk_cmd = ['amptk', 'taxonomy', '-i', otu_fasta, '-f', SOMETHING, '-m',
+                     SOMETHING, '-d', 'ITS1']
+
+    else:
+        error_msg = (f'ERROR. The provided method of assigning taxonomy, {method}, is not currently '
+                     f'recognized among the list of available methods. Please choose one of the following '
+                     f'accepted methods:\n')
+        print_indented_list(available_methods)
+        exit_process(error_msg)
+
+    error_msg = (f'ERROR. The provided method of assigning taxonomy, {method}, is not currently '
+                 f'available for use in the pipeline.\n')
+    exit_process(error_msg)
+
+    return None
