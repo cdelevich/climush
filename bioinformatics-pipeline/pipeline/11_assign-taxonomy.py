@@ -13,23 +13,20 @@ settings = get_settings(fpm)
 #####################
 
 # check that there are Illumina reads to dereplicate
-last_output = [dir for dir in fpm['pipeline-output']['otus-clustered'].glob('*') if
-               re.search(f'^{CLUSTER_PREFIX}', dir.stem, re.I)][0]
-is_input, illumina_files = check_for_input(last_output)
+is_input, illumina_files = check_for_input(file_dir=args['input'], config_dict=settings, seq_platform=platform)
 
 if is_input:
 
     create_blast_db(config_dict=settings, file_map=fpm, taxa_list=None)
 else:
     pass
+
 #####################
 # PACBIO ############
 #####################
 
 # check that there are PacBio reads to dereplicate
-# last_output = [dir for dir in fpm['pipeline-output']['otus-clustered'].glob('*') if
-#                re.search(f'^{DEREP_PREFIX}02', dir.stem, re.I)][0]
-# is_input, illumina_files = check_for_input(last_output)
+# is_input, pacbio_files = check_for_input(file_dir=args['input'], config_dict=settings, seq_platform=platform)
 #
 # if is_input:
 #     create_blast_db(config_dict, file_map, taxa_list=None)
