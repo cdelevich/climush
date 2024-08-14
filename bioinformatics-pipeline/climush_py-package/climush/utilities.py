@@ -3,6 +3,9 @@ from pathlib import Path
 from datetime import datetime
 from functools import wraps
 import pandas as pd
+from Bio import SeqIO
+from Bio.SeqRecord import SeqRecord
+from Bio.Seq import Seq
 from climush.constants import *
 
 # tried to order by category but some required specific order due to dependencies on other functions
@@ -101,8 +104,9 @@ def check_dir_exists(dir_path, auto_respond = False):
               f'Would you like to provide a different directory?'  # do not include last line break, prompt_ will add
 
         if auto_respond:
+            print(msg)
             print(f'\tauto response: quit\n')
-            sys.exit()
+            sys.exit(1)
         else:
             prompt_yes_no_quit(message=msg)  # will exit here if no/quit is selected, continue to next line if 'yes'
 
@@ -111,7 +115,7 @@ def check_dir_exists(dir_path, auto_respond = False):
             new_path = input('>  ')
 
             # recursively run function to ensure that this new path exists
-            return check_dir_exists(dir_path)
+            return check_dir_exists(new_path)
 
 # log progress of bioinformatics pipeline
 def log_progress(file_map, run_name):
@@ -256,12 +260,39 @@ def prompt_generic(message, auto_respond=False, **kwargs):
 
 # print indented list
 def print_indented_list(print_list):
-    print_list[0] = '\t' + print_list[0] # add leading tab for first item printed from list, otherwise adds after line break
+
+    # CONFIRM INPUT IS A LIST
+
+    # if input is already a list, continue to formatting
+    if isinstance(print_list, list):
+        pass
+
+    # if not a list, but can be converted to a list, then converty type to list
+    elif isinstance(print_list, set) or isinstance(print_list, tuple) or isinstance(print_list, np.ndarray):
+        print_list = list(print_list)
+    elif isinstance(print_list, pd.Series):
+        print_list = print_list.to_list()
+
+    # if not a list, and cannot obviously be converted to a list, then print unformatted
+    else:
+        return print(print_list)
+
+    # add leading tab for first item to be printed in the list; does not lead with a line break
+    print_list[0] = '\t' + print_list[0]
+
+    # FORMAT INPUT LIST FOR PRINTING
+
+    # add a line break and tab to the rest of the items in the
+    # list (join will add after each existing list element)
     formatted_list = '\n\t'.join(print_list)
+
+    # PRINT LIST FORMATTED WITH INDENTS AND LINE BREAKS
+
+    # do not return an object, just print the formatted list (\n\t will be last thing to print)
     return print(formatted_list)
 
 # run shell command and save stdout and stderr to file
-def run_subprocess(cli_command_list, dest_dir, run_name, separate_sample_output=True, auto_respond=False):
+def run_subprocess(cli_command_list, dest_dir, run_name, program=None, separate_sample_output=True, auto_respond=False):
     '''
     Run a subprocess, saving the output and error to a log file.
 
@@ -293,10 +324,11 @@ def run_subprocess(cli_command_list, dest_dir, run_name, separate_sample_output=
 
     # run_cmd = subprocess.run(cli_command_list, stdin=PIPE, stdout=PIPE, stderr=PIPE)
     # out, err = run_cmd.communicate()
-    program = cli_command_list[0]
+    if program is None:
+        program = cli_command_list[0]
 
-    if re.search(r'.\..', program):
-        program = program.split('.')[0]
+        if re.search(r'.\..', program):
+            program = program.split('.')[0]
 
     # add the run name to the output file name, with the program name
     output_filename = '_'.join([program, run_name])
@@ -347,6 +379,72 @@ def run_subprocess(cli_command_list, dest_dir, run_name, separate_sample_output=
                     return None
 
     return None
+
+# add a series of commands to a subprocess command list
+def append_subprocess(cli_command_list, options_to_add, position, return_copy=False):
+
+    ## CONFIRM IF LIST
+
+    # check type of input received for options_to_add; if valid, create list
+    if isinstance(options_to_add, str):
+        options_to_add = list(options_to_add)
+    elif isinstance(options_to_add, list):
+        pass
+    else:
+        print(f'ERROR. The input for command line options to add using {append_subprocess.__name__} must be either '
+              f'a list or a string. The input provided is {type(options_to_add)}.\n')
+        return sys.exit(1)
+
+    ## MAKE POSITION POSITIVE INDEX
+
+    # if a negative index is provided, convert to positive; makes everything below easier
+    if position < 0:
+        position = len(cli_command_list) + position
+
+    ## CONFIRM POSITION IN BOUNDS
+
+    # confirm that the list index provided in position is valid
+    if isinstance(position, int):  # must be integer
+
+        # get length of input list to know bounds; save as var, used several times below
+        len_input_list = len(cli_command_list)
+
+        # confirm that the index position is in bounds
+        if position <= len_input_list + 1:
+            pass
+        # otherwise not valid
+        else:
+            print(f'ERROR. The provided index to add new command line options to, {position}, is outside of the '
+                  f'bounds of the original command line list, which has a length of {len_input_list}.\n')
+            return sys.exit(1)
+    else:
+        print(f'ERROR. The input value for the position to add new command line options in '
+              f'{append_subprocess.__name__} must be an integer, but a {type(position)} was provided.\n')
+        return sys.exit(1)
+
+    # if you don't want to overwrite the input list, then create a copy before continuing
+    if return_copy:
+        cli_command_list = cli_command_list.copy()
+    else:
+        pass
+
+    ## INSERT NEW COMMANDS AT RESPECTIVE CONSECUTIVE POSITIONS
+
+    # go through each value in the options_to_add list
+    for i in range(len(options_to_add)):
+        position += i
+        cli_command_list.insert(position, options_to_add[i])
+
+    # RETURN DEPENDING ON OPTION
+
+    if return_copy:
+        return cli_command_list
+    else:
+        return None
+
+# t = [1,2,3,4,5,6]
+# t_in = ['A', 'B']
+# append_subprocess(t, t_in, position=-8)
 
 def func_timer(func):
     @wraps(func)
@@ -868,12 +966,18 @@ def count_files(file_path, search_for='*'):
 
     return len(list(file_path.glob(search_for)))
 
-def check_for_input(file_dir, seq_platform=None, file_ext=SEQ_FILE_GLOB):
+def check_for_input(file_dir, config_dict, path_must_exist=True, seq_platform=None, file_ext=SEQ_FILE_GLOB):
     '''
     Checks if there are input files for the process.
 
     :param file_dir: the directory path to check for files and to check
     whether the path exists
+    :param config_dict: dictionary of imported settings from the pipeline
+    configuration .toml file; required for inputing the auto respond param in
+    check_dir_exists
+    :param path_must_exist: True/False; whether or not the input directory must
+    exist; default True means that the input path must exist, and if it does not
+    exist, an exit code of 1 will result
     :param seq_platform: the type of sequencing files to look for ['illumina',
     'sanger', 'pacbio']; defaults to None, meaning it will return True if any
     non-empty directory or file is located
@@ -883,40 +987,58 @@ def check_for_input(file_dir, seq_platform=None, file_ext=SEQ_FILE_GLOB):
     path that contains sequencing files; [2] a list of the files matching the
     file extension in the directory, if present
     '''
-    assert is_pathclass(file_dir)  # must be Path class or .is_dir() won't work, and it will say dir doesn't exist
 
-    # I decided to leave this out so you could put any regex in (i.e., multiplexed pacbio files will start with \d{4}
-    # accepted_seq_input = [None, 'illumina', 'sanger', 'pacbio']
-    # if not seq_platform in accepted_seq_input:
-    #     print(f'The provided sequencing platform, {seq_platform}, is not one of the accepted '
-    #           f'values: {accepted_seq_input}. Please retry with one input value from this list '
-    #           f'as a string, or multiple values as a list of strings.\n')
-    #     return sys.exit()
+    # if the path must exist to continue, then...
+    if path_must_exist:
 
-    if seq_platform is None:
-        seq_re = r'.+?'  # will return all files in directory
-    elif isinstance(seq_platform, list):
-        seq_re = '|'.join(seq_platform)  # returns only those in provided list
-    else:
-        seq_re = seq_platform  # returns only those of the provided platform
+        # first confirm that the path exists, which will return an absolute Path object,
+        #   even if input is str and relative
+        input_dir = check_dir_exists(file_dir, auto_respond=config_dict['automate']['auto_respond'])
 
-    if file_dir.is_dir():  # check that input is a directory
-        if count_files(file_path=file_dir, search_for=file_ext) > 0:  # confirm it is not empty
-            file_list = [f for f in file_dir.glob(file_ext) if re.search(seq_re, f.name, re.I)]  # check for specific files
-            if len(file_list) > 0:
-                return True, file_list  # return true if files matching criteria are found
+        # once the path is confirmed to exist, confirm also that it isn't empty
+        if count_files(file_path=input_dir, search_for=file_ext) > 0:  # confirm it is not empty
+
+            # then create a regex to match the sequencing platform files that you want returned in the file list
+            if seq_platform is None:
+                seq_re = r'.+?'  # will return all files in directory
+            elif isinstance(seq_platform, list):
+                seq_re = '|'.join(seq_platform)  # returns only those in provided in seq platform list
             else:
-                # print(f'The directory {file_dir} contains files, but none that match the platform-specific search '
-                #       f'criteria: {seq_platform}.')
-                return False, file_list  # return false if not
+                seq_re = seq_platform  # returns only those of a single platform
+
+            # use the platform-specific regex to create a list of relevant file paths
+            file_list = [f for f in input_dir.glob(file_ext) if re.search(seq_re, f.name, re.I)]
+
+            # if at least 1 file was recovered matching the sequence platform(s)...
+            if len(file_list) > 0:
+
+                # return True for input files found, and the list of files matching the sequence platform(s)
+                return True, file_list
+
+            # if there are no files matching the wanted sequencing platform(s)...
+            else:
+
+                # return False for input files found, and the (empty) list of files
+                return False, file_list
+
+        # if the input directory is empty...
         else:
-            file_list = []  # if input is a directory, but it is empty...
-            # print(f'The directory {file_dir} exists, but is empty.\n')
-            return False, file_list  # return false and empty list
+
+            # continue to the False / empty list return
+            pass
+
+    # if the path does not need to exist to continue...
     else:
-        file_list = []  # if input is not a directory
-        # print(f'The directory {file_dir} does not exist.\n')
-        return False, file_list  # return false and empty list
+
+        # print a warning and continue to the False / empty list return
+        print(f'The input directory\n'
+              f'   {file_dir}\n'
+              f'does not exist. Continuing...\n')
+
+    # if directory non-existent or empty, return False (no input files) and an empty file list
+    file_list = []
+    return False, file_list
+
 
 # get name of previous script
 
@@ -1130,56 +1252,6 @@ def flip_prefix(prefix_const):
     else:  # if it does not start with no, add no
         return 'no-' + prefix_const
 
-def rename_read_header(fasta_file, header_delim=';'):
-
-    # fasta_file = next(post_itsx.glob('*.fast*'))
-    parent_dir = fasta_file.parent.name
-
-    # get the sequence platform, to use when searching for the sample_id from the file name
-    seq_platform = get_seq_platform(fasta_file)
-
-    if re.search(r'itsx', parent_dir, re.I):  # if they are post-itsx reads...
-
-        sample_id = get_sample_id(file_path=fasta_file, platform=seq_platform)
-
-        updated_records = []
-        no_update_count = 0
-        for record in SeqIO.parse(fasta_file, 'fasta'):
-            header = record.description
-            try:
-                read_id = re.search(READ_ID_OG_RE, header).group(0)
-                region = re.search(READ_REGION_OG_RE, header).group(0)
-                read_count = re.search(READ_COUNT_OG_RE, header).group(0)
-                read_length = re.search(READ_LEN_OG_RE, header).group(0)
-
-                updated_header = header_delim.join([f'{sample_id}_{read_id}', region, f'region_len={read_length}bp',
-                                                    f'full-len_copies={read_count}'])
-
-                record.id = updated_header
-                record.name = f'{sample_id}_{read_id}'
-                record.description = ''
-                updated_records.append(record)
-            except:
-                no_update_count += 1
-                updated_records.append(record)
-
-
-        SeqIO.write(updated_records, fasta_file, 'fasta')
-
-        if no_update_count == 0:
-            return print(f'SUCCESS. All reads ({len(updated_records)}) were renamed '
-                         f'in {fasta_file.name}.\n')
-        elif no_update_count == len(updated_records):
-            return print(f'FAILURE. None of the reads were renamed in {fasta_file.name}. This can '
-                         f'happen if the fasta file has already been renamed by this function, '
-                         f'so open the fasta file to check.\n')
-        else:  # if some reads were renamed, but not all
-            return print(f'FAILURE. {no_update_count} sequence headers could not be renamed due to '
-                         f'a missing data field for reads in {fasta_file.name}.\n')
-    else:
-        return print(f'UNDER CONSTRUCTION. I haven\'t yet updated this function to work with any other '
-                     f'fasta files than those produced after ITSx.\n')
-
 def escape_path_special(file_path):
     if is_pathclass(file_path):
         file_path = str(file_path)
@@ -1192,7 +1264,7 @@ def escape_path_special(file_path):
 
     return file_path
 
-def get_sample_id(file_path, platform=None):
+def get_sample_id(file_path, log_error=False, platform=None):
     '''
     Return the sample ID as a string from a file path.
 
@@ -1215,15 +1287,45 @@ def get_sample_id(file_path, platform=None):
     else:  # if a platform was provided, then use this in the regex
         platform_re = f'{platform.lower()}' + r'_.+?(?=\.)'
 
+    # try to locate the sample ID in the file path
     try:
+
+        # if the sample ID is successfully retrieved, return the sample ID
         sample_id = re.search(platform_re, file_path.name, re.I).group(0)
         return sample_id
+
+    # if there is an error finding the sample ID in the file path...
     except AttributeError:
-        msg = (f'ERROR. The provided file name, {file_path.name}, does not follow the expected '
-               f'naming convention, so the sample ID cannot be inferred from the file name. '
-               f'This will affect the logging of summary data to output files.\n')
-        exit_process(message=msg)
-        return None
+
+        # if logging the error file and not exiting script...
+        if log_error:
+
+            # use the parent directory's name to create the log file name
+            log_file = (file_path.parent / f'{file_path.parent.name}_sample-id-errors').with_suffix('.log')
+
+            # if the log file has already been created, then append the new error file name to the log file
+            if log_file.is_file():
+                with open(log_file, 'at') as log_out:
+                    log_out.write(f'{file_path.name}\n')
+
+            # if the file doesn't exist yet, write this file name out, along with a description header
+            else:
+                with open(log_file, 'wt') as log_out:
+                    log_out.write(file_path.name)
+
+            return None
+
+        # if NOT logging the error but instead exiting the script...
+        else:
+
+            # assemble error message
+            msg = (f'ERROR. The provided file name, {file_path.name}, does not follow the expected '
+                   f'naming convention, so the sample ID cannot be inferred from the file name. '
+                   f'This will affect the logging of summary data to output files.\n')
+
+            # print error and exit
+            exit_process(message=msg)
+            return None  # won't print if exit_process used as return?
 
 def get_read_orient(file_path):
     '''
@@ -1243,6 +1345,281 @@ def get_read_orient(file_path):
                f'This will affect the logging of summary data to output files.\n')
         exit_process(message=msg)
         return None
+
+def copy_original_files(directory, copy_directory='original_files', compress=True):
+    '''
+    Creates a copy of original sequence files to zipped subdirectory.
+
+    Copies all sequence files in the provided directory
+    :param directory: the path to the directory containing the
+    sequence files to be renamed.
+    :param copy_directory: name or path of the subdirectory to
+    copy the original sequence files to; default is a directory
+    called 'original_files' within the provided directory
+    :param compress: whether to compress the folder containing the
+    copies of the original sequence files; default is True and will
+    zip the copy directory.
+    :return: print confirmation that all files were successfully
+    copied to the copy directory
+    '''
+
+    # convert input to a Path class object
+    if is_pathclass(directory, exit_if_false=False):
+        dir_path = directory
+    else:
+        dir_path = Path(directory)
+
+    # create the output directory (copy) in same directory as the input directory
+    if is_pathclass(copy_directory, exit_if_false=False):
+        copy_path = copy_directory
+    else:
+        copy_path = dir_path / copy_directory
+
+    # create the copy directory
+
+    # if the directory already exists, prompt user for input
+    if copy_path.is_dir():
+
+        # prompt for user input
+        msg = f'A directory with the name {copy_path.name} already exists in: \n'\
+              f'\t{dir_path}\n'\
+              f'Do you want to delete this directory and continue? If you do not want to delete this directory, '\
+              f'then the program will exit.'
+
+        # if response is yes, will continue; if no/quit, will exit here
+        prompt_yes_no_quit(message=msg)
+
+        # remove the pre-existing directory that matches the copy directory name
+        shutil.rmtree(copy_path)
+
+    # make the new copy path directory
+    mkdir_exist_ok(new_dir = copy_path)
+
+    # create a list of files to copy, excluding any non-sequencing files
+    files_to_copy = [ file for file in dir_path.glob(GZIP_GLOB) ]
+
+    # copy each sequence file to the new copy directory
+    for file in files_to_copy:
+        shutil.copy2(file, copy_path)  # to preserve extra metadata, use copy2
+
+    # before archiving copy, get count of sequence files from source and destination
+    num_copied_files = len(list(copy_path.glob('*')))
+    num_original_files = len(files_to_copy)
+
+    # confirm all files were copied to the copy directory
+    if num_copied_files == num_original_files:
+
+        # if all files copied, then compress output
+        if compress:
+            # zip the copy directory
+            shutil.make_archive(copy_path, 'zip', copy_path)
+
+            # remove the unzipped copy directory
+            shutil.rmtree(copy_path)
+
+        return print(f'\nA copy of {num_copied_files} original sequence files was successfully made in:\n'
+                     f'\t{copy_path}')
+
+    else:
+        num_missing = abs(num_copied_files - num_original_files)
+        return print(f'ERROR: {num_missing}/{num_original_files} sequence files from the source directory:\n'
+                     f'\t{dir_path}\n'
+                     f'were not copied to the destination directory:\n'
+                     f'\t{copy_path}')
+
+
+def rename_read_header(input_dir, run_name, file_format='.fasta', unique_headers=False, no_copy=True):
+
+    ## CHECK INPUT FILES ARE FASTA FORMAT FILES
+
+    # this function has only be tested with .fasta formatted files, so confirm the file extension of the input
+
+    # get a list of all fasta files in the input directory
+    fasta_files = list(input_dir.glob(f'*{file_format}*'))
+
+    # if there are no fasta files, immediately print error and exit
+    if len(fasta_files) == 0:
+        err_msg = (f'ERROR. No files in the input directory:\n'
+                   f'   {input_dir}\n'
+                   f'match the {file_format} file format. This function, {rename_read_header.__name__}, only works '
+                   f'on seuqences files with the {file_format} format.')
+        exit_process(message=err_msg)
+
+    # if there are at least some fasta files in the input file path...
+    else:
+
+        # check if *all* input files are fasta files
+        if len(fasta_files) == len(list(input_dir.glob(SEQ_FILE_GLOB))):  # compare strictly fasta files to all seq files
+            pass
+
+        # if not all of the input files are fasta files, print a warning that only the reads in the fasta files in
+        #   the input path will be renamed
+        else:
+
+            # determine which files are sequencing files (e.g., fastq, fastx, fasta), but NOT fasta files
+            non_fasta_files = list(set(fasta_files).difference(set(input_dir.glob(SEQ_FILE_GLOB))))
+
+            # print warning, and the files that are excluded, but continue, renaming only fasta files
+            print(f'WARNING. {len(non_fasta_files)} files in the input path are sequencing files, but not in '
+                  f'the {file_format} that this function, {rename_read_header.__name__}, requires as input. '
+                  f'These files, listed below, will not be renamed:')
+            print_indented_list(non_fasta_files)
+
+    ## CREATE COPY OF ORIGINAL INPUT FILES
+
+    # if default setting is used, then no copy of the original files is created
+    if no_copy:
+        pass
+
+    # if no_copy is set to True, then a copy of all original input files is created, and compressed to .zip format
+    else:
+        # use the copy_original_files custom function to copy all files and compress them
+        copy_original_files(directory=input_dir,
+                            copy_directory=(input_dir.parent / f'{input_dir.name}_original-headers'))
+
+
+    ## COLLECT SAMPLE IDS AND ORIGINAL READ HEADERS
+
+    # create a conversion dictionary, in case there's an error in renaming the headers it can be reversed
+    #   key = sample ID, value = key/value pair of old read header, new read header
+    conversion_dict = {}
+
+    # go through each fasta file in the input directory
+    for file in fasta_files:
+
+        # get the sample ID from the input file name; log file name if function doesn't work
+        sample_id = get_sample_id(file, log_error=True, platform='illumina')
+
+        # if the sample ID cannot be found in the file name, continue to next file (file name will be logged)
+        if sample_id is None:
+            continue
+
+        # if the sample ID was found in the file name, add the sample ID to convert dict then continue to records
+        else:
+
+            # add to dictionary with empty dict as value, to add key/value pairs of old and new read headers
+            conversion_dict.update({sample_id: {}})
+
+        # create an empty list to add updated sequence records to for this sample
+        new_sample_records = []
+
+        # go through each read in this fasta file...
+        for record in SeqIO.parse(file, file_format.replace('.','')):
+
+            # get the original read header to add to the conversion dict
+            old_read_header = record.description
+
+            if unique_headers:
+
+                # get the last part of the Illumina sequencer read ID from the old read header, to use in new read ID
+                unique_read_num = re.search(ILLUMINA_SEQ_OG_RE, old_read_header, re.I).group(0)
+
+                # add this unique read number to the end of the sample ID to use as new read header
+                unique_read_id = sample_id + '_' + unique_read_num
+
+                # replace the old read ID for the new read ID in the read header
+                new_read_header = re.sub(ILLUMINA_READ_ID_OG, unique_read_id, record.description)
+
+            else:
+
+                # just use the sample ID as the read header, with the read's size included
+                new_read_header = re.sub(ILLUMINA_READ_ID_OG, sample_id, record.description)
+
+
+            # add the old and new read headers to the conversion dictionary
+            conversion_dict[sample_id].update({old_read_header: new_read_header})
+
+            # I don't think you can overwrite info in a record, I think you have to create a new one
+            updated_record = SeqRecord(record.seq,
+                                       name='',
+                                       id=new_read_header,
+                                       description='')
+
+            # add this updated record to a list of updated records for this sample
+            new_sample_records.append(updated_record)
+
+
+
+        ## CHECK NEW READ HEADERS ARE UNIQUE
+
+        if unique_headers:
+
+            # compare whether the length of all read IDs and the unique read IDs are same (i.e., all are unique)
+            # before writing the new sequencing file with the updated read headers, check that the new read IDs are
+            #  unique within the sample
+
+            # get a list of all new read IDs
+            read_headers_all = list(conversion_dict[sample_id].values())
+
+            # create a set from this list of new read IDs, which will contain only unique read IDs
+            read_headers_unique = set(read_headers_all)
+
+            # if all new read headers are unique, continue without doing anything
+            if len(read_headers_all) == len(read_headers_unique):
+                pass  # continue to writing out file with new read headers if they are all unique
+
+            # if the new read headers are not unique...
+            else:
+
+                # compose an error message
+                err_msg = f'ERROR. The last digits of the original read ID provided by the Illumina sequencer are not '\
+                          f'unique. If it is important that they are unique, consider using a larger portion of the '\
+                          f'original Illumina sequencer read ID.\n'
+
+                # write out the sample name, and the original read headers that caused duplication of new read headers
+                duplicates_outpath = input_dir.parent / 'new-read-ids_duplicates.txt'
+
+                # for each unique read header...
+                for read_id in read_headers_unique:
+
+                    # if it occurs more than once in the total list of read headers (i.e., is a duplicate, triplicate, etc.)
+                    if read_headers_all.count(read_id) > 1:
+
+                        # name this read ID as the non-unique new read ID
+                        nonunique_new_header = read_id  # new read ID that is duplicated across reads
+                        nonunique_count = read_headers_all.count(read_id)  # number of times new read ID is duplicated
+
+                        # create a list of the original read IDs that match this duplicated read ID
+                        nonunique_original_headers = [old_header for old_header, new_header in conversion_dict[sample_id].items() if new_header == nonunique_new_header]
+
+                        # if the duplicates file already exists, define mode as append text, to add to this file
+                        if duplicates_outpath.is_file():
+                            mode = 'at'
+
+                        # if the duplicates file does not yet exist, define mode as write text to create this file
+                        else:
+                            mode = 'wt'
+
+                        with open(duplicates_outpath, mode) as fout:
+                            fout.write(f'{nonunique_new_header}------------------\n')
+                            fout.write(f'  non-unique header count = {nonunique_count}\n')
+                            for id in nonunique_original_headers:
+                                fout.write(f'  {id}\n')
+
+                # write out the conversion_dict that has been created so far, to a .json file w/ tag _incomplete
+                with open(input_dir.parent / f'{run_name}_read-header-conversion_incomplete.json', 'wt') as json_out:
+                    json.dump(conversion_dict, json_out)
+
+                # exit script, printing composed error message
+                exit_process(message=err_msg)
+
+        # if it isn't required that all read headers within a sample are unique, continue to writing new records w/o action
+        else:
+            pass
+
+        # after going through each read in this sample, write out the new records, with updated read IDs, to a new
+        #    sequence file for this sample, using the original sample file name so that it overwrites the old one
+        SeqIO.write(new_sample_records, file, format=file_format.replace('.',''))
+
+    # write out the conversion dictionary to a .json file so that there is a record of the conversion
+    with open(input_dir.parent / f'{run_name}_read-header-conversion.json', 'wt') as json_out:
+        json.dump(conversion_dict, json_out)
+
+    return None
+
+
+
+
 
 #######################
 # CONFIGURATION #######
@@ -1544,5 +1921,3 @@ def sort_input_files(filepath_dict, to_sort='main'):
 #             mapping_file_names.append(prompt_print_options(match))
 #
 #     return mapping_file_names
-
-
