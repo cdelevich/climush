@@ -14,11 +14,11 @@ PIPE_DEMUX = next(PIPELINE.glob('*demu*'))
 ROOT = PIPELINE.parent.resolve()
 
 # path to helper scripts
-HELPERS = ROOT.parent.resolve() / 'helper-scripts'
+# HELPERS = ROOT.parent.resolve() / 'helper-scripts'
 
 # THIS ONE WAS RENAMED FROM PIPE_RENAME
-HELPERS_RENAME = next(HELPERS.glob('*nam*'))  # dir containing renaming scripts/files
-HELPERS_SORT = next(HELPERS.glob('*sort*'))
+# HELPERS_RENAME = next(HELPERS.glob('*nam*'))  # dir containing renaming scripts/files
+# HELPERS_SORT = next(HELPERS.glob('*sort*'))
 
 # CONFIGURATION
 CONFIG = ROOT / 'config'
@@ -51,6 +51,7 @@ DEREP01 = PIPELINE_OUT / 'derep-full-length'
 QFILT = PIPELINE_OUT / 'quality-filtered'
 MERGE = PIPELINE_OUT / 'merged'
 ITSX = PIPELINE_OUT / 'separated-subregions'
+DENOISE = PIPELINE_OUT / 'denoised'
 CHIMERA = PIPELINE_OUT / 'chimera-checked'
 DEREP02 = PIPELINE_OUT / 'derep-subregions'
 CLUSTER = PIPELINE_OUT / 'otus-clustered'
@@ -83,6 +84,7 @@ filepath_map = {'root': ROOT,
                                     'derep-full-length': DEREP01,
                                     'merged': MERGE,
                                     'separated-subregions': ITSX,
+                                    'denoised': DENOISE,
                                     'chimera-checked': CHIMERA,
                                     'derep-subregions': DEREP02,
                                     'otus-clustered': CLUSTER,
