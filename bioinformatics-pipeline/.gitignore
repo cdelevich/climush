@@ -1,7 +1,5 @@
 testing
 
-./*.sh
-
 climush-seqs_empty-rep
 
 climush_py-package/climush.egg-info
@@ -13,14 +11,10 @@ itsx_psf2312-2407
 
 pacbio_7806
 
-testing/xero_concat.py
-
 pipeline-output
 
 seqs-for-db
 
 sequences*
-
-subsample_pacbio_raw.py
 
 trim_illumina_soil_2023-06_D01_UC_01_R1.fastq
