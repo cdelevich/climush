@@ -1,5 +1,5 @@
-ts_*
-*test*
+testing
+
 ./*.sh
 
 climush-seqs_empty-rep
@@ -13,7 +13,7 @@ itsx_psf2312-2407
 
 pacbio_7806
 
-pipeline/xero_concat.py
+testing/xero_concat.py
 
 pipeline-output
 
