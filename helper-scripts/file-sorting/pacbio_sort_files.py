@@ -19,19 +19,24 @@ parser.add_argument('--overwrite', action='store_true',
 
 # prevent a parent directory from being created, if non-existent parent included in a new directory
 parser.add_argument('--no-parent', action='store_false',
-                    help='Turns off the -p flag, which has the same meaning as in mkdir from the command line. '
+                    help='Turn off the -p flag, which has the same meaning as in mkdir from the command line. '
                          'If a new directory path to be created has a parent that does not yet exist, this flag '
                          'prevents the parent (and therefore child) from being created.')
 
 # for testing, will create a copy of everything in the input directory, but with empty files
 # it will then perform the file sorting on this empty version to ensure everything works without risk
 parser.add_argument('--dry-run', action='store_true',
-                    help='Performs a dry run of the file sorting, where an exact copy of the original directory '
+                    help='Perform a dry run of the file sorting, where an exact copy of the original directory '
                          'tree')
+
+# for testing, will keep the empty directory created when --dry-run is used, which is normally removed after the
+# dry run successfully completed
+parser.add_argument('--keep-run', action='store_true',
+                    help='Keep the empty directories and files that were produced by --dry-run.')
 
 # if files have been sorted using this script, will restore the files/directories to their original structure
 parser.add_argument('--restore', action='store_true',
-                    help='Restores the files and directories to their original file structure before sorting.')
+                    help='Restore the files and directories to their original file structure before sorting.')
 
 args = parser.parse_args()
 
