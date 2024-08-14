@@ -1,9 +1,22 @@
-
+# SEQUENCE FILE SORTING
 NEEDS_ACTION_REGEX = r'needs_(?!demux)'
 
-# PACBIO_DIR = 'pacbio'
-# ILLUMINA_DIR = 'illumina'
-# SANGER_DIR = 'sanger'
+# PIPELINE FILE PREFIXES
+DEMUX_PREFIX = 'demux'
+NOPHIX_PREFIX = 'no-phix'
+NOAMBIG_PREFIX = 'no-ambig'
+TRIMMED_PREFIX = 'trim'
+DEREP_PREFIX = 'derep'
+MERGED_PREFIX = 'merged'
+QUALFILT_PREFIX = 'qualfilt'
+ITSX_PREFIX = 'itsx'
+DENOISE_PREFIX = 'denoise'
+NOCHIM_PREFIX = 'no-chim'
+CLUSTER_PREFIX = 'clust'
+REPREAD_PREFIX = 'rep-read'
+
+# PIPELINE FILE SUFFIXES
+LOG_SUFFIX = '.log'
 
 # PLATFORM LIST
 SEQ_PLATFORM_OPTS = ['pacbio', 'illumina', 'sanger']  # no longer used in get_seq_platform()
@@ -21,24 +34,32 @@ PIPELINE_CONFIG_MPID = 'pacbio-multiplex-ids'
 MOCK_COMM_RE = r'^mock'
 NEG_CTRL_RE = r'^ntc'
 UNDET_RE = r'^undet'
+PIPE_SCRIPT_NUM_RE = r'^\d{2,}'
 
-# MISCELL REGEX
+# SEQUENCE FILE READ ORIENTATION
+ORIENT_RE = r'(?<=_0[1-9]_)R[1,2](?=\.)'
+
+# USER INPUT REGEX
 AFFIRM_REGEX = r'^c|(continue)|^y'
 
 YES_RE = r'^yes$|^y$'
 NO_RE = r'^no$|^n$'
 QUIT_RE = r'^quit.*?|^exit.*?'  # avoids confusion about whether to use quit or quit() or exit or exit()
 
+# FILE EXTENSION GLOBS AND REGEX
 HIDDEN_FILE_REGEX = r'^\.'
 GZIP_REGEX = r'(\.fast.\.gz)$'
 GZIP_GLOB = '*.fastq.gz'
-ANY_PLATFORM_REGEX = r'^illumina|^pacbio|^sanger'
-PLATFORM_ANYWHERE_RE = r'illumina|pacbio|sanger'
 SEQ_FILE_GLOB = '*.fast*'
 SEQ_FILE_RE = r'\.fast.$'
 
+# SEQUENCING PLATFORM REGEX
+ANY_PLATFORM_REGEX = r'^illumina|^pacbio|^sanger'
+PLATFORM_ANYWHERE_RE = r'illumina|pacbio|sanger'
 
-ORIENT_RE = r'(?<=_0[1-9]_)R[1,2](?=\.)'
+# SAMPLE ID FROM FILE NAME
+# to use as default in get_sample_id() if platform not found
+SAMPLE_ID_RE = r'(?<=\w_)(pacbio|sanger|illumina).+?(?=\.)'
 
 # DETECT COLUMN NAMES IN BARCODE MAPPING TABLES #######
 # used in demultiplex() in bioinfo.py to detect columns
@@ -47,14 +68,9 @@ FWD_COL_RE = r'(fwd)|(forward)'  # find columns with forward barcodes
 REV_COL_RE = r'(rev)|(reverse)'  # find columns with reverse barcodes
 SAMPLE_COL_RE = r'^sample'  # find columns that contain the sample ID
 
-
-# to use as default in get_sample_id() if platform not found
-SAMPLE_ID_RE = r'(?<=\w_)(pacbio|sanger|illumina).+?(?=\.)'
-
-
 #######################################################################################################################
 # FOR FASTA HEADERS THAT **HAVE NOT** BEEN RENAMED BY RENAMED_READ_HEADER() FROM UTILITIES.PY #########################
-# these regex only apply if the read headers have not been renamedj
+# these regex only apply if the read headers have not been renamed
 # currently, these regex also only apply if the reads have been run through ITSx and have the ITSx headers
 
 # used to locate a simplified read ID from the long read ID output in PacBio read headers
@@ -71,6 +87,15 @@ READ_LEN_OG_RE = r'[0-9]{1,}(?=\sbp)'  # used in rename_read_header() in utiliti
 # get the read count of a read from the ITSx-formatted read header
 READ_COUNT_OG_RE = r'(?<=size=)[0-9]{1,}'  # used in rename_read_header() in utilities.py
 
+
+## ILLUMINA
+# only works for Illumina seqs, doesn't require that they are run through ITSx
+
+# gets the last digits of the read ID created by the Illumina sequencer
+ILLUMINA_SEQ_OG_RE = r'(?<=:)\d{3,}((?=;)|(?=$))'
+
+# get the full Illumina sequencer read ID
+ILLUMINA_READ_ID_OG = '^.+?((?=;)|(?=$))'
 
 #######################################################################################################################
 # FOR FASTA HEADERS THAT **HAVE** BEEN RENAMED BY RENAMED_READ_HEADER() FROM UTILITIES.PY #############################
@@ -93,18 +118,3 @@ READ_LEN_RENAMED_RE = r'(?<=\()[0-9]{1,}(?= bp\))'  # used in concat_regions() i
 READ_COUNT_RENAMED_RE = r'(?<=;size=)[0-9]{1,}(?=\|)'  # used in concat_regions() in bioinfo.py
 
 
-# PIPELINE FILE PREFIXES
-DEMUX_PREFIX = 'demux'
-NOPHIX_PREFIX = 'no-phix'
-NOAMBIG_PREFIX = 'no-ambig'
-TRIMMED_PREFIX = 'trim'
-DEREP_PREFIX = 'derep'
-MERGED_PREFIX = 'merged'
-QUALFILT_PREFIX = 'qualfilt'
-ITSX_PREFIX = 'itsx'
-NOCHIM_PREFIX = 'no-chim'
-CLUSTER_PREFIX = 'clust'
-REPREAD_PREFIX = 'rep-read'
-
-# PIPELINE FILE SUFFIXES
-LOG_SUFFIX = '.log'
