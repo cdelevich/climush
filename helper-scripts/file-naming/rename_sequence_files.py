@@ -344,7 +344,7 @@ if test_mode:
     prompt_yes_no_quit(message=msg)
 
     args = {'input': Path('/Users/carolyndelevich/main/github_repos/climush/helper-scripts/file-naming/illumina_soil-litter_2023-10_empty-files'),
-            'config': Path('/Users/carolyndelevich/main/github_repos/climush/helper-scripts/config/climush-bioinfo_file-rename.toml'),
+            'config': Path('/helper-scripts/config/illumina_soil-litter_2023-10_file-rename-config.toml'),
             'output': None,  # use default
             'no_track': False,  # produce the output conversion table
             'no_copy': False}  # save a copy of the original files
