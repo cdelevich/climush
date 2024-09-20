@@ -1168,7 +1168,7 @@ def add_prefix(file_path, prefix, dest_dir, action='rename', f_delim='_'):
             new_path = dest_dir / new_name
             shutil.copy(file_path, new_path)
         elif action == 'mkdir':
-            new_path = (dest_dir / new_name.stem)
+            new_path = dest_dir / new_name
             mkdir_exist_ok(new_dir=new_path, parent_dir=dest_dir)
         else:
             new_path = dest_dir / new_name
