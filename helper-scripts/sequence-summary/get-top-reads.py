@@ -1,13 +1,12 @@
 # import python packages
-import argparse, re, pathlib
+import argparse, re, pathlib, json
 import numpy as np
 from pathlib import Path
 from Bio import SeqIO
 
 # imports from climush package
 from climush.constants import SEQ_FILE_GLOB, READ_COUNT_OG_RE
-from climush.utilities import exit_process
-
+from climush.utilities import exit_process, is_pathclass
 
 ## DEFINE + PARSE COMMAND LINE OPTIONS
 
@@ -41,11 +40,11 @@ parser.add_argument('--threshold',
 args = vars(parser.parse_args())
 
 ## REMOVE AFTER TESTING ########################################################################################
-test_threshold = .98
-
-args = {'input': Path('/Users/carolyndelevich/main/github_repos/climush/bioinformatics-pipeline/pacbio_sporocarp-f_2024-06_Q40_dereplicated'),
-        'output': None,
-        'threshold': test_threshold}
+# test_threshold = 6
+#
+# args = {'input': Path('/Users/carolyndelevich/main/github_repos/climush/bioinformatics-pipeline/pacbio_sporocarp-f_2024-06_Q40_dereplicated'),
+#         'output': None,
+#         'threshold': test_threshold}
 ################################################################################################################
 
 
@@ -64,11 +63,18 @@ if isinstance(args['threshold'], int):
     # add a value to the args dictionary indicating threshold input type
     args.update({'threshold_type': 'top_number'})
 
+    # create an output suffix based on this setting for output directory and files
+    output_suffix = '_top-' + str(args['threshold']) + '-reads'
+
+
 # if its a float...
 elif isinstance(args['threshold'], float):
 
     # add a value to the args dictionary indicating threshold input type
     args.update({'threshold_type': 'top_percentile'})
+
+    # create an output suffix based on this setting for output directory and files
+    output_suffix = '_top-' + str(int(args['threshold']*100)) + '-percentile'
 
 # if it is neither, this isn't a valid input
 else:
@@ -84,7 +90,7 @@ else:
 if args['output'] is None:
 
     # create output directory within the input directory, adding a folder name prefix of 'top-reads'
-    args['output'] = args['input'] / (args['input'].name + '_top-reads')
+    args['output'] = args['input'] / (args['input'].name + output_suffix)
 
 # create the output directory
 args['output'].mkdir(exist_ok=True)
@@ -147,11 +153,11 @@ for input_fastx in args['input'].glob(SEQ_FILE_GLOB):
         sample_read_counts = get_read_counts(input_fastx)
 
         # calculate the percentile based on the sample's read counts and the input percent value
-        read_threshold = np.percentile(sample_read_counts, int(test_threshold*100))  # percent should be int
+        args['threshold'] = np.percentile(sample_read_counts, int(test_threshold*100))  # percent should be int
 
     # if the threshold value is the top x sequences, do nothing to it
     else:
-        read_threshold = args['threshold']
+        pass
 
     # counter for tracking how many reads have been cycled through
     reads_processed = 0
@@ -172,7 +178,7 @@ for input_fastx in args['input'].glob(SEQ_FILE_GLOB):
         # check this sequence's read count against the threshold value
 
         # if selecting the top x (int) reads...
-        if args['threshold_type'] == 'top_x_reads':
+        if args['threshold_type'] == 'top_number':
 
             # if the number of reads processed is still below the threshold...
             if reads_processed < args['threshold']:
@@ -190,7 +196,7 @@ for input_fastx in args['input'].glob(SEQ_FILE_GLOB):
         else:
 
             # compare the current read count against the percentile threshold
-            if (read_count >= read_threshold) or (make_even == True):
+            if (read_count >= args['threshold']) or (make_even == True):
 
                 # add this sequence to the list of sequences to include in output fasta file
                 top_read_records.append(read)
@@ -219,9 +225,26 @@ for input_fastx in args['input'].glob(SEQ_FILE_GLOB):
     # WARNING NOT COMPLETE; IS IT WORTH COUNTING TOTAL READS FOR ALL FILES TO DO THIS?
 
     # create the output file name based on the input file name; add top-reads suffix
-    output_fastx = (args['output'] / (input_fastx.stem + '_top-reads')).with_suffix(('.' + file_fmt))
+    output_fastx = (args['output'] / (input_fastx.stem + output_suffix)).with_suffix(('.' + file_fmt))
 
     # write out sequence file
     SeqIO.write(top_read_records, output_fastx, file_fmt)
+
+# write out the settings used to a .json file in the output directory
+output_settings_path = (args['output'] / 'filter-settings').with_suffix('.json')
+
+# json format cannot include pathlib objects; recast as strings
+for k, v in args.items():
+
+    # if the value in the dict is a pathlib object, recast as a string
+    if is_pathclass(v, exit_if_false=False):
+        args[k] = str(v)
+    else:
+        pass
+
+with open(output_settings_path, 'w') as json_out:
+    json.dump(args, json_out)
+    print(f'A record of the settings used for top read filtering can be found here:\n'
+          f'   {output_settings_path}.')
 
 print(f'Completed.')
