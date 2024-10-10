@@ -982,21 +982,35 @@ def check_for_input(file_dir, config_dict, path_must_exist=True, seq_platform=No
     'sanger', 'pacbio']; defaults to None, meaning it will return True if any
     non-empty directory or file is located
     :param file_ext: the expected file extension of the files to search for,
-    using asterisk '*' for wildcard (used in glob)
+    using asterisk '*' for wildcard (used in glob); if the desired return list
+    is a list of subdirectories and not files, set this argument to None
     :return: two items; [1] Boolean T/F, whether there is a directory in this
-    path that contains sequencing files; [2] a list of the files matching the
+    path that contains items matching the file_ext; [2] a list of the files matching the
     file extension in the directory, if present
     '''
 
     # if the path must exist to continue, then...
     if path_must_exist:
 
-        # first confirm that the path exists, which will return an absolute Path object,
+        # confirm that the path exists, which will return an absolute Path object,
         #   even if input is str and relative
         input_dir = check_dir_exists(file_dir, auto_respond=config_dict['automate']['auto_respond'])
 
-        # once the path is confirmed to exist, confirm also that it isn't empty
-        if count_files(file_path=input_dir, search_for=file_ext) > 0:  # confirm it is not empty
+        # once the path is confirmed to exist, check that it contains the desired content
+
+        # if a file extension isn't provided, then the function looks for any subdirectories
+        if file_ext is None:
+
+            # get a list of subdirectories in the input directory
+            input_subdirs = [d for d in input_dir.glob('*') if d.is_dir()]
+
+            # if there are subdirectories, return True and a list of the subdirectory paths
+            if len(input_subdirs) > 0:
+                return True, input_subdirs
+
+        # if a file extension is provided, check that there are files within this directory
+        #   that contain this type of file
+        elif count_files(file_path=input_dir, search_for=file_ext) > 0:
 
             # then create a regex to match the sequencing platform files that you want returned in the file list
             if seq_platform is None:
@@ -1021,10 +1035,8 @@ def check_for_input(file_dir, config_dict, path_must_exist=True, seq_platform=No
                 # return False for input files found, and the (empty) list of files
                 return False, file_list
 
-        # if the input directory is empty...
+        # if the input directory is empty, pass on to the False and empty list return at the end
         else:
-
-            # continue to the False / empty list return
             pass
 
     # if the path does not need to exist to continue...
@@ -1035,7 +1047,7 @@ def check_for_input(file_dir, config_dict, path_must_exist=True, seq_platform=No
               f'   {file_dir}\n'
               f'does not exist. Continuing...\n')
 
-    # if directory non-existent or empty, return False (no input files) and an empty file list
+    # if directory is non-existent or empty, return False (no matching files/directories) and an empty file list
     file_list = []
     return False, file_list
 
@@ -1151,15 +1163,26 @@ def add_prefix(file_path, prefix, dest_dir, action='rename', f_delim='_'):
     assert is_pathclass(file_path, exit_if_false=False)
 
     def prefix_single(file_name):
-        old_name = file_name.name
+
+        if action=='mkdir':
+            # if making a new directory, will not want the file extension in the name
+            old_name = file_name.stem
+        else:
+            old_name = file_name.name
+
         platform_present = re.search(r'illumina|pacbio|sanger', old_name, re.I)
+
         try:
             # if there's a match, put prefix before the platform, remove all else
             location = platform_present.span()[0]
             new_name = prefix + f_delim + old_name[location:]
-        except:
-            # if there's no match, just add prefix to start of file name
-            new_name = prefix + f_delim + old_name
+        except AttributeError:
+            ## if there's no match, just add prefix to start of file name
+            # new_name = prefix + f_delim + old_name
+
+            # I changed this so that it will work with denoise(), effects on other uses possible
+            old_name_no_prefix = f_delim.join(old_name.split(f_delim)[1:])
+            new_name = f_delim.join([prefix, old_name_no_prefix])
 
         # replace old name with new name
         if action == 'rename':
@@ -1175,19 +1198,20 @@ def add_prefix(file_path, prefix, dest_dir, action='rename', f_delim='_'):
 
         return new_path
 
+    return prefix_single(file_path)
 
-    if file_path.is_dir():
-        new_path_list = []
-        for file in file_path.glob('*'):
-            new_path_list.append(prefix_single(file))
-        return new_path_list
-    elif file_path.is_file():
-        return prefix_single(file_path)
-    else:
-        msg = (f'FAILURE. Unrecognized '
-               f' file; cannot recognize as either a directory or file.\n')
-        exit_process(msg)
-        return None
+    # if file_path.is_dir():
+    #     new_path_list = []
+    #     for file in file_path.glob('*'):
+    #         new_path_list.append(prefix_single(file))
+    #     return new_path_list
+    # elif file_path.is_file():
+    #     return prefix_single(file_path)
+    # else:
+    #     msg = (f'FAILURE. Unrecognized '
+    #            f' file; cannot recognize as either a directory or file.\n')
+    #     exit_process(msg)
+    #     return None
 
     # filename_start = file_name.name.split('_')[0]
     # if re.search(ANY_PLATFORM_REGEX, filename_start, re.I):
@@ -1279,7 +1303,7 @@ def get_sample_id(file_path, log_error=False, platform=None):
     if platform is None:
         # try to get it from the file name
         platform = get_seq_platform(file_path)
-        # if it is still None...
+        # if it is still None...s
         if platform is None:
             platform_re = SAMPLE_ID_RE  # search for sample ID for any of the seq platforms
         else:  # if it did find a platform, then use in regex
