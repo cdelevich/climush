@@ -14,6 +14,7 @@ DENOISE_PREFIX = 'denoise'
 NOCHIM_PREFIX = 'no-chim'
 CLUSTER_PREFIX = 'clust'
 REPREAD_PREFIX = 'rep-read'
+QUERY_PREFIX = 'query'
 
 # PIPELINE FILE SUFFIXES
 LOG_SUFFIX = '.log'
@@ -118,3 +119,10 @@ READ_LEN_RENAMED_RE = r'(?<=\()[0-9]{1,}(?= bp\))'  # used in concat_regions() i
 READ_COUNT_RENAMED_RE = r'(?<=;size=)[0-9]{1,}(?=\|)'  # used in concat_regions() in bioinfo.py
 
 
+# POST-ITSX REGION/SUBREGION FILE TAGS
+POST_ITSX_SUFFIXES = {'ITS1': 'ITS1',
+                      '5.8S': '5_8S',
+                      'ITS2': 'ITS2',
+                      'LSU': 'LSU',
+                      'full sequence': 'ITS-LSU',
+                      'full ITS': 'full-ITS'}
