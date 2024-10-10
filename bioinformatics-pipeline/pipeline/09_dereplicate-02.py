@@ -42,10 +42,13 @@ args = vars(parser.parse_args())
 
 platform = 'pacbio'
 
-is_input, pacbio_files = check_for_input(file_dir=args['input'], config_dict=settings, seq_platform=platform)
+# set the file_ext argument to None; this assumes itsx immediately precedes derep and you want a list of
+#   directories, not a list of files (post-itsx, each sample has a directory)
+is_input, pacbio_dirs = check_for_input(file_dir=args['input'], config_dict=settings,
+                                        seq_platform=platform, file_ext=None)
 
 if is_input:
-    dereplicate(input_files=pacbio_files, derep_step=2, platform=platform, file_map=fpm)
+    dereplicate(input_files=pacbio_dirs, derep_step=2, platform=platform, file_map=fpm)
 else:
     pass
 
