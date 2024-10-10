@@ -1030,6 +1030,13 @@ def merge_reads(input_files, file_map):
 
 def dereplicate(input_files, derep_step, platform, file_map):
 
+    # read in settings from the configuration file
+    settings = get_settings(file_map)
+    run_name = settings['run_details']['run_name']
+    min_unique = settings['dereplicate'][platform]['min_count'][f'derep0{derep_step}']
+    premerged = settings['quality_filtering']['illumina']['merge_reads']
+
+    # create the file prefix name based on whether it is full-length (1) or region-specific (2) dereplication
     derep_prefix = DEREP_PREFIX + '0' + str(derep_step)
 
     if derep_step == 1:
@@ -1037,34 +1044,62 @@ def dereplicate(input_files, derep_step, platform, file_map):
     else:
         out_tag = 'derep-subregions'
 
-    settings = get_settings(file_map)
-    run_name = settings['run_details']['run_name']
-    min_unique = settings['dereplicate'][platform]['min_count'][f'derep0{derep_step}']
-    premerged = settings['quality_filtering']['illumina']['merge_reads']
+    # create main file paths for dereplicated read output
 
+    # main directory for dereplication output
     derep_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output'][out_tag])
 
+    # subfolder within the main directory for this specific bioinformatics run
     derep_path = mkdir_exist_ok(new_dir=f'./{derep_prefix}_{run_name}', parent_dir=derep_parent)
 
-    # derep_summary = mkdir_exist_ok(new_dir=f'./{derep_prefix}_{run_name}_summaries', parent_dir=derep_parent)
-    if premerged:
-        pass
-    else:
+    # for illumina sequences, if reads were not merged, then dereplicate only the forward sequence files (R1 suffix)
+    if platform == 'illumina' and not premerged:
         input_files = [f for f in input_files if re.search(r'R1', f, re.I)]  # only take fwd if not merged
         # rename files to be just sample ID or keep R1 to be clear they're forward reads only?
 
+    # for each of the files (typically derep01) or directories (typically derep02)...
     for file in input_files:
 
-        # derep always outputs a fasta format, but need to provide file name as fasta format or will appear as fastq
-        #   even though it isn't really fastq when you open it up
-        derep_output = add_prefix(file_path=file, prefix=derep_prefix, dest_dir=derep_path, action=None).with_suffix('.fasta')
+        # the derep02 for pacbio sequences will be directories, one per sample, if/when run immediately after itsx
+        if file.is_dir():
 
-        vsearch_derep_cmd = ['vsearch', '--derep_fulllength', file,
-                             '--output', derep_output,'--minuniquesize', str(min_unique),
-                             '--sizeout']
+            # create a regex that will match any of the possible output region / subregion file suffixes, post-itsx
+            subregion_suffix_re = '|'.join(list(POST_ITSX_SUFFIXES.values()))
 
-        run_subprocess(vsearch_derep_cmd, dest_dir=derep_parent, run_name=run_name,
-                       auto_respond=settings['automate']['auto_respond'])
+            # create a list of region / subregion files to dereplicate based on this regex
+            subregion_files = [f for f in file.glob('*') if re.search(subregion_suffix_re, f.name, re.I)]
+
+            # create a main output derep directory for this sample
+            derep_output = add_prefix(file_path=file, prefix=derep_prefix, dest_dir=derep_path, action='mkdir')
+
+            # go through the list of region / subregion files for this sample and dereplicate
+            for region_seqs in subregion_files:
+
+                # create a path for the region / subregion derep sequences within the main sample output dir
+                derep_region_output = add_prefix(file_path=region_seqs, prefix=derep_prefix,
+                                                 dest_dir=derep_output, action=None)
+
+                # compile the vsearch dereplication command for this region's post-itsx sequence file
+                vsearch_derep_cmd = ['vsearch', '--derep_fulllength', region_seqs,
+                                     '--output', derep_region_output, '--minuniquesize', str(min_unique),
+                                     '--sizeout']
+
+                run_subprocess(vsearch_derep_cmd, dest_dir=derep_parent, run_name=run_name,
+                               auto_respond=settings['automate']['auto_respond'])
+
+        # derep01 in all cases will (should) be a list of sequence files, not directories
+        else:
+
+            # derep always outputs a fasta format, but need to provide file name as fasta format or will appear as fastq
+            #   even though it isn't really fastq when you open it up
+            derep_output = add_prefix(file_path=file, prefix=derep_prefix, dest_dir=derep_path, action=None).with_suffix('.fasta')
+
+            vsearch_derep_cmd = ['vsearch', '--derep_fulllength', file,
+                                 '--output', derep_output,'--minuniquesize', str(min_unique),
+                                 '--sizeout']
+
+            run_subprocess(vsearch_derep_cmd, dest_dir=derep_parent, run_name=run_name,
+                           auto_respond=settings['automate']['auto_respond'])
 
     return None
 
@@ -1081,30 +1116,6 @@ def separate_subregions(input_files, file_map, verbose=False):
     itsx_path = mkdir_exist_ok(new_dir=f'./{ITSX_PREFIX}_{run_name}',  parent_dir=itsx_parent)
 
     # run ITSx for each input file
-    # for file in input_files:
-    #
-    #     # create a new directory for each sample, since multiple files per sample are produced
-    #     itsx_sample_dir = add_prefix(file_path=file, prefix=ITSX_PREFIX, dest_dir=itsx_path, action='mkdir')
-    #
-    #     # construct a base name that ITSx will use for the output files
-    #     itsx_output_basename = add_prefix(file_path=file, prefix=ITSX_PREFIX,
-    #                                       dest_dir=itsx_sample_dir, action=None).with_suffix('')
-    #
-    #     # construct the ITSx command; will produce more output if verbose=True (defaults to False)
-    #     if verbose:
-    #         itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'fungi', '--multi_thread', 'T',
-    #                         '--save_regions', 'all']
-    #     else:
-    #         itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'fungi', '--multi_thread', 'T',
-    #                         '--graphical', 'F', '--positions', 'F', '--silent', 'T',
-    #                         '--save_regions', '{ITS1,5.8S,ITS2,LSU}']
-    #
-    #     # run the ITSx command
-    #     run_subprocess(itsx_command, dest_dir=itsx_parent, run_name=run_name,
-    #                    auto_respond=settings['automate']['auto_respond'])
-
-    # WITH MULTI-PROCESSING
-    itsx_command_list = []
     for file in input_files:
 
         # create a new directory for each sample, since multiple files per sample are produced
@@ -1123,311 +1134,661 @@ def separate_subregions(input_files, file_map, verbose=False):
                             '--graphical', 'F', '--positions', 'F', '--silent', 'T',
                             '--save_regions', '{ITS1,5.8S,ITS2,LSU}']
 
-        itsx_command_list.append(itsx_command)
+        # run the ITSx command
+        run_subprocess(itsx_command, dest_dir=itsx_parent, run_name=run_name,
+                       auto_respond=settings['automate']['auto_respond'])
 
-    # set variables for the run_subprocess function here, don't kknow how to add multiple to .map
-    num_samples = len(itsx_command_list)
-    itsx_parent_repeats = [itsx_parent] * num_samples
-    auto_responses = [settings['automate']['auto_respond']] * num_samples
-
-    if __name__ == '__main__':
-        print(f'Number of cores available: {cpu_count()}')
-
-        p = Process(target=run_subprocess,
-                    args=(itsx_parent_repeats, auto_responses, itsx_command_list))
-        p.start()
-        p.join()
+    # WITH MULTI-PROCESSING
+    # itsx_command_list = []
+    # for file in input_files:
+    #
+    #     # create a new directory for each sample, since multiple files per sample are produced
+    #     itsx_sample_dir = add_prefix(file_path=file, prefix=ITSX_PREFIX, dest_dir=itsx_path, action='mkdir')
+    #
+    #     # construct a base name that ITSx will use for the output files
+    #     itsx_output_basename = add_prefix(file_path=file, prefix=ITSX_PREFIX,
+    #                                       dest_dir=itsx_sample_dir, action=None).with_suffix('')
+    #
+    #     # construct the ITSx command; will produce more output if verbose=True (defaults to False)
+    #     if verbose:
+    #         itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'fungi', '--multi_thread', 'T',
+    #                         '--save_regions', 'all']
+    #     else:
+    #         itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'fungi', '--multi_thread', 'T',
+    #                         '--graphical', 'F', '--positions', 'F', '--silent', 'T',
+    #                         '--save_regions', '{ITS1,5.8S,ITS2,LSU}']
+    #
+    #     itsx_command_list.append(itsx_command)
+    #
+    # # set variables for the run_subprocess function here, don't kknow how to add multiple to .map
+    # num_samples = len(itsx_command_list)
+    # itsx_parent_repeats = [itsx_parent] * num_samples
+    # auto_responses = [settings['automate']['auto_respond']] * num_samples
+    #
+    # if __name__ == '__main__':
+    #     print(f'Number of cores available: {cpu_count()}')
+    #
+    #     p = Process(target=run_subprocess,
+    #                 args=(itsx_parent_repeats, auto_responses, itsx_command_list))
+    #     p.start()
+    #     p.join()
 
     # return the ITSx output path for this sequencing run
     return itsx_path
 
-def concat_regions(dir_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'], header_delim=';'):
-    '''
-    Concatenates provided regions for each read.
+# def concat_regions(dir_path, file_map, regions_to_concat=['ITS1', '5_8S', 'ITS2'], verbose=True, header_delim=None):
+#     '''
+#     Concatenates provided regions for each read.
+#
+#     Looks in the provided directory for files containing the substring of the
+#     regions provided in the regions_to_concat list. For each region in the list,
+#     it will store read ID, region, read length, and full-length read count in a
+#     dictionary, where each read ID is the primary key with details stored for each
+#     region (read length, full-length read count). Then will combine this information
+#     from the regions for each read ID. The sequences from each region are concatenated
+#     in the order they appear in the provided regions_to_concat list. The read length of
+#     the final concatenated reads is the sum of the read lengths of the regions. It will
+#     check that the full-length read count is the same for each of the regions, which
+#     further confirms that the regions are from the same full-length read. Then will write
+#     these concatenated reads and updated headers to a new output fasta file.
+#     :param dir_path: directory containing the fasta files to concatenate.
+#     :param regions_to_concat: an ORDERED list of regions to concatenated, with the 5' region
+#     first and the 3' region last; defaults to ITS regions
+#     :param header_delim: delimiter to use for separating the components of the header in
+#     the concatenated fasta output; defaults to semicolon
+#     :return: None, but will write out a fasta file
+#     '''
+#
+#     ## IMPORT CONFIGURATION SETTINGS
+#
+#     # import configuration settings as dictionary
+#     settings = get_settings(file_map)
+#
+#     # get bioinformatics run name
+#     run_name = settings['run_details']['run_name']
+#
+#     # check whether to use header_delim from settings or directly from function parameter
+#
+#     # if header_delim set to default...
+#     if header_delim is None:
+#
+#         # then import from the configuration file
+#         header_delim = settings['formatting']['header_delim']
+#
+#     # if header_delim is not the default, use whatever value is assigned to it
+#     else:
+#         pass
+#
+#     # created a variable to switched to True if a region cannot be located without an ITSx issue
+#     #  moved this further down, I'm not sure if its alright down there but we'll see
+#     # error_occurred = False
+#
+#     # create an output file using the run name for this bioinformatics run; do so here so you can remove
+#     err_log_path = (dir_path.parent / f'{run_name}').with_suffix('.no_concat.err')
+#
+#
+#     # determine whether the input directory contains sample subdirectories or if its a sample directory
+#
+#     # create list of subdirectories within input directory
+#     child_dirs = [child.is_dir() for child in dir_path.glob(f'{ITSX_PREFIX}*')]
+#
+#     # if the input directory contains only subdirectories, then create list of subdirectories to loop through
+#     if all(child_dirs):
+#         input_dirs = list(dir_path.glob('*'))
+#
+#     # if none of the contents of input directory are directories, then its a sample dir and needs to be cast as
+#     #  list so that you can still use the loop method to work through
+#     elif ~all(child_dirs):
+#         input_dirs = [dir_path]
+#
+#     # if there's a mix of directories and not directories within the input path, then assume that the input provided
+#     #  is a sample directory, and look for ITSx output within the input directory but warn that errors might follow
+#     else:
+#         print(f'WARNING. Encountered a mix of directories and non-directories in the input for the '
+#               f'concat_regions() function from climush.bioinfo. Proceeding by searching the input '
+#               f'directory for the fasta files to concatenate but may encounter an error because the '
+#               f'function does not know whether subdirectories contain per-sample fasta files or if '
+#               f'the subdirectories are unrelated.\n')
+#         input_dirs = [dir_path]
+#
+#     # create dictionary for acceptable input regions
+#     accepted_regions = {r'(^S.+?(?=\bs))|(?<!-)SSU': 'SSU',  # could be better but not going to obsess
+#                         r'ITS.?1': 'ITS1',  # checks for possible punctuation within
+#                         r'5.?8S': '5.8S',  # checks for possible punctuation within
+#                         r'ITS.?2': 'ITS2',  # checks for possible punctuation within
+#                         r'(^L.+?(?=\bs))|(?<!-)LSU': 'LSU',  # similar to SSU
+#                         r'(full)?.?ITS(?!.?\d)': 'ITS'}  # may include full, but can't have number after (w or w/o punct)
+#
+#     # check input list for valid entries, and then format string to consistent format
+#     # returns dict now with formatted string as key, regex as value
+#     def create_region_dict(region_list):
+#         output_dict = {}
+#         for region_str in region_list:
+#             for r in accepted_regions.keys():  # compare input region to each regex in dict
+#                 if re.search(r, region_str, re.I):  # if it does match, stop loop and return the formatted version
+#                     output_dict.update({accepted_regions[r]: r})
+#                     break
+#                 else:
+#                     continue
+#             else:
+#                 return print(f'FAILURE. Did not recognize the input region {region_str}. Please choose from the '
+#                              f'recognized regions: {list(accepted_regions.values())}\n')
+#         return output_dict
+#
+#     # make nested dict: read ID > region > [sequence, read len, derep01_reads(?)]
+#     # ADD CHECK FOR MULTIPLE FILES MATCHING THE REGION IN THIS DIRECTORY
+#     def search_path_with_regex(dir_path, regex, return_all=False):
+#         found_file_paths = []
+#         for file in dir_path.glob('*'):
+#             if re.search(regex, file.name, re.I):
+#                 found_file_paths.append(file)
+#             else:
+#                 continue
+#
+#         if len(found_file_paths) > 1:
+#             if return_all:
+#                 return found_file_paths
+#             else:
+#                 print(f'WARNING. Multiple files matching the provided regex {regex} were located in '
+#                       f'{dir_path.name}. Returning only the first match.\n')  # REPLACE WITH OPTIONS?
+#                 return found_file_paths[0]
+#         elif len(found_file_paths) == 0:
+#             # print(f'FAILURE. No files matching the provided regex {regex} were located in '
+#             #       f'{dir_path.name}.\n')
+#             return None
+#         else:
+#             return found_file_paths[0]
+#
+#     # confirm all regions data was acquired, then combine (used below in loop)
+#     def join_if_all_present(pulled_data_dict):
+#
+#         # create an empty dictionary to add read information to once it is checked
+#         joined_data = {'seq':'',
+#                        'id':[]}
+#
+#         # for each value in details_to_include from the configuration file settings...
+#         for k in pulled_data_dict.keys():
+#
+#             # check if the number of values for this info group is equal to the number of regions in regions_to_concat
+#             if len(pulled_data_dict[k]) == len(regions_to_concat):
+#
+#                 # if this is the key for the Seq object (i.e, a list of sequences from each region to concat)...
+#                 if any(isinstance(i, Seq) for i in pulled_data_dict[k]):
+#
+#                     # then join all the sequences in this list (i.e., actually concatenate the regions to one read)
+#                     joined_data['seq'] = Seq('').join(pulled_data_dict[k])  # must join with empty seq
+#
+#                 # if this is not the key for a Seq object (i.e., not a sequence)...
+#                 else:
+#
+#                     # format the combined information for each category based on which category it is;
+#                     #  this format will directly affect how the information will appear in the fasta file headers
+#
+#                     # if it is the read length, then sum all of the values and confirm the concat length is correct
+#                     if re.search(r'len$', k, re.I):
+#
+#                         # compare expected and observed read length of the concatenated read before adding info to header
+#                         exp_rl = sum([int(x) for x in pulled_data_dict[k]])  # calc expected length based on sum of each region length
+#                         obs_rl = len(joined_data['seq'])  # calc observed length based on the length of the concatenated read
+#
+#                         # if the expected and observed read lengths for the concatenated read match...
+#                         if exp_rl == obs_rl:
+#
+#                             # then create a header component for read length
+#                             joined_data['id'].append(f'{concat_name} {obs_rl}bp')
+#
+#                         else:
+#                             # if these values don't match, then print an error and return None (i.e., don't concat)
+#                             msg = f'ERROR. The sum of the values in the headers for the post-ITSx region files does not '\
+#                                   f'match the length of the concatenated read. Please check the ITSx output for the '\
+#                                   f'following regions:\n'\
+#                                   f'   read ID = {read}\n' \
+#                                   f'   concat regions = {regions_to_concat}\n' \
+#                                   f'   expected length (nt) = {exp_rl}\n' \
+#                                   f'   concat length (nt) =   {obs_rl}\n'
+#                             return print(msg)
+#
+#                     # if this key is the read count for full-length reads (number of identical full-length reads/sample)
+#                     elif re.search(r'^full\-len|count', k, re.I):
+#
+#                         # if all read counts are identical among the regions (they should be)...
+#                         if len(set(pulled_data_dict[k])) == 1:
+#
+#                             # then create the header component for read count
+#                             joined_data['id'].append(f'{k}={int(pulled_data_dict[k][0])}')  # if all same, doesn't matter which you chose
+#
+#                         # there's likely some larger error at play if a given read doesn't match in read count among regions
+#                         else:
+#                             msg = f'ERROR. The read counts for the regions of this read are different lengths:\n'\
+#                                   f'  {pulled_data_dict[k]}\n'
+#                             return print(msg)
+#
+#                     # if this key is not recognized as a default header key, then make generic version to add
+#                     else:
+#                         joined_data['id'].append(f'{k} = {pulled_data_dict[k]}')
+#
+#             # if there is missing information for at least one of the regions to concatenate...
+#             else:
+#                 # print an error message, and return Non
+#                 # technically, this function should never end up running if there are missing regions for a read
+#                 #   so if this error message prints, there is likely an issue elsewhere
+#                 msg = f'Did not successfully pull all {k} from the regions to concatenate ' \
+#                       f'({len(pulled_data_dict[k])} out of {len(regions_to_concat)} were pulled). ' \
+#                       f'See the .no_concat.txt file for more details. \n'
+#                 return print(msg)
+#
+#         return joined_data
+#
+#     # if a region is missing for a read, determine whether ITSx couldn't find or if another unknown issue
+#     def explain_missing_region(read_id, err_region, sample_dir):
+#         '''
+#         If a read is missing from its sample's subregion fasta file, determine whether the missing subregion
+#         was not detected by ITSx (an ITSx error) or if an error independent of ITSx occurred.
+#         :param read_id: the read ID of the sample that was missing a subregion, which is the first element
+#         in the fasta file header
+#         :param err_region: the region of the sequence that could not be located (e.g., ITS1, ITS2)
+#         :param sample_dir: directory containing the output from ITSx for this sample
+#         :return: if an ITSx error, returns 'itsx' and logs error to common .no_concat.txt file for
+#         the bioinformatics run that this sample is processed with and does not concatenate any
+#         regions for this read; if not an ITSx error, returns 'other' and prints error message; sys.exit() has
+#         to be carried out independent of this function in order to interrupt concat_regions()
+#         '''
+#
+#         # determine whether an ITSx error by checking the <sample-id>.problematic.txt output file from ITSx
+#
+#         # get the path to the <sample-id>.problematic.txt output from ITSx
+#         itsx_detect_error_path = next(sample_dir.glob('*problematic*'))
+#
+#         # create generator to find line that contains this read in the problematic.txt file, yield its error message
+#         def find_problematic_read(err_file, read_id):
+#             for err in err_file.readlines():
+#                 if err.startswith(read_id):
+#                     yield err.split('\t')[-1].strip()
+#                 else:
+#                     continue
+#
+#         # get the error message created by ITSx for this read
+#         with open(itsx_detect_error_path, 'rt') as err_records:
+#             errors = next(find_problematic_read(err_file=err_records, read_id=read_id))
+#
+#         # if the missing region is located in the ITSx error, then ITSx couldn't detect the region
+#
+#         # get the regex used to search files, etc. produced by ITSx for this region
+#         region_regex = region_search_dict[err_region]
+#
+#         # search for the region causing the error in the error message for this read produced by ITSx
+#         if re.search(region_regex, errors, re.I):
+#             return 'itsx'
+#         # if the region is not detected in the error message from ITSx for this read, then its some other unknown issue
+#         else:
+#             return 'other'
+#
+#     # create a dictionary of regions to concat, where keys are formatted regions and
+#     #   values are regex to use for file search
+#     region_search_dict = create_region_dict(regions_to_concat)
+#
+#     ## PER SAMPLE ########################################################################################
+#
+#     # go through each sample's directory...
+#     for sample_dir in input_dirs:
+#
+#         print(f'sample dir = {sample_dir}\n')
+#
+#         # log progress by printing the name of the sample that is being processed; will append SUCCESS to string
+#         #   if process completes successfully
+#         print(f'\n{sample_dir.name} running...', end='\r')
+#
+#         # create a list of the fasta files to concat based on input regions
+#         fastas_to_concat = [search_path_with_regex(sample_dir, regex=r) for r in region_search_dict.values()]
+#
+#         # get the sample ID from any of these fasta files
+#         sample_name = get_sample_id(file_path = fastas_to_concat[0])
+#
+#         # get the file prefix used for the ITSx output files, will be used as prefix for the concatenated file output
+#         file_prefix = re.search(PREFIX_RE, fastas_to_concat[0].name, re.I).group(0)
+#
+#         # create a list of errors when encountered in reads; formatted to write this list to an error log file
+#         #  as soon as this sample is completed
+#         # PATCH - I keep getting the same read printing over and over, so I think once the value that checks whether
+#         #  an error has occurred sets to True, it isn't reseting such that every read after the error read triggers
+#         #  the write of the same read information to the file
+#         reads_with_missing_regions = set()
+#
+#         # collect read IDs of reads in this sample that itsx flagged as chimeric; will skip over completely later on
+#         chimera_fasta = search_path_with_regex(sample_dir, regex=r'\.chimeric\.')
+#
+#         # if no itsx output for chimeric reads are located for this sample, then create an empty list of chimeras
+#         if chimera_fasta is None:
+#             chimer_read_ids = []
+#         # if the itsx chimeric output fasta is located, extract the read IDs from this file
+#         else:
+#             with open(chimera_fasta, 'rt') as chimer_in:
+#                 chimer_headers = [line for line in chimer_in.readlines() if line.startswith('>')]
+#                 chimer_read_ids = [read.split(';')[0].replace('>', '') for read in chimer_headers]
+#
+#         # summarize information on errors and missing regions for each sample
+#         reads_with_nonitsx_errors = []
+#         reads_without_issue = []
+#         reads_with_itsx_errors = []
+#         error_occurred = False
+#         regions_missing_in_sample = False
+#         full_read_count = 0
+#
+#         # auto-assign name of joined regions for common concats, otherwise prompt user for input
+#         formatted_input_regions = list(region_search_dict.keys())
+#         if formatted_input_regions == ['ITS1', '5.8S', 'ITS2']:
+#             concat_name = 'full-ITS'
+#         elif formatted_input_regions == ['ITS1', '5.8S', 'ITS2', 'LSU']:
+#             concat_name = 'ITS-LSU'
+#         else:
+#             msg = f'Please provide a name to assign to this combination of subregions (use '\
+#                   f'hyphens instead of spaces):\n'
+#             default_name = '-'.join(formatted_input_regions)
+#             concat_name = prompt_generic(message=msg, auto_respond=settings['automate']['auto_respond'],
+#                                          auto_response=default_name)
+#
+#         # create a list of components to include in the new fasta files within read header
+#         #  added these to the default settings, but not yet in the user settings
+#         details_to_include = settings['formatting']['fasta_headers']
+#
+#         ## PER REGION ########################################################################################
+#
+#         # for this sample, go through each of the itsx output files for the regions to concat, collecting info
+#         concat_dict = {}
+#         for fasta in fastas_to_concat:
+#
+#             ## PER READ #######################################################################################
+#
+#             for record in SeqIO.parse(fasta, 'fasta'):
+#
+#                 read_id = re.search(READ_ID_RENAMED_RE, record.description).group(0)
+#
+#                 # if this read ID matches one in ITSx's chimeric read output file, then skip to the next read
+#                 if read_id in chimer_read_ids:
+#                     continue
+#
+#                 # get information from the post-itsx read header, which depends to an extent on a certain header format
+#                 try:
+#                     region = re.search(READ_REGION_RENAMED_RE, record.description, re.I).group(0)
+#                     length = re.search(READ_LEN_RENAMED_RE, record.description, re.I).group(0)
+#                     derep01_reads = re.search(READ_COUNT_RENAMED_RE, record.description, re.I).group(0)
+#                     details = {k: v for k, v in zip(details_to_include, [record.seq, length, derep01_reads])}
+#
+#                     if read_id in concat_dict:  # if this sample is already in the dictionary...
+#                         concat_dict[read_id].update({region: details})  # append the new region info to it
+#                     else:  # if it isn't yet in the dictionary...
+#                         concat_dict[read_id] = {region: details}  # add a key value pair for this sample
+#
+#                 # if the itsx output isn't formatted as expected, can't get important info, so print error and exit
+#                 except AttributeError:
+#                     print(f'{sample_dir.name} running... ERROR!')
+#                     print(f'  There was an issue extracting information from the fasta header of the input file:\n '
+#                           f'     {fasta} \n'
+#                           f'  This issue occurred for read:\n'
+#                           f'     {read_id} \n'
+#                           f'  This will occur if the sequence files produced by ITSx have not yet \n'
+#                           f'  been reformatted. Please run the rename_read_header function and retry.\n')
+#                     return sys.exit(1)
+#
+#         ## PER READ ############################################################################################
+#
+#         # create BioSeq records for each read for each region to concatenate
+#         concatenated_records = []
+#
+#         for read in concat_dict.keys():
+#
+#             # keep track of the number of reads in this sample
+#             full_read_count += 1
+#
+#             regions_missing_in_read = False
+#
+#             # create key-value pairs where key is the info to include in BioSeq record, and empty value list to add to
+#             record_details = {k:[] for k in details_to_include}
+#
+#             # missing region
+#             missing_regions = []
+#
+#             ## PER REGION #######################################################################################
+#
+#             # pull info from each region for this read
+#             for region in region_search_dict.keys():
+#
+#                 # first try to index the given region for this read...
+#                 try:
+#                     # get the sequence and read description details for this region
+#                     region_dict = concat_dict[read][region]
+#
+#                     # add the read description to the record_details dictionary for this read
+#                     for det in details_to_include:
+#                         if det in record_details:
+#                             record_details[det].append(region_dict[det])  # append before sum to ensure all regions there
+#                         else:
+#                             record_details[det] = region_dict[det]  # append before sum to ensure all regions there
+#
+#                 # if the region doesn't exist for this read, determine whether an error from ITSx or unknown source
+#                 except KeyError:
+#
+#                     # determine the cause of the missing region for this read; will log accordingly within function
+#                     cause = explain_missing_region(read_id=read, err_region=region, sample_dir=sample_dir)
+#
+#                     # if the region is missing because ITSx could not detect it within the full-length read...
+#                     if cause == 'itsx':
+#
+#                         # change this variable to True, used for formatting the error log file
+#                         regions_missing_in_read = True
+#
+#                         # add this region to a list of missing regions for this read; these regions will be written to
+#                         #  a log file once all regions to concatenate for this read have been searched
+#                         missing_regions.append(region)
+#
+#                     # if ITSx is not the reason that this region is missing, and the reason is therefore unknown..
+#                     else:
+#
+#                         # if ITSx can't find the end of the 5.8S region, it will not produce the ITS2 either;
+#                         #   however, it will not log this error in the <sample-id>.problematic.txt log file
+#                         #   so, if an itsx issue with 5.8S has been found for this read, chances are ITSx also could
+#                         #   not find the ITS2 and it isn't some extraneous error in locating the ITS2 seq for this read
+#                         if regions_missing_in_read:
+#                             missing_regions.append(region)
+#                         else:
+#                             error_occurred = True
+#                             print(f'{sample_dir.name} running... ERROR!')
+#                             error_msg = (f'ERROR. The {region} region could not be located and ITSx did not log an error '
+#                                          f'with this read, so some unknown issue is preventing the detection of the '
+#                                          f'{region} for this read. The regions were not concatenated. Please check the '
+#                                          f'ITSx output file for this sample to troubleshoot.\n'
+#                                          f'   sample: {sample_name}\n'
+#                                          f'   read:   {read}\n')
+#                             print(f'   {error_msg}')
+#                             # break out of this loop, i.e., stop going through regions for this read and move to next read
+#                             #  breaking here will prevent any record from being made for this read, concat won't occur
+#                             # break
+#
+#             ## PER READ #######################################################################################
+#
+#             # if there were any regions not detected by ITSx, then write this information out to a log file
+#             if len(missing_regions) > 0:
+#
+#                 reads_with_itsx_errors.append(read)
+#
+#                 # format the sample ID, read ID, and non-detected regions to add to list that will append to log file
+#                 reads_with_missing_regions.add(f'   {read} = {missing_regions}\n')
+#
+#             # if a non-ITSx error occurred...
+#             elif error_occurred:
+#                 reads_with_nonitsx_errors.append(read)
+#
+#             # if there weren't any issues detecting the regions required to concatenate...
+#             else:
+#
+#                 combined_data = join_if_all_present(record_details)
+#
+#                 if (len(combined_data['id']) == 0) or (combined_data is None):
+#                     reads_with_nonitsx_errors.append(read)
+#                 else:
+#                     reads_without_issue.append(read)
+#                     concat_record = SeqRecord(combined_data['seq'],
+#                                               name=read,
+#                                               id=header_delim.join([read] + combined_data['id']),
+#                                               description='')
+#                     concatenated_records.append(concat_record)
+#
+#         error_reads = reads_with_nonitsx_errors + reads_with_itsx_errors
+#         total_errs = len(error_reads)
+#
+#         if verbose:
+#             print(f'Total reads with errors: {total_errs} ({(total_errs / full_read_count)*100:.2f}%)\n'
+#                   f'   ITSx errors:     {len(reads_with_itsx_errors)}\n'
+#                   f'   non-ITSx errors: {len(reads_with_nonitsx_errors)}\n'
+#                   f'Total reads without errors: {len(reads_without_issue)}\n')
+#
+#         ## PER SAMPLE #######################################################################################
+#
+#         # write out the concatenated read records to a new concatenated reads fasta file
+#         fasta_out = sample_dir / f'{file_prefix}_{sample_name}.{concat_name}.fasta'
+#
+#         SeqIO.write(concatenated_records, fasta_out, 'fasta')
+#
+#         # write out the information of the reads that had regions missing and weren't concatenated
+#         if len(reads_with_missing_regions) > 0:
+#             with open(err_log_path, 'at') as fout:
+#
+#                 # create a sample header to better distinguish between samples in the error log
+#                 fout.write(f'\n{sample_name}  -----------------------------\n')
+#
+#                 # write the name of the read and the list of missing sequence regions for this read
+#                 for read_error in reads_with_missing_regions:
+#                     fout.write(read_error)
+#
+#             print(f'{sample_dir.name} running... WARNING!')
+#             print(f'  discarded reads in which ITSx could not detect subregions.')
+#         else:
+#             if fasta_out.is_file():
+#                 print(f'{sample_dir.name} running... success!')
+#             else:
+#                 print(f'{sample_dir.name} running... ERROR!\n')
+#                 print(f'  concatenated output fasta file not detected.')
+#
+#     return None
 
-    Looks in the provided directory for files containing the substring of the
-    regions provided in the regions_to_concat list. For each region in the list,
-    it will store read ID, region, read length, and full-length read count in a
-    dictionary, where each read ID is the primary key with details stored for each
-    region (read length, full-length read count). Then will combine this information
-    from the regions for each read ID. The sequences from each region are concatenated
-    in the order they appear in the provided regions_to_concat list. The read length of
-    the final concatenated reads is the sum of the read lengths of the regions. It will
-    check that the full-length read count is the same for each of the regions, which
-    further confirms that the regions are from the same full-length read. Then will write
-    these concatenated reads and updated headers to a new output fasta file.
-    :param dir_path: directory containing the fasta files to concatenate.
-    :param regions_to_concat: an ORDERED list of regions to concatenated, with the 5' region
-    first and the 3' region last; defaults to ITS regions
-    :param header_delim: delimiter to use for separating the components of the header in
-    the concatenated fasta output; defaults to semicolon
-    :return: None, but will write out a fasta file
-    '''
+# def check_concat_output(itsx_dir, full_len_dir, num_bp_compare, file_map, write_to_log=True, same_threshold=99, header_delim=None):
+#
+#     # import configuration settings
+#     settings = get_settings(file_map)
+#     run_name = settings['run_details']['run_name']
+#
+#
+#     # check which value to use for the read header delimiter
+#     if header_delim is None:
+#         header_delim = settings['formatting']['header_delim']
+#     else:
+#         pass
+#
+#     bp = int(num_bp_compare)
+#
+#     # import records as dictionary, where the read ID is the key
+#     def name_as_key(record):
+#         header = record.id
+#         sample_read_id = header.split(header_delim)[0]
+#         return sample_read_id
+#
+#     # import full ITS records and LSU (for revcomp comparison)
+#     full_its_records = SeqIO.to_dict(SeqIO.parse(next(itsx_dir.glob('*full_ITS*')), 'fasta'), key_function=name_as_key)
+#     lsu_records = SeqIO.to_dict(SeqIO.parse(next(itsx_dir.glob('*LSU*')), 'fasta'), key_function=name_as_key)
+#
+#     # collect the full length _ bp sequences at start, full ITS _ bp sequences at start, and LSU _ bp seqs at end
+#     post_itsx_diffs = {'read_id':[],
+#                        'full_start':[],
+#                        'its_start':[],
+#                        'lsu_end':[]}
+#     for record in SeqIO.parse(full_len_dir, 'fasta'):
+#
+#         sample_id = get_sample_id(file_path = full_len_dir.name)
+#         read_num = re.search(READ_ID_OG_RE, record.id).group(0)
+#         read_id = '_'.join([sample_id, read_num])
+#
+#         renamed_record = SeqRecord(record.seq, id=read_id, description='')
+#
+#         full_len_seq = renamed_record.seq
+#         full_its_seq = full_its_records[renamed_record.id].seq
+#         try:
+#             lsu_seq = lsu_records[renamed_record.id].seq
+#         except:
+#             lsu_seq = 'N'*bp
+#
+#
+#         post_itsx_diffs['read_id'].append(renamed_record.id)
+#         post_itsx_diffs['full_start'].append(str(full_len_seq[:bp]))
+#         post_itsx_diffs['its_start'].append(str(full_its_seq[:bp]))
+#         post_itsx_diffs['lsu_end'].append(str(lsu_seq[-bp:]))
+#
+#     # create df from this dictionary
+#     diff_df = pd.DataFrame.from_dict(post_itsx_diffs)
+#
+#     # compare the read slices first as full-ITS fwd, then full-LSU revcomp
+#     comparison_result = []  # True if same
+#     equal_as = []  # str describing nature of match: fwd, revcomp, no LSU, unresolved (error)
+#     for i in range(diff_df.shape[0]):
+#         full_fwd = Seq(diff_df['full_start'][i])
+#         its_fwd = Seq(diff_df['its_start'][i])
+#         lsu_end = Seq(diff_df['lsu_end'][i])
+#         if full_fwd == its_fwd:
+#             comparison_result.append(True)
+#             equal_as.append('forward_strand')
+#             continue
+#         else:
+#             if 'N' in lsu_end:
+#                 comparison_result.append(False)
+#                 equal_as.append('no_lsu')
+#             else:
+#                 its_revcomp = lsu_end.reverse_complement()
+#                 if full_fwd == its_revcomp:
+#                     comparison_result.append(True)
+#                     equal_as.append('reverse_comp')
+#                     continue
+#                 else:
+#                     comparison_result.append(False)
+#                     equal_as.append('unresolved')
+#
+#     diff_df['comparison'] = comparison_result
+#     diff_df['equal_as'] = equal_as
+#
+#     percent_same = (sum(diff_df['comparison']) / diff_df.shape[0])*100
+#     revcomp_detect = ((diff_df[diff_df['equal_as'] == 'reverse_comp'].shape[0]) /sum(diff_df['comparison']))*100
+#     forward_detect = ((diff_df[diff_df['equal_as'] == 'forward_strand'].shape[0]) /sum(diff_df['comparison']))*100
+#     missing_lsu = ((diff_df[diff_df['equal_as'] == 'no_lsu'].shape[0]) /sum(diff_df['comparison']))*100
+#
+#     if write_to_log:
+#         log_dir = itsx_dir / 'itsx_inspection_logs'
+#         log_dir.mkdir(exist_ok=True)
+#         diff_df.to_csv(log_dir / f'itsx_inspection_comparison.csv', index=False)
+#         with open((log_dir / 'itsx_inspection_summary.log'), 'wt') as fout:
+#             fout.write(f'sample: {get_sample_id(file_path = full_len_dir.name)}\n')
+#             fout.write(f'date: {datetime.today().strftime("%Y-%M-%d")}\n\n')
+#             fout.write(f'All full-length reads were compared to their ITS region after running ITSx. The first'
+#                        f' {bp} bp of the full-length reads were aligned to the first {bp} bp of their corresponding '
+#                        f'full ITS read that was concatenated after running ITSx. If the first {bp} bp did not '
+#                        f'match, then the reverse complement of the last {bp} bp of their LSU region was compared '
+#                        f'to the first {bp} bp of the full-length read. This is because reads are not reoriented '
+#                        f'until done so by ITSx. \n\n')
+#             fout.write(f'For {percent_same:.2f}% of these comparisons (out of {diff_df.shape[0]} total comparisons), '
+#                        f'the first {bp} bp of the full length read matched the first {bp} bp of either the forward '
+#                        f'ITS or reverse complement of the end of the LSU for that read.\n\n')
+#             fout.write(f'Out of the {percent_same:.2f}% that matched, {forward_detect:.2f}% were matched by comparing '
+#                        f'the full-length read to the start of the ITS, while {revcomp_detect:.2f}% were matched by '
+#                        f'comparing the full-length read to the reverse complement of the end of the LSU region.\n\n')
+#             if missing_lsu > 0:
+#                 fout.write(f'{int(missing_lsu*diff_df.shape[0])} reads ({missing_lsu:.2f}% of total) did not have '
+#                            f'an LSU region to compare to, since ITSx could not locate the LSU for the read(s). This '
+#                            f'accounts for the proportion of reads that could not be matched.\n')
+#     else:
+#         if percent_same < same_threshold:
+#             print(f'WARNING. The percent of reads that matched to their pre-ITSx full-length read was above '
+#                   f'{same_threshold}%, at {percent_same}.\n')
+#
+#     return None
 
-    # create dictionary for acceptable input
-    accepted_regions = {r'(^S.+?(?=\bs)|SSU)': 'SSU',  # could be better but not going to obsess
-                        r'ITS.?1': 'ITS1',  # checks for possible punctuation within
-                        r'5.?8S': '5.8S',  # checks for possible punctuation within
-                        r'ITS.?2': 'ITS2',  # checks for possible punctuation within
-                        r'(^L.+?(?=\bs)|LSU)': 'LSU',  # similar to SSU
-                        r'(full)?.?ITS(?!.?\d)': 'ITS'}  # may include full, but can't have number after (w or w/o punct)
-
-    # check input list for valid entries, and then format string to consistent format
-    # returns dict now with formatted string as key, regex as value
-    def create_region_dict(region_list):
-        output_dict = {}
-        for region_str in region_list:
-            for r in accepted_regions.keys():  # compare input region to each regex in dict
-                if re.search(r, region_str, re.I):  # if it does match, stop loop and return the formatted version
-                    output_dict.update({accepted_regions[r]:r})
-                    break
-                else:
-                    continue
-            else:
-                return print(f'FAILURE. Did not recognize the input region {region_str}. Please choose from the '
-                             f'recognized regions: {list(accepted_regions.values())}\n')
-        return output_dict
-
-    region_search_dict = create_region_dict(regions_to_concat)
-
-    # make nested dict: read ID > region > [sequence, read len, derep01_reads(?)]
-    # ADD CHECK FOR MULTIPLE FILES MATCHING THE REGION IN THIS DIRECTORY
-    def search_path_with_regex(dir_path, regex, return_all=False):
-        found_file_paths = []
-        for file in dir_path.glob('*'):
-            if re.search(regex, file.name, re.I):
-                found_file_paths.append(file)
-            else:
-                continue
-
-        if len(found_file_paths) > 1:
-            if return_all:
-                return found_file_paths
-            else:
-                print(f'WARNING. Multiple files matching the provided regex {regex} were located in '
-                      f'{dir_path.name}. Returning only the first match.\n')  # REPLACE WITH OPTIONS?
-                return found_file_paths[0]
-        elif len(found_file_paths) == 0:
-            return print(f'FAILURE. No files matching the provided regex {regex} were located in '
-                         f'{dir_path.name}. Exiting...\n')
-        else:
-            return found_file_paths[0]
-
-    fastas_to_concat = [search_path_with_regex(dir_path, regex=r) for r in region_search_dict.values()]
-
-    sample_name = get_sample_id(file_path = fastas_to_concat[0])
-    file_prefix = re.search(PREFIX_RE, fastas_to_concat[0].name, re.I).group(0)
-
-    if list(region_search_dict.keys()) == ['ITS1', '5.8S', 'ITS2']:
-        concat_name = 'full_ITS'
-    elif list(region_search_dict.keys()) == ['ITS1', '58S', 'ITS2', 'LSU']:
-        concat_name = 'ITS-LSU'
-    else:
-        concat_name = input(f'Please provide a name to assign to this combination of subregions (use '
-                            f'underscores instead of spaces):\n')
-
-    # ADD THESE OPTIONS IN THE CONFIG FILE?
-    details_to_include = ['sequence', 'region_len', 'full-len_copies']
-
-    concat_dict = {}
-    for fasta in fastas_to_concat:
-        for record in SeqIO.parse(fasta, 'fasta'):
-            try:
-                read_id = re.search(READ_ID_RENAMED_RE, record.description).group(0)
-                region = re.search(READ_REGION_RENAMED_RE, record.description, re.I).group(0)
-
-                length = re.search(READ_LEN_RENAMED_RE, record.description, re.I).group(0)
-                derep01_reads = re.search(READ_COUNT_RENAMED_RE, record.description, re.I).group(0)
-                details = {k:v for k,v in zip(details_to_include, [record.seq, length, derep01_reads])}
-
-                if read_id in concat_dict:  # if this sample is already in the dictionary...
-                    concat_dict[read_id].update({region: details})  # append the new region info to it
-                else:  # if it isn't yet in the dictionary...
-                    concat_dict[read_id] = {region: details}  # add a key value pair for this sample
-            except:
-                print(f'There was an issue extracting information from the fasta header of the input file '
-                      f'{fasta}. This will occur if the sequence files produced by ITSx have not yet '
-                      f'been reformatted. Please run the rename_read_header function and retry.\n')
-                return sys.exit()
-
-    # concat sequences by read
-    concatenated_records = []
-    for read in concat_dict.keys():
-        # create lists to append to each region's records to
-        record_details = {k:[] for k in details_to_include}
-
-        # pull info from each region for this read
-        for region in region_search_dict.keys():
-            region_dict = concat_dict[read][region]
-            for det in details_to_include:
-                if det in record_details:
-                    record_details[det].append(region_dict[det])  # append before sum to ensure all regions there
-                else:
-                    record_details[det] = region_dict[det]  # append before sum to ensure all regions there
-
-        # confirm all regions data was acquired, then combine
-        def join_if_all_present(pulled_data_dict):
-
-            joined_data = {'seq':'',
-                           'id':[]}
-
-            for k in pulled_data_dict.keys():
-                if len(pulled_data_dict[k]) == len(regions_to_concat):
-                    if any(isinstance(i, Seq) for i in pulled_data_dict[k]):
-                        joined_data['seq'] = Seq('').join(pulled_data_dict[k])  # must join with empty seq
-                    else:
-                        if re.search(r'len$', k, re.I):
-                            read_len = f'{concat_name} {sum([int(x) for x in pulled_data_dict[k]])}bp'
-                        elif re.search(r'^full\-len|count', k, re.I):
-                            if len(set(pulled_data_dict[k])) == 1:
-                                derep = f'{k}={int(pulled_data_dict[k][0])}'  # if all same, doesn't matter which you chose
-                        else:
-                            print(f'Could not recognized the input data type, {k}:\n'
-                                  f'\t{pulled_data_dict[k]}\n')
-                            return None
-                else:
-                    msg = f'Did not successfully pull all {k}s from the regions to concatenate ' \
-                          f'({len(pulled_data_dict[k])} out of {len(regions_to_concat)} were pulled). ' \
-                          f'Debug before continuing...\n'
-                    print(msg)
-                    return sys.exit()
-
-            joined_data.update({'id':[read_id, derep, read_len]})
-
-            return joined_data
-
-        combined_data = join_if_all_present(record_details)
-        concat_record = SeqRecord(combined_data['seq'],
-                                  name = read,
-                                  id = header_delim.join(combined_data['id']),
-                                  description = '')
-        concatenated_records.append(concat_record)
-
-    fasta_out = dir_path / f'{file_prefix}_{sample_name}.{concat_name}.fasta'
-    SeqIO.write(concatenated_records, fasta_out, 'fasta')
-    return None
-
-def check_concat_output(itsx_dir, full_len_dir, num_bp_compare, file_map, write_to_log=True, same_threshold=99, header_delim=None):
-
-    # import configuration settings
-    settings = get_settings(file_map)
-    run_name = settings['run_details']['run_name']
-
-
-    # check which value to use for the read header delimiter
-    if header_delim is None:
-        header_delim = settings['formatting']['header_delim']
-    else:
-        pass
-
-    bp = int(num_bp_compare)
-
-    # import records as dictionary, where the read ID is the key
-    def name_as_key(record):
-        header = record.id
-        sample_read_id = header.split(header_delim)[0]
-        return sample_read_id
-
-    # import full ITS records and LSU (for revcomp comparison)
-    full_its_records = SeqIO.to_dict(SeqIO.parse(next(itsx_dir.glob('*full_ITS*')), 'fasta'), key_function=name_as_key)
-    lsu_records = SeqIO.to_dict(SeqIO.parse(next(itsx_dir.glob('*LSU*')), 'fasta'), key_function=name_as_key)
-
-    # collect the full length _ bp sequences at start, full ITS _ bp sequences at start, and LSU _ bp seqs at end
-    post_itsx_diffs = {'read_id':[],
-                       'full_start':[],
-                       'its_start':[],
-                       'lsu_end':[]}
-    for record in SeqIO.parse(full_len_dir, 'fasta'):
-
-        sample_id = get_sample_id(file_path = full_len_dir.name)
-        read_num = re.search(READ_ID_OG_RE, record.id).group(0)
-        read_id = '_'.join([sample_id, read_num])
-
-        renamed_record = SeqRecord(record.seq, id=read_id, description='')
-
-        full_len_seq = renamed_record.seq
-        full_its_seq = full_its_records[renamed_record.id].seq
-        try:
-            lsu_seq = lsu_records[renamed_record.id].seq
-        except:
-            lsu_seq = 'N'*bp
-
-
-        post_itsx_diffs['read_id'].append(renamed_record.id)
-        post_itsx_diffs['full_start'].append(str(full_len_seq[:bp]))
-        post_itsx_diffs['its_start'].append(str(full_its_seq[:bp]))
-        post_itsx_diffs['lsu_end'].append(str(lsu_seq[-bp:]))
-
-    # create df from this dictionary
-    diff_df = pd.DataFrame.from_dict(post_itsx_diffs)
-
-    # compare the read slices first as full-ITS fwd, then full-LSU revcomp
-    comparison_result = []  # True if same
-    equal_as = []  # str describing nature of match: fwd, revcomp, no LSU, unresolved (error)
-    for i in range(diff_df.shape[0]):
-        full_fwd = Seq(diff_df['full_start'][i])
-        its_fwd = Seq(diff_df['its_start'][i])
-        lsu_end = Seq(diff_df['lsu_end'][i])
-        if full_fwd == its_fwd:
-            comparison_result.append(True)
-            equal_as.append('forward_strand')
-            continue
-        else:
-            if 'N' in lsu_end:
-                comparison_result.append(False)
-                equal_as.append('no_lsu')
-            else:
-                its_revcomp = lsu_end.reverse_complement()
-                if full_fwd == its_revcomp:
-                    comparison_result.append(True)
-                    equal_as.append('reverse_comp')
-                    continue
-                else:
-                    comparison_result.append(False)
-                    equal_as.append('unresolved')
-
-    diff_df['comparison'] = comparison_result
-    diff_df['equal_as'] = equal_as
-
-    percent_same = (sum(diff_df['comparison']) / diff_df.shape[0])*100
-    revcomp_detect = ((diff_df[diff_df['equal_as'] == 'reverse_comp'].shape[0]) /sum(diff_df['comparison']))*100
-    forward_detect = ((diff_df[diff_df['equal_as'] == 'forward_strand'].shape[0]) /sum(diff_df['comparison']))*100
-    missing_lsu = ((diff_df[diff_df['equal_as'] == 'no_lsu'].shape[0]) /sum(diff_df['comparison']))*100
-
-    if write_to_log:
-        log_dir = itsx_dir / 'itsx_inspection_logs'
-        log_dir.mkdir(exist_ok=True)
-        diff_df.to_csv(log_dir / f'itsx_inspection_comparison.csv', index=False)
-        with open((log_dir / 'itsx_inspection_summary.log'), 'wt') as fout:
-            fout.write(f'sample: {get_sample_id(file_path = full_len_dir.name)}\n')
-            fout.write(f'date: {datetime.today().strftime("%Y-%M-%d")}\n\n')
-            fout.write(f'All full-length reads were compared to their ITS region after running ITSx. The first'
-                       f' {bp} bp of the full-length reads were aligned to the first {bp} bp of their corresponding '
-                       f'full ITS read that was concatenated after running ITSx. If the first {bp} bp did not '
-                       f'match, then the reverse complement of the last {bp} bp of their LSU region was compared '
-                       f'to the first {bp} bp of the full-length read. This is because reads are not reoriented '
-                       f'until done so by ITSx. \n\n')
-            fout.write(f'For {percent_same:.2f}% of these comparisons (out of {diff_df.shape[0]} total comparisons), '
-                       f'the first {bp} bp of the full length read matched the first {bp} bp of either the forward '
-                       f'ITS or reverse complement of the end of the LSU for that read.\n\n')
-            fout.write(f'Out of the {percent_same:.2f}% that matched, {forward_detect:.2f}% were matched by comparing '
-                       f'the full-length read to the start of the ITS, while {revcomp_detect:.2f}% were matched by '
-                       f'comparing the full-length read to the reverse complement of the end of the LSU region.\n\n')
-            if missing_lsu > 0:
-                fout.write(f'{int(missing_lsu*diff_df.shape[0])} reads ({missing_lsu:.2f}% of total) did not have '
-                           f'an LSU region to compare to, since ITSx could not locate the LSU for the read(s). This '
-                           f'accounts for the proportion of reads that could not be matched.\n')
-    else:
-        if percent_same < same_threshold:
-            print(f'WARNING. The percent of reads that matched to their pre-ITSx full-length read was above '
-                  f'{same_threshold}%, at {percent_same}.\n')
-
-    return None
-
-def create_query_fasta(input_dir, output_path, file_map):
-
-    # define a variable to use for SeqIO, for the file format (no .)
-    file_fmt = 'fasta'
+def create_query_fasta(input_dir, output_path, file_map, file_fmt='fasta'):
 
     # process input_dir to allow for either a directory or list of files; either way, must be Path object(s)
 
@@ -1480,8 +1841,9 @@ def create_query_fasta(input_dir, output_path, file_map):
             total_record_list.append(record)
 
     # write out the list of all records across all samples to a query fasta file
-    combined_out_dir = mkdir_exist_ok(new_dir=output_path)
-    combined_out_file = (combined_out_dir / f'{run_name}_query').with_suffix(file_fmt)
+    output_path.mkdir(exist_ok=True)  # make directory of input path
+    seq_platform = get_seq_platform(file)  # get the sequence platform from the last file iterated through
+    combined_out_file = (combined_out_dir / f'{QUERY_PREFIX}_{seq_platform}_{run_name}').with_suffix('.' + file_fmt)
     SeqIO.write(total_record_list, combined_out_file, file_fmt)
 
     ## CHECK OUTPUT FILE
@@ -1503,7 +1865,7 @@ def create_query_fasta(input_dir, output_path, file_map):
 
             # get the sample ID portion of the read header (i.e., the first item,
             #   removing the read abundance annotation)
-            read_id = record.id.split(settings['header_delim'])[0]
+            read_id = record.id.split(settings['formatting']['header_delim'])[0]
 
             # add the read_id to the set of samples confirmed to be in the output
             samples_in_output.add(read_id)
@@ -1514,25 +1876,42 @@ def create_query_fasta(input_dir, output_path, file_map):
     # if there are samples from the input that aren't in the output file...
     if len(dropped_samples) > 0:
 
-        # check if the samples are missing because the non-chimera fasta files are empty (no reads)
-
-        # locate the samples with empty non-chimera fasta files by checking the
-        #    no-nonchim summary from check_chimeras()
+        # if check_chimeras() has run and produced its summary file, compare to this file
         no_nonchim_path = input_dir.parent / f'{run_name}_no-nonchim-reads.txt'
-        empty_samples = pd.read_table(no_nonchim_path, delimiter='\t')['sample id'].to_list()
+        if no_nonchim_path.is_file():
+            # check if the samples are missing because the non-chimera fasta files are empty (no reads)
 
-        # if the list of no-nonchim samples matches the list of dropped samples, then everything worked as expected
-        if empty_samples == dropped_samples:
-            pass
+            # locate the samples with empty non-chimera fasta files by checking the
+            #    no-nonchim summary from check_chimeras()
+            empty_samples = pd.read_table(no_nonchim_path, delimiter='\t')['sample id'].to_list()
+
+            # if the list of no-nonchim samples matches the list of dropped samples, then everything worked as expected
+            if empty_samples == dropped_samples:
+                pass
+            else:
+                dropped_samples_unaccounted = list(set(empty_samples).difference(set(dropped_samples)))
+                print(f'ERROR. {len(dropped_samples_unaccounted)} samples are missing from the query fasta file output:\n'
+                      f'  {combined_out_file.name}\n'
+                      f'This fasta file should contain reads from every sample that has reads in the non-chimera output '
+                      f'fasta files. After accounting for samples with no non-chimeric reads, the following samples '
+                      f'were expected to be present in the query fasta file but are not:\n')
+                print_indented_list(dropped_samples_unaccounted)
+                exit_process(message='')  # leave out message, I print above so I can use my fnc to print the indented list
+
+        # if check_chimeras() has not run, or is not currently the script being run, then write out missing samples
+        #   to a summary file in the input directory to this function
         else:
-            dropped_samples_unaccounted = list(set(empty_samples).difference(set(dropped_samples)))
-            print(f'ERROR. {len(dropped_samples_unaccounted)} samples are missing from the query fasta file output:\n'
-                  f'  {combined_out_file.name}\n'
-                  f'This fasta file should contain reads from every sample that has reads in the non-chimera output '
-                  f'fasta files. After accounting for samples with no non-chimeric reads, the following samples '
-                  f'were expected to be present in the query fasta file but are not:\n')
-            print_indented_list(dropped_samples_unaccounted)
-            exit_process(message='')  # leave out message, I print above so I can use my fnc to print the indented list
+
+            dropped_samples_path = input_dir.parent / f'{run_name}_missing-from-pooled-seqs.txt'
+
+            print(f'WARNING. {len(dropped_samples)} samples are missing from the pooled sequencing .fasta file. '
+                  f'See a list of these missing samples in the summary file:\n'
+                  f'   {dropped_samples_path}')
+
+            with open(dropped_samples_path, 'wt') as fout:
+                fout.write(f'The following samples are missing from the pooled sequencing file:\n')
+                for sample in dropped_samples:
+                    fout.write(f'   {sample}\n')
 
     # if there are no dropped samples detected, then the everything worked as expected, and none of the samples were
     #   devoid of non-chimera reads after chimera detection
@@ -1582,18 +1961,19 @@ def denoise(input_files, file_map, alpha, minsize, clust_threshold, pool_samples
 
     ## DENOISE #########################################
 
-    # if you want to pool all reads across samples...
+    # if you want to pool all reads across samples (default)...
     if pool_samples:
 
         # use create_query_fasta to rename read headers, combine into one fasta, and return the path to this new file
-        combined_fasta = create_query_fasta(input_dir=illumina_files, file_map=file_map)
+        input_parent_dir = illumina_files[0].parent  # create_query_fasta requires a directory, not a list
+        combined_fasta = create_query_fasta(input_dir=input_parent_dir, file_map=file_map, output_path=denoise_path)
 
         # create an output file path to write denoised centroid sequences to
-        denoise_out = denoise_path / f'{run_name}_denoised.fasta'
+        denoise_output = add_prefix(file_path=combined_fasta, prefix=DENOISE_PREFIX, dest_dir=denoise_path, action=None)
 
         # assemble the vsearch UNOISE command for the command line
         vsearch_unoise_cmd = ['vsearch', '--cluster_unoise', combined_fasta,
-                              '--centroids', denoise_out,
+                              '--centroids', denoise_output,
                               '--minsize', str(minsize),
                               '--unoise_alpha', str(alpha),
                               '--id', str(clust_threshold)]
@@ -1612,7 +1992,7 @@ def denoise(input_files, file_map, alpha, minsize, clust_threshold, pool_samples
         for illumina_file in illumina_files:
 
             # create an output file path to write denoised centroid sequences to
-            denoise_out = add_prefix(file_path=illumina_file, prefix=DENOISE_PREFIX,
+            denoise_output = add_prefix(file_path=illumina_file, prefix=DENOISE_PREFIX,
                                      dest_dir=denoise_path, action=None)
 
             # add this sample's input and output paths to the input/output dictionary
@@ -1620,7 +2000,7 @@ def denoise(input_files, file_map, alpha, minsize, clust_threshold, pool_samples
 
             # assemble the vsearch UNOISE command for the command line
             vsearch_unoise_cmd = ['vsearch', '--cluster_unoise', illumina_file,
-                                  '--centroids', denoise_out,
+                                  '--centroids', denoise_output,
                                   '--minsize', str(minsize),
                                   '--unoise_alpha', str(alpha),
                                   '--id', str(clust_threshold)]
@@ -1736,7 +2116,7 @@ def denoise(input_files, file_map, alpha, minsize, clust_threshold, pool_samples
 
     return None
 
-def check_chimeras(input_files, file_map, method, keep_chimeras):
+def check_chimeras(input_files, file_map, method, alpha, keep_chimeras):
 
     ## GET SETTINGS ###################################
 
@@ -1761,6 +2141,13 @@ def check_chimeras(input_files, file_map, method, keep_chimeras):
 
     # if the method is set to denovo, then do de novo chimera detection
     if method == 'denovo':
+
+        # depending on whether sequences were pooled prior to denoising, input_files may be a list of files (unpooled)
+        #  or a single file (pooled); either way, create a list from the input_files argument
+        if isinstance(input_files, list):
+            pass
+        else:
+            input_files = [input_files]
 
         # de novo chimera detection is platform-dependent, so sort input files by platform
 
@@ -1798,6 +2185,7 @@ def check_chimeras(input_files, file_map, method, keep_chimeras):
 
             # assemble the vsearch UCHIME command for the command line
             vsearch_denovo_cmd = ['vsearch', '--uchime3_denovo', illumina_file,
+                                  '--abskew', str(alpha),
                                   '--nonchimeras', nochim_out,
                                   '--uchimeout', uchime_log]
 
@@ -1856,11 +2244,11 @@ def check_chimeras(input_files, file_map, method, keep_chimeras):
     empty_nonchim = {}
 
     # go through each non-chimeric file that was just created
-    for nonchim_file in nonchim_path.glob(f'{NOCHIM_PREFIX}*fasta'):
+    for nonchim_file in nochim_path.glob(f'{NOCHIM_PREFIX}*fasta'):
 
         # for each non-chimeric file, count the number of sequences (read count)
         read_count = 0
-        with open(dfile) as fasta_in:
+        with open(nonchim_file) as fasta_in:
             for record in SeqIO.parse(fasta_in, 'fasta'):
                 read_count += 1
 
