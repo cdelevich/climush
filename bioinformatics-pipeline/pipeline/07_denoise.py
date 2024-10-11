@@ -12,7 +12,8 @@ run_name = settings['run_details']['run_name']
 ## ADD COMMAND LINE OPTIONS
 
 parser = argparse.ArgumentParser(prog=Path(__file__).stem,
-                                 description='Denoise Illumina reads.',
+                                 description='Error correction of Illumina reads using the DENOISE3 algorithm from '
+                                             'vsearch.',
                                  epilog='This script is part of the CliMush bioinformatics pipeline.')
 
 # optional; input directory
@@ -43,10 +44,8 @@ parser.add_argument('--alpha',
                     default=settings['denoise']['alpha'],
                     type=float,
                     help='The minimum abundance skew; the factor by which the centroid sequence read count must '
-                         'exceed the target sequence in order for the target to be considered a chimera. A default '
-                         'value of 2.0 means that the centroid sequence must have twice as many reads as the '
-                         'chimera, with the assumption that a true sequence has undergone two PCRs while a chimera '
-                         'would have only undergone one.')
+                         'exceed the target sequence in order for the target to be clustered. The default value '
+                         'is 2.0.')
 
 # optional; clustering threshold
 parser.add_argument('--clust_threshold',
