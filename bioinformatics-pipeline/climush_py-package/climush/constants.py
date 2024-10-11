@@ -61,6 +61,10 @@ PLATFORM_ANYWHERE_RE = r'illumina|pacbio|sanger'
 # SAMPLE ID FROM FILE NAME
 # to use as default in get_sample_id() if platform not found
 SAMPLE_ID_RE = r'(?<=\w_)(pacbio|sanger|illumina).+?(?=\.)'
+# matches only to climush samples that are field collections (i.e., will not match to mock communities, NTCs, etc.)
+STRICT_CLIMUSH_SAMPLE_ID_RE = r'(pacbio|sanger|illumina)_(soil|litter|spore|sporocarp-[a,f]|(leaf|seed|root)-sp\d{2})_\d{4}-\d{2}_D\d{2}_[U,B]{1}[O,G,C]{1}_0[1-9]{1}'
+# will match to any climush samples, including mock communities, NTCs, unknowns, etc.
+LAX_CLIMUSH_SAMPLE_ID_RE = r'(pacbio|sanger|illumina)_(soil|litter|spore|sporocarp-[a,f]|(leaf|seed|root)-sp\d{2}).+?'
 
 # DETECT COLUMN NAMES IN BARCODE MAPPING TABLES #######
 # used in demultiplex() in bioinfo.py to detect columns
