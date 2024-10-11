@@ -32,8 +32,15 @@ parser.add_argument('--method',
                          'first be denoised using the UNOISE algorithm. If reference-based, sequences will be compared '
                          'against the UNITE reference dataset for UCHIME.')
 
+# the minimum abundance skew
+parser.add_argument('--alpha',
+                    default=None,  # if not provided, depends on method for default value
+                    help='The minimum abundance skew; the factor by which read abundance of centroid exceeds chimera. '
+                         'For de novo chimera detection using UCHIME3, the default is 16.0. For all other chimera '
+                         'detection methods, the default is 2.0.')
+
 # optional; whether to keep the chimera reads and write out to chimera output directory
-parser.add_argument('--keep-chimers',
+parser.add_argument('--keep-chimeras',
                     default=settings['chimera_check']['keep_chimeras'],
                     action='store_true',
                     help='Whether to keep the chimera sequences and write them to their own output directory. If '
@@ -44,6 +51,12 @@ parser.add_argument('--keep-chimers',
 # parse command line options and defaults into a dictionary
 args = vars(parser.parse_args())
 
+
+# determine the default alpha value to use if one is not provided to argparse
+if args['alpha'] is None:
+    default_alpha = settings['chimera_check']['alpha'][args['method']]
+    args.update({'alpha': default_alpha})
+    print(f'Using a default abundance skew of {default_alpha} for {args["method"]} chimera detection.\n')
 
 #####################
 # ILLUMINA ##########
@@ -60,7 +73,10 @@ else:
 is_input, illumina_files = check_for_input(args['input'], config_dict=settings, seq_platform=platform)
 
 if is_input:
-    check_chimeras(input_files=illumina_files, file_map=fpm, method=args['method'], keep_chimeras=args['keep_chimers'])
+    check_chimeras(input_files=illumina_files, file_map=fpm,
+                   method=args['method'],
+                   alpha=args['alpha'],
+                   keep_chimeras=args['keep_chimeras'])
 else:
     pass
 
@@ -71,15 +87,19 @@ platform = 'pacbio'
 
 # the default input path for Illumina sequences must be from the denoised sequence output
 if args['input'] is None:
-    args.update({'input': fpm['pipeline-output']['separated-subregions'] / f'{ITSX_PREFIX}_{run_name}'})
+    args.update({'input': fpm['pipeline-output']['derep-subregions'] / f'{DEREP_PREFIX}02_{run_name}'})
 else:
     pass
 
 # check if there are PacBio reads to check for chimeras
-is_input, pacbio_files = check_for_input(args['input'], config_dict=settings, seq_platform=platform)
+is_input, pacbio_dirs = check_for_input(args['input'], config_dict=settings,
+                                         seq_platform=platform, file_ext=None)
 
 if is_input:
-    check_chimeras(input_files=pacbio_files, file_map=fpm, method=args['method'])
+    check_chimeras(input_files=pacbio_dirs, file_map=fpm,
+                   method=args['method'],
+                   alpha=args['alpha'],
+                   keep_chimeras=args['keep_chimeras'])
 else:
     pass
 
@@ -94,11 +114,14 @@ platform = 'sanger'
 # else:
 #     pass
 
-# check if there are PacBio reads to check for chimeras
+# check if there are Sanger reads to check for chimeras
 is_input, sanger_files = check_for_input(args['input'], config_dict=settings, seq_platform=platform)
 
 if is_input:
-    check_chimeras(input_files=sanger_files, file_map=fpm, ref=args['method'])
+    check_chimeras(input_files=sanger_files, file_map=fpm,
+                   method=args['method'],
+                   alpha=args['alpha'],
+                   keep_chimeras=args['keep_chimeras'])
 else:
     pass
 
