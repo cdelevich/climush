@@ -1452,7 +1452,7 @@ def copy_original_files(directory, copy_directory='original_files', compress=Tru
                      f'\t{copy_path}')
 
 
-def rename_read_header(input_dir, run_name, file_format='.fasta', unique_headers=False, no_copy=True):
+def rename_read_header(input_dir, run_name, file_format='.fasta', unique_headers=False, no_copy=True, append_sample_str=False):
 
     ## CHECK INPUT FILES ARE FASTA FORMAT FILES
 
@@ -1549,6 +1549,12 @@ def rename_read_header(input_dir, run_name, file_format='.fasta', unique_headers
                 # just use the sample ID as the read header, with the read's size included
                 new_read_header = re.sub(ILLUMINA_READ_ID_OG, sample_id, record.description)
 
+
+            # before adding the new read header to the conversion dict, check if sample= should be appended to front
+            if append_sample_str:
+                new_read_header = 'sample=' + new_read_header
+            else:
+                pass
 
             # add the old and new read headers to the conversion dictionary
             conversion_dict[sample_id].update({old_read_header: new_read_header})
