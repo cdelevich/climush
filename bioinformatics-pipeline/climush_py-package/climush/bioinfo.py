@@ -1788,7 +1788,7 @@ def separate_subregions(input_files, file_map, verbose=False):
 #
 #     return None
 
-def create_query_fasta(input_dir, output_path, file_map, file_fmt='fasta'):
+def create_query_fasta(input_dir, output_path, file_map, file_fmt='fasta', keep_unsorted=False):
 
     # process input_dir to allow for either a directory or list of files; either way, must be Path object(s)
 
@@ -1813,8 +1813,8 @@ def create_query_fasta(input_dir, output_path, file_map, file_fmt='fasta'):
     settings = get_settings(file_map)
     run_name = settings['run_details']['run_name']
 
-    # rename the read headers, post-chimera detection, so that the read ID contains the sample ID
-    rename_read_header(input_dir=input_dir, run_name=run_name)
+    # rename the read headers, post-chimera detection, so that the read ID contains the sample ID with sample= prefix
+    rename_read_header(input_dir=input_dir, run_name=run_name, append_sample_str=True)
 
     # create an empty list to add all records (reads) from all input fasta files in input_dir
     total_record_list = []
@@ -1843,8 +1843,23 @@ def create_query_fasta(input_dir, output_path, file_map, file_fmt='fasta'):
     # write out the list of all records across all samples to a query fasta file
     output_path.mkdir(exist_ok=True)  # make directory of input path
     seq_platform = get_seq_platform(file)  # get the sequence platform from the last file iterated through
-    combined_out_file = (combined_out_dir / f'{QUERY_PREFIX}_{seq_platform}_{run_name}').with_suffix('.' + file_fmt)
-    SeqIO.write(total_record_list, combined_out_file, file_fmt)
+    combined_unsorted_out = (output_path / f'{QUERY_PREFIX}_{seq_platform}_{run_name}_unsorted').with_suffix('.' + file_fmt)
+    SeqIO.write(total_record_list, combined_unsorted_out, file_fmt)
+
+
+    ## SORT OUTPUT BY DECREASING READ ABUNDANCE
+
+    # create a file path to write the sorted sequence file to
+    combined_sorted_out = (output_path / f'{QUERY_PREFIX}_{seq_platform}_{run_name}_sorted').with_suffix('.' + file_fmt)
+
+    # assemble the vsearch command that will take the unsorted query file and arrange all seqs by decreasing read abundance
+    vsearch_sort_cmd = ['vsearch', '--sortbysize', combined_unsorted_out,
+                        '--output', combined_sorted_out, '--sizeout']
+
+    # execute the sorting vsearch command
+    run_subprocess(vsearch_sort_cmd, dest_dir=output_path, run_name=run_name,
+                   program='vsearch-sort', separate_sample_output=True, auto_respond=False)
+
 
     ## CHECK OUTPUT FILE
 
@@ -1855,7 +1870,7 @@ def create_query_fasta(input_dir, output_path, file_map, file_fmt='fasta'):
     output_read_count = 0
 
     # read in the output file to confirm that all samples that should be represented, are represented
-    with open(combined_out_file) as fasta_in:
+    with open(combined_sorted_out) as fasta_in:
 
         # go through each record in the output file...
         for record in SeqIO.parse(fasta_in, file_fmt):
@@ -1891,7 +1906,7 @@ def create_query_fasta(input_dir, output_path, file_map, file_fmt='fasta'):
             else:
                 dropped_samples_unaccounted = list(set(empty_samples).difference(set(dropped_samples)))
                 print(f'ERROR. {len(dropped_samples_unaccounted)} samples are missing from the query fasta file output:\n'
-                      f'  {combined_out_file.name}\n'
+                      f'  {combined_sorted_out.name}\n'
                       f'This fasta file should contain reads from every sample that has reads in the non-chimera output '
                       f'fasta files. After accounting for samples with no non-chimeric reads, the following samples '
                       f'were expected to be present in the query fasta file but are not:\n')
@@ -1916,12 +1931,23 @@ def create_query_fasta(input_dir, output_path, file_map, file_fmt='fasta'):
     # if there are no dropped samples detected, then the everything worked as expected, and none of the samples were
     #   devoid of non-chimera reads after chimera detection
     else:
-        pass
+
+        # if you want to keep the unsorted version of the query output file, do nothing
+        if keep_unsorted:
+            pass
+        # if you do not want to keep the unsorted version of the query output file...
+        else:
+            # remove the unsorted version of the query fasta file
+            combined_unsorted_out.unlink()
+            # rename the sorted version by dropping its prefix
+            combined_sorted_out_nosuffix = (combined_sorted_out.parent / combined_sorted_out.stem.split('_')[:-1]).with_suffix(combined_sorted_out.suffix)
+            combined_sorted_out.rename(combined_sorted_out_nosuffix)
+
 
     print(f'Number of input reads = {input_read_count}\n'
           f'Number of output reads = {output_read_count}\n')
 
-    return combined_out_file
+    return combined_sorted_out
 
 
 def denoise(input_files, file_map, alpha, minsize, clust_threshold, pool_samples=True):
@@ -1970,13 +1996,18 @@ def denoise(input_files, file_map, alpha, minsize, clust_threshold, pool_samples
 
         # create an output file path to write denoised centroid sequences to
         denoise_output = add_prefix(file_path=combined_fasta, prefix=DENOISE_PREFIX, dest_dir=denoise_path, action=None)
+        denoise_otutab_out = (denoise_output.parent / (denoise_output.stem + '_otu-table')).with_suffix('.txt')
+        denoise_clust_out = (denoise_output.parent / (denoise_output.stem + '_clusters')).with_suffix('.uc')
 
         # assemble the vsearch UNOISE command for the command line
         vsearch_unoise_cmd = ['vsearch', '--cluster_unoise', combined_fasta,
                               '--centroids', denoise_output,
+                              '--otutabout', denoise_otutab_out,
+                              '--uc', denoise_clust_out,
                               '--minsize', str(minsize),
                               '--unoise_alpha', str(alpha),
-                              '--id', str(clust_threshold)]
+                              '--id', str(clust_threshold),
+                              '--relabel', 'ASV']
 
         # execute the vsearch UNOISE command
         run_subprocess(vsearch_unoise_cmd, dest_dir=denoise_parent, run_name=run_name, program='unoise',
