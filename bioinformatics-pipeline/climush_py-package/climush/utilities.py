@@ -966,7 +966,7 @@ def count_files(file_path, search_for='*'):
 
     return len(list(file_path.glob(search_for)))
 
-def check_for_input(file_dir, config_dict, path_must_exist=True, seq_platform=None, file_ext=SEQ_FILE_GLOB):
+def check_for_input(file_dir, config_dict, path_must_exist=True, seq_platform=None, file_ext=SEQ_FILE_GLOB, file_prefix=None):
     '''
     Checks if there are input files for the process.
 
@@ -1004,6 +1004,12 @@ def check_for_input(file_dir, config_dict, path_must_exist=True, seq_platform=No
             # get a list of subdirectories in the input directory
             input_subdirs = [d for d in input_dir.glob('*') if d.is_dir()]
 
+            # if a specific prefix is required, filter out anything that doesn't have this prefix
+            if file_prefix is None:
+                pass
+            else:
+                input_subdirs = [d for d in input_subdirs if d.name.startswith(file_prefix)]
+
             # if there are subdirectories, return True and a list of the subdirectory paths
             if len(input_subdirs) > 0:
                 return True, input_subdirs
@@ -1022,6 +1028,12 @@ def check_for_input(file_dir, config_dict, path_must_exist=True, seq_platform=No
 
             # use the platform-specific regex to create a list of relevant file paths
             file_list = [f for f in input_dir.glob(file_ext) if re.search(seq_re, f.name, re.I)]
+
+            # if a file prefix is provided, further filter the file list for a files with specific prefix
+            if file_prefix is None:
+                pass
+            else:
+                file_list = [f for f in file_list if f.name.startswith(file_prefix)]
 
             # if at least 1 file was recovered matching the sequence platform(s)...
             if len(file_list) > 0:
