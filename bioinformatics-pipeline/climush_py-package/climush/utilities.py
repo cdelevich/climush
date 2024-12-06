@@ -1963,3 +1963,182 @@ def sort_input_files(filepath_dict, to_sort='main'):
 #             mapping_file_names.append(prompt_print_options(match))
 #
 #     return mapping_file_names
+
+
+def rescale_percent_identity(input_df, column='percent_match'):
+    '''
+    Standardize how percent identity is scaled.
+
+    Percent identity scores from taxonomic assignments can be scaled from 0-100 or 0-1, depending on
+    the algorithm used. This function will look for a column named 'percent_match' (default) in the
+    input table, and scale any values between (and including) 0 and 1 and convert them to a percentage
+    scale between 0 and 100. If the values are already between 1 and 100, they will not be altered.
+    :param input_df: dataframe containing percent identity values to be scaled
+    :param column: the name of the column in the input dataframe that contains the percent identity values.
+    :return: a copy of the dataframe, with the scaled percent match values replacing the input
+    percent mach values
+    '''
+
+    # make sure that the column dtype is float, tends to be imported as a string
+    output_df = input_df.astype({column:'float'}, copy=True)
+
+    # create a list of values where the percent_match values are all percents and not decimals
+    percent_vals = []
+    for val in output_df[column]:
+
+        # if the percent match value is less than or equal to 1, it is likely a decimal form, so convert to percent
+        if val <= 1.0:
+            percent_vals.append(val*100)
+
+        # if the percent match value is greater than 1 but less than 100, it should already be a percent
+        #  I don't think you would get 1%, so it seems more likely to say a value of 1.0 is 100% decimal, not 1% percent
+        elif 1.0 < val <= 100.0:
+            percent_vals.append(val)
+
+        else:
+            raise KeyboardInterrupt(f'The value {val} is outside of the range of values that are evaluated in this '
+                                    f'loop. Add another contingency before continuing.')
+
+    # with this list of percent values, replace the mixed decimal/percent column with this list of percent only
+    output_df['percent_match'] = percent_vals
+
+    return output_df
+
+
+def sort_taxonomy_info(input_df, drop_col=True):
+    '''
+    Split and format taxonomic information from one column to several.
+
+    This function has only been testing on taxonomy information formatted by amptk taxonomy. When
+    provided an input dataframe, the column name 'Taxonomy' is searched for. The string in this
+    Taxonomy column is then split and manipulated so that 'clean' versions of each piece of information
+    in the taxonomy string is sorted into its own column. This includes not only the taxonomic
+    information (e.g., species, genus) but also the reference match information.
+    :param input_df: a dataframe, typically an OTU table, that has a Taxonomy column to be formatted
+    :param drop_col: True/False; whether to drop the Taxonomy column from the dataframe after extracting
+    its information, as the column should now be redundant
+    :return: a copy of the input dataframe with the split and formatted information from taxonomic
+    identification
+    '''
+
+    # create a copy of the input dataframe, as to not change the original version
+    dataframe = input_df.copy()
+
+    # create a list of new columns to add to the input dataframe, separated by taxonomy info and reference match info
+
+    # create a list of column names for splitting the taxonomy columns
+    tax_cols = ['kingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species']
+    tax_codes = ['k', 'p', 'c', 'o', 'f', 'g', 's']
+
+    # create a dictionary of the one-letter codes in the amptk taxonomy column with the full string version
+    tax_key = {k: v for k, v in zip(tax_codes, tax_cols)}
+
+    # new column names for the reference match info
+    info_cols = ['amptk_method', 'percent_match', 'genbank_ref', 'unite_ref']
+
+    # create a dictionary to store values for each of the new columns
+    new_tax_cols = {col: [] for col in (info_cols + tax_cols)}
+
+    # go through each ASV and sort out the taxonomy
+    for tax_str in dataframe['Taxonomy']:
+
+        # make a asv-level dict, so it is clearer which of the new columns needs an empty string before adding to megadict
+        # fill all values with empty string; will either be replaced with a value, or left an empty str if info missing
+        asv_tax_info = {col: '' for col in (info_cols + tax_cols)}
+
+        ## SORT TAXONOMIC LEVELS ##
+
+        # split string into the taxonomic levels
+        tax_info = tax_str.split(';')[1].split(',')
+
+        # keep track of which taxonomic levels had values that were handled; otherwise, will add empty strings
+        tax_lvl_sorted = set()
+
+        # some of the ASVs have 100% match and genbank/UNITE refs, but no taxonomy assigned?
+        if tax_info == [''] or tax_info == ['No hit']:
+
+            # do nothing here, tax_lvl_sorted will be empty, and new columns handled below
+            pass
+
+        # if at least some of the taxonomic info is there, go through each string
+        else:
+
+            # sort the taxonomy into the different taxonomic levels
+            for t in tax_info:
+                # get the taxonomic level string based on the one-letter code in the amptk output info
+                tax_lvl_abbr = t.split(':')[0]
+                tax_lvl = tax_key[tax_lvl_abbr]
+
+                # add the taxonomy value to the new columns
+                asv_tax_info.update({tax_lvl: t.split(':')[1]})
+
+                # add the taxonomic lvl to the set that keeps track of which taxonomic levels have been dealt with
+                tax_lvl_sorted.add(tax_lvl_abbr)
+
+        ## SORT REFERENCE DB INFO ##
+
+        # split the taxonomy string for a list of references related to the taxonomy match
+        ref_match_info = tax_str.split(';')[0].split('|')
+
+        # sort the reference db match info into the new columns
+
+        # create a regular expression for three of four pieces of info in the ref db match info
+        ref_regex = {r'^[A-Z]{2,3}$': 'amptk_method',
+                     r'^([0-9]{1,3}\.[0-9]{1})|(0\.\d{4})$': 'percent_match',
+                     r'^SH': 'unite_ref'}
+
+        # genbank ref number is more variable, so anything not matching a regex in the ref_regex dict will be the genbank ref
+
+        # go through each regular expression...
+        for regex, new_col in ref_regex.items():
+
+            # and try to match to an item in the ref match info
+            match_found = [info for info in ref_match_info if re.search(regex, info)]
+
+            # check if and how many matches were found for this regex/new column
+            if len(match_found) == 1:
+
+                # if a match is found, add it to the new column dictionary
+                asv_tax_info.update({new_col: match_found[0]})
+
+                # and remove it from the list, to keep track of which values have made it into the new columns
+                ref_match_info.remove(match_found[0])
+
+            # if multiple matches are found, then the regex is likely not specific enough and should be reworked
+            elif len(match_found) > 1:
+                raise KeyboardInterrupt('Refine the regex used to locate the column values, as the current version '
+                                        'matches multiple values rather than just one.')
+
+            # if no match found, then move to next regex
+            else:
+                continue
+
+        # after using the regex to sort the values, confirm there is one more unsorted value, which should
+        #  be the genbank ref number
+        if len(ref_match_info) == 1:
+            asv_tax_info.update({'genbank_ref': ref_match_info[0]})
+        elif len(ref_match_info) == 0:
+            raise KeyboardInterrupt('There are no remaining reference db info strings for the GenBank reference '
+                                    'number; confirm that no reference number exists before continuing.')
+        else:
+            raise KeyboardInterrupt('Multiple values remain after sorting the amptk method, percent match, and unite '
+                                    'reference number; check the values to see what is left unsorted.')
+
+        # update the big dictionary with info for this asv
+        for col, val in asv_tax_info.items():
+            new_tax_cols[col].append(val)
+
+    # add the taxonomy info from the dictionary into the input table, just after the ASV ID
+    for c, col in enumerate(new_tax_cols):
+        dataframe.insert(loc=(c + 1), column=col, value=new_tax_cols[col])
+
+    # rescale the percent identity column, so all values are on the scale of 0-100, not a mix of 0-1/0-100
+    dataframe = rescale_percent_identity(input_df=dataframe)
+
+    # if drop_col=True, return the dataframe without the Taxonomy column
+    if drop_col:
+        return dataframe.drop('Taxonomy', axis=1)
+
+    # if drop_col=False, return the dataframe with the Taxonomy column included
+    else:
+        return dataframe
