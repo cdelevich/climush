@@ -2142,3 +2142,84 @@ def sort_taxonomy_info(input_df, drop_col=True):
     # if drop_col=False, return the dataframe with the Taxonomy column included
     else:
         return dataframe
+
+def strip_file_ext(file_path, common_suffixes=KNOWN_FILE_SUFFIXES, verbose=False):
+    '''
+    Remove suffix or suffixes from a file name or file path.
+
+    This function will remove one or more suffixes (i.e., file extensions)
+    from a file name and return the file name without any suffix. This is an
+    adaptation using the pathlib library so that file paths with periods in
+    the file name and file paths with two suffixes can still be properly trimmed
+    of their suffix(es).
+    :param file_path: Path object to a file name that needs it suffix(es) removed
+    :param common_suffixes: a list of common  file extentions that are
+    likely to be encountered if the input file has more than one suffix; will help
+    to determine if multiple recovered suffixes are true file extension components
+    or part of a file name that includes periods.
+    :param verbose: will print a warning if an input file path did not contain
+    a file suffix
+    :return: a string of the file name with the suffix(es) removed
+    '''
+
+    # first, confirm that the input file_path is a Path object
+    is_pathclass(file_path, exit_if_false=False)
+
+    # create a list of any suffixes detected by pathlib
+    file_suffixes = file_path.suffixes
+
+    # check for how many suffixes were found in the file name
+
+    # if no suffixes were found, then the input was likely a directory, not a file
+    if len(file_suffixes) == 0:
+
+        # create a warning message
+        warning_msg = [f'The input file path:\n   {file_path}\n']
+
+        # update warning message based on whether input file_path is an existing directory or not
+        if file_path.is_dir():
+            warning_msg.append('is a directory and therefore does not contain a suffix.\n')
+        else:
+            warning_msg.append('did not contain any detectable file suffixes and does not appear '
+                               'to be an existing directory.\n')
+
+        # regardless of whether an existing directory or not, just return the string
+        warning_msg.append('The name of the input file/directory was returned as a string.')
+
+        # only print this warning if the verbose param is set to True (False by default)
+        if verbose:
+            print(''.join(warning_msg))
+        else:
+            pass
+
+        return file_path.name
+
+    # if a single suffix was found, then use the .stem attribute to return the file name
+    elif len(file_suffixes) == 1:
+        return file_path.stem
+
+    # if there was more than one suffix found in the file name...
+    else:
+
+        # reduce the list of suffixes to valid file suffixes only
+        valid_file_suffixes = [suff for suff in file_suffixes if suff in common_suffixes]
+
+        # check what was filtered out (i.e., not true file suffixes)
+        removed_file_suffixes = set(file_suffixes).difference(set(valid_file_suffixes))
+        if len(removed_file_suffixes) > 0:
+            if verbose:
+                print(f'The following strings were erroneously detected as file suffixes in the file '
+                      f'name {file_path.name}:\n'
+                      f'   {removed_file_suffixes}\n'
+                      f'These were removed from the list of valid file suffixes for this file.')
+            else:
+                pass
+        else:
+            pass
+
+        # remove the valid file suffixes from the input file name
+        valid_file_suffix_re = '|'.join(valid_file_suffixes)  # bit worried this won't fly in 3.12 (not raw string)
+        file_without_suffixes = re.sub(valid_file_suffix_re, '', file_path.name)
+
+        # return the file name with the valid file suffixes removed
+        return file_without_suffixes
