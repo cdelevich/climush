@@ -17,7 +17,9 @@ REPREAD_PREFIX = 'rep-read'
 QUERY_PREFIX = 'query'
 
 # PIPELINE FILE SUFFIXES
-LOG_SUFFIX = '.log'
+LOG_SUFFIX = '.log'  # CHANGE LOG_SUFFIX TO LOG_EXT? NOT DONE YET ANYWHERE
+CLUSTER_EXT = '.uc'
+OTU_TABLE_EXT = '.txt'
 
 # PLATFORM LIST
 SEQ_PLATFORM_OPTS = ['pacbio', 'illumina', 'sanger']  # no longer used in get_seq_platform()
@@ -53,6 +55,23 @@ GZIP_REGEX = r'(\.fast.\.gz)$'
 GZIP_GLOB = '*.fastq.gz'
 SEQ_FILE_GLOB = '*.fast*'
 SEQ_FILE_RE = r'\.fast.$'
+
+# a second file extention almost always relates to compression
+COMPRESSION_SUFFIXES = ['.gz', '.genozip', '.dmg', '.jar', '.tar', '.zip', '.zipx', '.bz2', '.Z', '.xz']
+
+# seems like tarball formats come in a lot of possible formats; which is why I created a different list here
+TARBALL_SUFFIXES = ['.tar.gz', '.tgz', '.tar.Z', '.tar.bz2', '.tbz2', '.tar.lz',
+                    '.tlz', '.tar.xz', '.txz', '.tar.zst']
+
+# now I'll join the tarball ones with the rest of the compression suffixes
+COMPRESSION_SUFFIXES += TARBALL_SUFFIXES
+
+# I will also need to have a list of file extensions that might be compressed; only checks these if there are multiple suffixes
+# NOT A COMPLETE LIST BY ANY MEANS, BUT BEST I COULD MUSTER AT THE TIME
+COMMON_FILE_SUFFIXES = ['.fasta', '.fastq', '.bam', '.txt', '.json', '.log', '.fa', '.phy']
+
+# now join them all together to input possible file extensions that are paired
+KNOWN_FILE_SUFFIXES = tuple(COMPRESSION_SUFFIXES + COMMON_FILE_SUFFIXES)  # make tuple so not mutable
 
 # SEQUENCING PLATFORM REGEX
 ANY_PLATFORM_REGEX = r'^illumina|^pacbio|^sanger'
