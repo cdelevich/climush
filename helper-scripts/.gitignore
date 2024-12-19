@@ -2,8 +2,6 @@
 .idea
 .venv
 
-config
-
 file-finding/climush-seqs_empty-rep/
 
 file-naming/quick-rename.py
