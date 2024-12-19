@@ -88,7 +88,7 @@ test_file_dir = f'test-files_{test_file_yr}-sequence-files'
 
 # file renaming configuration file; for whatever reason, the endo toml file wouldn't load correctly
 config_main_path = Path('/Users/carolyndelevich/main/github_repos/climush/helper-scripts/config/')
-rename_settings_path = config_main_path / 'illumina_endos_2023-10_file-rename-config.toml'
+rename_settings_path = config_main_path / 'illumina_endos_2022-10_file-rename-config.toml'
 # rename_settings_path = config_main_path / 'illumina_soil-litter_2023-10_file-rename-config.toml'
 
 ## TEST INPUT PATHS #########################################################
