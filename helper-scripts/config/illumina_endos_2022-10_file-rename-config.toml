@@ -1,0 +1,9 @@
+[site_name]
+AK = "BNZ"
+AZ = "SRE"
+CO = "NWT"
+FL = "ORD"
+KS = "KON"
+MA = "HFMA"
+MN = "CDR"
+OR = [ "HJA", "PIS" ]

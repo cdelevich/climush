@@ -1,0 +1,45 @@
+Phylum,Class (use all orders and families unless noted otherwise),included orders or families,COMMENTS
+Ascomycota,Geoglossomycetes,Geoglossales,
+Ascomycota,Glomeromycetes,Diversisporales  ,
+Ascomycota,Glomeromycetes,Gigasporales,
+Ascomycota,Glomeromycetes,Glomerales,
+Ascomycota,Neolectomycetes,Neolectales,(ascocarps of these are small cups but many are still macroscopic and visible to the naked eye. We might consider putting these in? Matt) - Jean says yes - I regularly see and collect these. Bitty  agrees that these make macroscopic fruiting bodies - seems like we should probably include them
+Ascomycota,Orbiliomycetes,Orbiliales ,"These definitely make macroscopic fruiting bodies but they are just really, really tiny"
+Ascomycota,Pezizomycetes,Pezizales,
+Ascomycota,part of Eurotomycetes,Elaphomycetaceae,
+Ascomycota,part of Leotiomycetes,Helotiales,"Some Sclerotiniaceae definitely make macroscopic fruiting bodies - the ascocarps of Sclerotinia sclerotium are lovely! I do not know the other excluded families well but we need to check them carefully. bitty says: but they also make asexual conidia, which we are trying to exclude."
+Ascomycota,part of Leotiomycetes,Leotiales,bitty added as both Bulgaria and Leotia are macrofungi
+Ascomycota,part of Sordariomycetes,Diatrypaceae,"Xylariales, but excluding these microfungal families: Amphisphaeriaceae, Barrmaeliaceae, Castanediellaceae, Clypeosphaeriaceae, Hyponectriaceae, Microdochiaceae, Myelospermataceae, Polystigmataceae, Requienellaceae, Zygosporiaceae. Including only these: Diatrypaceae, Graphostromataceae, Hypoxylaceae, Lopadostomataceae, Xylariaceae - Jean agrees to exclusions"
+Ascomycota,part of Sordariomycetes,Graphostromataceae,"Xylariales, but excluding these microfungal families: Amphisphaeriaceae, Barrmaeliaceae, Castanediellaceae, Clypeosphaeriaceae, Hyponectriaceae, Microdochiaceae, Myelospermataceae, Polystigmataceae, Requienellaceae, Zygosporiaceae. Including only these: Diatrypaceae, Graphostromataceae, Hypoxylaceae, Lopadostomataceae, Xylariaceae - Jean agrees to exclusions"
+Ascomycota,part of Sordariomycetes,Hypoxylaceae,"Xylariales, but excluding these microfungal families: Amphisphaeriaceae, Barrmaeliaceae, Castanediellaceae, Clypeosphaeriaceae, Hyponectriaceae, Microdochiaceae, Myelospermataceae, Polystigmataceae, Requienellaceae, Zygosporiaceae. Including only these: Diatrypaceae, Graphostromataceae, Hypoxylaceae, Lopadostomataceae, Xylariaceae - Jean agrees to exclusions"
+Ascomycota,part of Sordariomycetes,Lopadostomataceae,"Xylariales, but excluding these microfungal families: Amphisphaeriaceae, Barrmaeliaceae, Castanediellaceae, Clypeosphaeriaceae, Hyponectriaceae, Microdochiaceae, Myelospermataceae, Polystigmataceae, Requienellaceae, Zygosporiaceae. Including only these: Diatrypaceae, Graphostromataceae, Hypoxylaceae, Lopadostomataceae, Xylariaceae - Jean agrees to exclusions"
+Ascomycota,part of Sordariomycetes,Xylariaceae,"Xylariales, but excluding these microfungal families: Amphisphaeriaceae, Barrmaeliaceae, Castanediellaceae, Clypeosphaeriaceae, Hyponectriaceae, Microdochiaceae, Myelospermataceae, Polystigmataceae, Requienellaceae, Zygosporiaceae. Including only these: Diatrypaceae, Graphostromataceae, Hypoxylaceae, Lopadostomataceae, Xylariaceae - Jean agrees to exclusions"
+Basidiomycota,Agaricomycetes,Agaricales,
+Basidiomycota,Agaricomycetes,Amylocorticiales,
+Basidiomycota,Agaricomycetes,Atheliales,
+Basidiomycota,Agaricomycetes,Auriculariales,
+Basidiomycota,Agaricomycetes,Boletales,
+Basidiomycota,Agaricomycetes,Cantharellales,
+Basidiomycota,Agaricomycetes,Corticiales,
+Basidiomycota,Agaricomycetes,Geastrales,
+Basidiomycota,Agaricomycetes,Gloeophyllales,
+Basidiomycota,Agaricomycetes,Gomphales,
+Basidiomycota,Agaricomycetes,Hymenochaetales,
+Basidiomycota,Agaricomycetes,Hysterangiales,
+Basidiomycota,Agaricomycetes,Jaapiales,
+Basidiomycota,Agaricomycetes,Lepidostromatales,
+Basidiomycota,Agaricomycetes,Phallales,
+Basidiomycota,Agaricomycetes,Polyporales,
+Basidiomycota,Agaricomycetes,Russulales,
+Basidiomycota,Agaricomycetes,Sebacinales,
+Basidiomycota,Agaricomycetes,Stereopsidales,
+Basidiomycota,Agaricomycetes,Thelephorales,
+Basidiomycota,Agaricomycetes,Trechisporales,
+Basidiomycota,Agaricomycetes,Tremellodendropsidales,
+Basidiomycota,Dacrymycetes,Dacrymycetales,
+Basidiomycota,Dacrymycetes,Unilacrymycetales,
+Basidiomycota,part of Tremellomycetes ,Naemateliaceae,"can't do all Tremellales as there are many yeast like or filamentous families: Bulleraceae, Bulleribasidiaceae, Carcinomycetaceae, Cuniculitremaceae, Cryptococcaceae, Rhynchogastremataceae, Trimorphomycetaceae.  Including only these: "
+Basidiomycota,part of Tremellomycetes ,Phaeotremellaceae,"can't do all Tremellales as there are many yeast like or filamentous families: Bulleraceae, Bulleribasidiaceae, Carcinomycetaceae, Cuniculitremaceae, Cryptococcaceae, Rhynchogastremataceae, Trimorphomycetaceae.  Including only these: "
+Basidiomycota,part of Tremellomycetes ,Sirobasidiaceae,"can't do all Tremellales as there are many yeast like or filamentous families: Bulleraceae, Bulleribasidiaceae, Carcinomycetaceae, Cuniculitremaceae, Cryptococcaceae, Rhynchogastremataceae, Trimorphomycetaceae.  Including only these: "
+Basidiomycota,part of Tremellomycetes ,Tremellaceae,"can't do all Tremellales as there are many yeast like or filamentous families: Bulleraceae, Bulleribasidiaceae, Carcinomycetaceae, Cuniculitremaceae, Cryptococcaceae, Rhynchogastremataceae, Trimorphomycetaceae.  Including only these: "
+Mortierellomycota,Endogonomycetes,Endogonales,
