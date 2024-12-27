@@ -1447,8 +1447,10 @@ def copy_original_files(directory, copy_directory='original_files', compress=Tru
 
         # if all files copied, then compress output
         if compress:
+
             # zip the copy directory
-            shutil.make_archive(copy_path, 'zip', copy_path)
+            copy_path_zip = copy_path.with_suffix('.zip')
+            shutil.make_archive(copy_path, 'zip', copy_path_zip)
 
             # remove the unzipped copy directory
             shutil.rmtree(copy_path)
