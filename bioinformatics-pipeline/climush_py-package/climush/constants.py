@@ -26,6 +26,8 @@ SEQ_PLATFORM_OPTS = ['pacbio', 'illumina', 'sanger']  # no longer used in get_se
 
 # CONFIGURATION FILE HANDLES
 CONFIG_FILETYPE = '.toml'
+DEFAULT_SETTINGS_HANDLE = 'default-settings'
+USER_SETTINGS_HANDLE = 'user-settings'
 RENAME_CONFIG_HANDLE = 'file-rename'
 PIPELINE_CONFIG_HANDLE = 'pipeline-settings'
 NAME_CONFIG_HANDLE = 'filename-components'
