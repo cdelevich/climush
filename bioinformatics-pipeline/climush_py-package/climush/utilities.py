@@ -1432,7 +1432,7 @@ def copy_original_files(directory, copy_directory='original_files', compress=Tru
     mkdir_exist_ok(new_dir = copy_path)
 
     # create a list of files to copy, excluding any non-sequencing files
-    files_to_copy = [ file for file in dir_path.glob(GZIP_GLOB) ]
+    files_to_copy = [ file for file in dir_path.glob(SEQ_FILE_GLOB) ]
 
     # copy each sequence file to the new copy directory
     for file in files_to_copy:
@@ -2223,3 +2223,38 @@ def strip_file_ext(file_path, common_suffixes=KNOWN_FILE_SUFFIXES, verbose=False
 
         # return the file name with the valid file suffixes removed
         return file_without_suffixes
+
+def create_file_list(file_input, file_regex=[SEQ_FILE_RE, GZIP_REGEX]):
+    '''
+    Converts a directory into a list of its file contents. If the input provided is
+    already a list of files, then it simply returns the input unchanged.
+
+    :param file_input: item received by the parent function as the input of files;
+    either as a directory from which this function will extract a list of files or
+    a list of files, in which case nothing will be done and the list will be returned
+    without changes.
+    :param file_regex: the regular expression to use to filter out any files; this
+    is primarly to exclude files that are not sequence files, so by default it is a
+    sequence file regular expression; if a list is provided, the regex in the list
+    will be joined so that it will match either (|) of the regex
+    :return: a list of files
+    '''
+
+    # create a single regex if list is provided
+    if isinstance(file_regex, list):
+        file_filter_regex = '|'.join(file_regex)
+    else:
+        file_filter_regex = file_regex
+
+    # is the input of files a list or a PosixPath object?
+
+    # if the input is a Path object, create a (filtered) list of its contents
+    if is_pathclass(file_input, exit_if_false=False):
+        output_file_list = [file for file in file_input.glob('*') if re.search(file_filter_regex, file.name, re.I)]
+
+    # if the input is not a Path object but a list, ensure it is filtered and return its contents
+    else:
+        output_file_list = [file for file in file_input if re.search(file_filter_regex, file.name, re.I)]
+
+    # return the filtered file list; which is a list of PosixPath objects matching the provided file regex
+    return output_file_list
