@@ -3,7 +3,7 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 import re, tomlkit, shutil
-from climush.constants import SEQ_FILE_GLOB, GZIP_REGEX, SEQ_FILE_RE
+from climush.constants import SEQ_FILE_GLOB, GZIP_REGEX, SEQ_FILE_RE, CORRECT_CTAB_PREFIX, ANY_CTAB_PREFIX
 from climush.utilities import strip_file_ext
 
 ## CUSTOMIZE SETTINGS ##################################################################################################
@@ -19,15 +19,6 @@ pd.set_option('display.max_columns', 15)
 
 # update: instead of using the sequencing platform as the prefix (e.g., illumina) use the gene region ('its1')
 seq_region_prefix = 'its1'
-
-#############################################################################
-
-## REGEX ####################################################################
-
-# lots of errors with the CTAB code prefix, define var with correct one to compare
-CORRECT_CTAB_PREFIX = r'MSC'
-# regex for correcting any prefix error (captures many combinations of 'M', 'S', or 'C' in CTAB ID)
-ANY_CTAB_PREFIX = r'^[MSC]+?(?=\d)'
 
 #############################################################################
 
