@@ -1,10 +1,55 @@
 from datetime import datetime
-from pathlib import Path
 import pandas as pd
 import numpy as np
-import re, tomlkit, shutil
+import re, tomlkit, shutil, argparse, pathlib
+from pathlib import Path
 from climush.constants import SEQ_FILE_GLOB, GZIP_REGEX, SEQ_FILE_RE, CORRECT_CTAB_PREFIX, ANY_CTAB_PREFIX
 from climush.utilities import strip_file_ext
+
+
+## COMMAND LINE OPTIONS ################################################################################################
+
+parser = argparse.ArgumentParser(prog=Path(__file__).stem,
+                                 description='Rename the 2022 endophyte ITS1 sequence files.',
+                                 epilog='This script is part of the climush bioinformatics pipeline.')
+
+parser.add_argument('-i', '--input',
+                    required=True,
+                    type=pathlib.PosixPath,
+                    help='The path to a directory containing the sequencing files that require renaming.')
+
+parser.add_argument('-c', '--config',
+                    required=True,
+                    type=pathlib.PosixPath,
+                    help='The path to the .toml configuration file for 2022 endophyte renaming.')
+
+parser.add_argument('-m', '--mapping',
+                    required=True,
+                    type=pathlib.PosixPath,
+                    help='The path to the CTAB code / bag label mapping file for 2022 endophytes.')
+
+parser.add_argument('-o', '--output',
+                    required=False,
+                    type=pathlib.PosixPath,
+                    help='The path to the directory to write out renaming summary information.')
+
+
+parser.add_argument('--no-copy',
+                    action='store_true',  # if no arg passed, defaults to False
+                    help='By default, a copy of the sequencing files with their original file names will be created '
+                         'before the files are renamed. If you want to avoid this behavior and not save a copy of '
+                         'the original files, then use the --no-copy flag.')
+
+parser.add_argument('--dry-run',
+                    action='store_true',  # if no arg passed, defaults to False
+                    help='If you want to test this script on empty files matching the sequence files that need to be '
+                         'renamed, without renaming the actual sequence files, then use this flag.')
+
+# store arguments in a dictionary
+args = vars(parser.parse_args())
+
+########################################################################################################################
+
 
 ## CUSTOMIZE SETTINGS ##################################################################################################
 
@@ -36,100 +81,55 @@ suppress_warnings = {
 
 #############################################################################
 
-
-## SAFE MODE ################################################################
-
-# whether to create a copy of the original sequencing files before renaming
-MAKE_COPY = True
-
-#############################################################################
-
-
 ########################################################################################################################
 
 
 ## SET FILE PATHS ######################################################################################################
 
-## INPUT ####################################################################
+## OUTPUT ###################################################################
 
-# main path to the file naming helper scripts
-file_naming_path = Path('/Users/carolyndelevich/main/github_repos/climush/helper-scripts/file-naming/')
+## SUMMARY OUTPUT DIRECTORY ##
 
-# path to the directory containing the sequencing files to rename; if doing an empty-file test, leave as empty string
-file_rename_path = file_naming_path / 'endophyte-test'
+# create a file and directory prefix for output files based on the endophyte sampling year
+mapping_file_yr = re.search('2023|2022', args['mapping'].name).group(0)
+output_file_prefix = f'{mapping_file_yr}-endophytes'
 
-# endophyte sampling dataframe from Google drive
-sampling_main_path = Path('/Users/carolyndelevich/main/github_repos/climush/helper-scripts/config/renaming-mapping-files/from-climush-gdrive/')
-# endo_sampling_path = sampling_main_path / '7 CLIMUSH-Macrosystems-Endophyte-Sampling-Fall2023-Datasheet.xlsx'
-endo_sampling_path = sampling_main_path / 'Copy of 7 CLIMUSH-Macrosystems-Endophyte-Sampling-Fall2022-Datasheet.xlsx'
+# if no output directory is provided via the command line, create the default
+if args['output'] is None:
 
-# when testing issue with 2022 v 2023 mapping file, add prefix to missing ctab summary file
-mapping_file_yr = re.search('2023|2022', endo_sampling_path.name).group(0)
-mapping_file_prefix = f'{mapping_file_yr}-sample-sheet'
-print(f'Sample sheet = {mapping_file_yr}')
+    # the default summary directory will be at the same level as the input directory
+    args['output'] = args['input'].parent / f'{output_file_prefix}_rename-summary'
 
-# text file that contains the name of the files that need to be renamed; one file name per line
-test_name_path = file_naming_path / 'illumina_endophytes_2022_file-list.txt'
-test_name_path = file_naming_path / 'its1-endophytes-2023-1_original-file-names.txt'
-
-# when testing issue with 2022 v 2023 mapping file, add prefix to missing ctab summary file
-test_file_yr = re.search('2023|2022', test_name_path.name).group(0)
-test_file_prefix = f'{test_file_yr}-seq-files'
-test_file_dir = f'test-files_{test_file_yr}-sequence-files'
-
-# file renaming configuration file; for whatever reason, the endo toml file wouldn't load correctly
-config_main_path = Path('/Users/carolyndelevich/main/github_repos/climush/helper-scripts/config/')
-rename_settings_path = config_main_path / 'illumina_endos_2022-10_file-rename-config.toml'
-# rename_settings_path = config_main_path / 'illumina_soil-litter_2023-10_file-rename-config.toml'
-
-## TEST INPUT PATHS #########################################################
-
-# only make a dummy directory and dummy files if there is no value provided for the file_rename_path variable
-if file_rename_path == '':
-
-    # print which group of sequence files are being used to created these empty test files
-    print(f'Sequence files = {test_file_yr}\n')
-
-    # create a parent directory in which to make the empty dummy files
-    file_rename_path = file_naming_path / test_file_dir
-    file_rename_path.mkdir(exist_ok=True)
-
-    # go through each file name in the demux endophyte Illumina seq file names, and create an empty file for each
-    dummy_file_paths = []
-    with open(test_name_path, 'rt') as fin:
-        for f_name in fin.readlines():
-            # only add paths if the file is a sequence file (fasta/fastq/fastq.gz)
-            if re.search(SEQ_FILE_RE, f_name) or re.search(GZIP_REGEX, f_name):
-                dummy_file_paths.append(file_rename_path / f_name.strip())
-            else:
-                pass
-
-    # go through each of these file paths and create empty files for each
-    for dummy_file in dummy_file_paths:
-        with open(dummy_file, 'w') as fout:
-            fout.write('')
+    # after creating path, make this directory based on the path
+    args['output'].mkdir(exist_ok=True)
 
 else:
     pass
 
-#############################################################################
 
-## OUTPUT ###################################################################
-
-# create a path to write out any summary information for this test
-summary_info_path = file_naming_path / 'endophyte-renaming-summary'
-summary_info_path.mkdir(exist_ok=True)
+## UNLINKED CTAB CODE TABLE ##
 
 # name for the .csv file containing a filtered df with only CTAB codes that don't match a file name
 date_today = datetime.today().strftime('%Y-%m-%d')
-unlinked_ctab_path = summary_info_path / f'unlinked-ctab-codes_{test_file_prefix}_{mapping_file_prefix}_{date_today}.csv'
+unlinked_ctab_path = args['output'] / f'{output_file_prefix}_unlinked-ctab-codes_{date_today}.csv'
 
-# define a path for copy of original sequence files if using safe mode
-if MAKE_COPY:
-    original_copy_path = file_rename_path / 'original-files'
-    original_copy_path.mkdir(exist_ok=True)
-else:
+
+## ORIGINAL SEQUENCE FILE COPIES ##
+
+# define a path for copy of original sequence files, unless --no-copy is specified
+if args['no_copy']:
     pass
+else:
+    original_copy_path = args['input'] / 'original-files'
+    original_copy_path.mkdir(exist_ok=True)
+
+
+## FILE NAME CONVERSION TABLE ##
+
+# name for the .csv file that has the original file names and their associated new file names
+convert_table_path = args['output'] / f'{output_file_prefix}_file-name-conversion_{date_today}.csv'
+
+#############################################################################
 
 ########################################################################################################################
 
@@ -138,7 +138,7 @@ else:
 
 # read in each tab of the excel file; can do this by setting sheet_name=None
 # this will output a dictionary, where the key is the name of the tab and the value is the dataframe within this tab
-endo_sampling_tabs = pd.read_excel(endo_sampling_path, sheet_name=None)
+endo_sampling_tabs = pd.read_excel(args['mapping'], sheet_name=None)
 
 # figure out which tab has the CTAB codes in them
 
@@ -234,7 +234,7 @@ else:
 # one sample later found to lack a collection date; also missing info elsewhere; check if it has a seq file
 problem_sample01 = 'MSC0474'
 problem_sample_found = False
-for seq_file in file_rename_path.glob(SEQ_FILE_GLOB):
+for seq_file in args['input'].glob(SEQ_FILE_GLOB):
     if seq_file.name.startswith(problem_sample01):
         problem_sample_found = True
         problem_sample_name = seq_file.name
@@ -389,7 +389,7 @@ else:
 
 # get the name of the sites used for each state from the renaming .toml doc
 # if you have any empty values for a key, this won't load; so either put empty string or delete unused sections
-with open(rename_settings_path, 'rb') as fin:
+with open(args['config'], 'rb') as fin:
     rename_settings = tomlkit.loads(fin.read())
 
 def update_domain_dict(domain_dict, configuration_dict, site_section='site_name'):
@@ -692,7 +692,7 @@ filepath_rename_dict = {}
 matched_ctab_codes = []
 
 # go through each of the old file paths, creating new file paths (w/ new file names) for each
-for filepath_old in file_rename_path.glob(SEQ_FILE_GLOB):
+for filepath_old in args['input'].glob(SEQ_FILE_GLOB):
 
     # get the file stem (i.e., file name without the file extension)
     filename_old = re.sub(r'-R(1|2)', '', strip_file_ext(filepath_old))
@@ -740,12 +740,12 @@ rename_count = 0
 # go through each old and new file path pair...
 for old_path, new_path in filepath_rename_dict.items():
 
-    # if using safe mode, copy this file to the original file copy directory
-    if MAKE_COPY:
+    # unless --no-copy flag is used, make a copy of the file with its original name before renaming
+    if args['no_copy']:
+        pass
+    else:
         copy_dst = original_copy_path / old_path.name
         shutil.copy(old_path, copy_dst)
-    else:
-        pass
 
     # rename the old path to the new path
     old_path.rename(new_path)
@@ -762,6 +762,14 @@ print(f'{rename_count} total sequence files were successfully renamed.\n')
 
 ## EXPORT FILE NAME CONVERSION TABLE ########################################
 
+# get the name of the old and new files and create a conversion table for these pairs
+original_file_names = [og_file.name for og_file in filepath_rename_dict.keys()]
+new_file_names = [new_file.name for new_file in filepath_rename_dict.values()]
+filename_convert_df = pd.DataFrame(data={'original_names': original_file_names,
+                                         'new_names': new_file_names})
+
+# write this table out to the conversion table path
+filename_convert_df.to_csv(convert_table_path, index=False)
 
 #############################################################################
 
