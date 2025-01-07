@@ -1,0 +1,180 @@
+title = "File renaming configuration for 2023 ITS1 endophyte sequence files."
+
+
+[BNZ]
+
+compartment.source.position  = -2
+compartment.source.format    = { "LEAF" = "leaf", "ROOT" = "root" }
+compartment.species.position = -1
+compartment.species.format   = { "HERB" = "sp01", "WOODY" = "sp02" }
+
+colldate = "2023-08"
+
+state = "AK"
+
+treatment.burnhist.position = 4
+treatment.burnhist.format   = { }
+treatment.habitat.position  = 4
+treatment.habitat.format    = { }
+
+subplot.position = ""
+subplot.format   = "S*"
+
+[SRER]
+
+compartment.source.position  = ""       # integer; either positive or negative indexing allowed
+compartment.source.format    = { }      # dictionary
+compartment.species.position = ""       # integer; either positive or negative indexing allowed
+compartment.species.format   = { }      # dictionary
+
+colldate = ""                           # string; formatted as YYYY-MM
+
+state = "AZ"                            # string; two-letter state abbreviation
+
+treatment.burnhist.position = 2         # integer; either positive or negative indexing allowed
+treatment.burnhist.format   = { "UB" = "U", "B" = "B" }
+treatment.habitat.position  = 1         # integer; either positive or negative indexing allowed
+treatment.habitat.format    = { }       # dictionary
+
+subplot.position = ""                   # integer; either positive or negative indexing allowed
+subplot.format   = ""                   # string; TBD whether glob/regex
+
+
+[NIWOT]
+
+compartment.source.position  = ""       # integer; either positive or negative indexing allowed
+compartment.source.format    = { }      # dictionary
+compartment.species.position = ""       # integer; either positive or negative indexing allowed
+compartment.species.format   = { }      # dictionary
+
+colldate = ""                           # string; formatted as YYYY-MM
+
+state = "CO"                            # string; two-letter state abbreviation
+
+treatment.burnhist.position = 1         # integer; either positive or negative indexing allowed
+treatment.burnhist.format  = { "UB" = "U", "B" = "B" }
+treatment.habitat.position  = 2         # integer; either positive or negative indexing allowed
+treatment.habitat.format    = { "C" = "C", "O" = "O", "G" = "G" }
+
+subplot.position = ""                   # integer; either positive or negative indexing allowed
+subplot.format   = ""                   # string; TBD whether glob/regex
+
+
+[ORD]
+
+compartment.source.position  = ""       # integer; either positive or negative indexing allowed
+compartment.source.format    = { }      # dictionary
+compartment.species.position = ""       # integer; either positive or negative indexing allowed
+compartment.species.format   = { }      # dictionary
+
+colldate = ""                           # string; formatted as YYYY-MM
+
+state = "FL"                            # string; two-letter state abbreviation
+
+treatment.burnhist.position = 2         # integer; either positive or negative indexing allowed
+treatment.burnhist.format  = { "UB" = "U", "B" = "B" }
+treatment.habitat.position  = 1         # integer; either positive or negative indexing allowed
+treatment.habitat.format    = { "C" = "C", "O" = "O", "G" = "G" }
+
+subplot.position = ""                   # integer; either positive or negative indexing allowed
+subplot.format   = ""                   # string; TBD whether glob/regex
+
+
+[KONZA]
+
+compartment.source.position  = ""       # integer; either positive or negative indexing allowed
+compartment.source.format    = { }      # dictionary
+compartment.species.position = ""       # integer; either positive or negative indexing allowed
+compartment.species.format   = { }      # dictionary
+
+colldate = ""                           # string; formatted as YYYY-MM
+
+state = "KS"                            # string; two-letter state abbreviation
+
+treatment.burnhist.position = 1         # integer; either positive or negative indexing allowed
+treatment.burnhist.format  = { "UB" = "U", "B" = "B" }
+treatment.habitat.position  = 2         # integer; either positive or negative indexing allowed
+treatment.habitat.format    = { "C" = "C", "O" = "O", "G" = "G" }
+
+subplot.position = ""                   # integer; either positive or negative indexing allowed
+subplot.format   = ""                   # string; TBD whether glob/regex
+
+
+[HFMA]
+
+compartment.source.position  = ""       # integer; either positive or negative indexing allowed
+compartment.source.format    = { }      # dictionary
+compartment.species.position = ""       # integer; either positive or negative indexing allowed
+compartment.species.format   = { }      # dictionary
+
+colldate = ""                           # string; formatted as YYYY-MM
+
+state = "MA"                            # string; two-letter state abbreviation
+
+treatment.burnhist.position = 1         # integer; either positive or negative indexing allowed
+treatment.burnhist.format  = { "UB" = "U", "B" = "B" }
+treatment.habitat.position  = 2         # integer; either positive or negative indexing allowed
+treatment.habitat.format    = { "C" = "C", "O" = "O", "G" = "G" }
+
+subplot.position = ""                   # integer; either positive or negative indexing allowed
+subplot.format   = ""                   # string; TBD whether glob/regex
+
+
+[CDR]
+
+compartment.source.position  = ""       # integer; either positive or negative indexing allowed
+compartment.source.format    = { }      # dictionary
+compartment.species.position = ""       # integer; either positive or negative indexing allowed
+compartment.species.format   = { }      # dictionary
+
+colldate = ""                           # string; formatted as YYYY-MM
+
+state = "MN"                            # string; two-letter state abbreviation
+
+treatment.burnhist.position = 1         # integer; either positive or negative indexing allowed
+treatment.burnhist.format  = { "UB" = "U", "B" = "B" }
+treatment.habitat.position  = 2         # integer; either positive or negative indexing allowed
+treatment.habitat.format    = { "C" = "C", "O" = "O", "G" = "G" }
+
+subplot.position = ""                   # integer; either positive or negative indexing allowed
+subplot.format   = ""                   # string; TBD whether glob/regex
+
+
+[HJA]
+
+compartment.source.position  = ""       # integer; either positive or negative indexing allowed
+compartment.source.format    = { }      # dictionary
+compartment.species.position = ""       # integer; either positive or negative indexing allowed
+compartment.species.format   = { }      # dictionary
+
+colldate = ""                           # string; formatted as YYYY-MM
+
+state = "OR"                            # string; two-letter state abbreviation
+
+treatment.burnhist.position = 2         # integer; either positive or negative indexing allowed
+treatment.burnhist.format   = { "UB" = "U", "B" = "B" }
+treatment.habitat.position  = 1         # integer; either positive or negative indexing allowed
+treatment.habitat.format    = { "C" = "C", "O" = "O", "G" = "G" }
+
+subplot.position = ""                   # integer; either positive or negative indexing allowed
+subplot.format   = ""                   # string; TBD whether glob/regex
+
+
+[PIS]
+
+compartment.source.position  = ""       # integer; either positive or negative indexing allowed
+compartment.source.format    = { }      # dictionary
+compartment.species.position = ""       # integer; either positive or negative indexing allowed
+compartment.species.format   = { }      # dictionary
+
+colldate = ""                           # string; formatted as YYYY-MM
+
+state = "OR"                            # string; two-letter state abbreviation
+
+treatment.burnhist.position = 2         # integer; either positive or negative indexing allowed
+treatment.burnhist.format   = { "UB" = "U", "B" = "B" }
+treatment.habitat.position  = 1         # integer; either positive or negative indexing allowed
+treatment.habitat.format    = { "C" = "C", "O" = "O", "G" = "G" }
+
+subplot.position = ""                   # integer; either positive or negative indexing allowed
+subplot.format   = ""                   # string; TBD whether glob/regex

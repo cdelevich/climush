@@ -1,10 +1,83 @@
 from datetime import datetime
-from pathlib import Path
 import pandas as pd
 import numpy as np
-import re, tomlkit, shutil
-from climush.constants import SEQ_FILE_GLOB, GZIP_REGEX, SEQ_FILE_RE
+import re, tomlkit, shutil, argparse, pathlib, sys
+from pathlib import Path
+from climush.constants import SEQ_FILE_GLOB, GZIP_REGEX, SEQ_FILE_RE, CORRECT_CTAB_PREFIX, ANY_CTAB_PREFIX, ANY_CTAB_CODE
 from climush.utilities import strip_file_ext
+
+TEST_MODE = True
+
+## COMMAND LINE OPTIONS ################################################################################################
+
+if TEST_MODE:
+
+    print(f'WARNING. Currently running the renaming script in test mode. This means that command line options are not '
+          f'accepted and instead default test values for all parameters are used. If this is undesired behavior, '
+          f'then set TEST_MODE = False within the rename_2023_endophytes.py script.')
+
+    args = {
+        'input': Path('/Users/carolyndelevich/main/github_repos/climush/helper-scripts/file-naming/test-files_2023-sequence-files/'),
+        'config': Path('/Users/carolyndelevich/main/github_repos/climush/helper-scripts/config/illumina_endos_2023-10_file-rename-config.toml'),
+        'mapping': Path('/Users/carolyndelevich/main/github_repos/climush/helper-scripts/config/renaming-mapping-files/from-neda-arnold-lab/its1_endophyte-mapping_2023_combined.csv'),
+        'output': None,
+        'delim': '-',
+        'no_copy': False,
+    }
+
+else:
+
+    parser = argparse.ArgumentParser(prog=Path(__file__).stem,
+                                     description='Rename the 2022 endophyte ITS1 sequence files.',
+                                     epilog='This script is part of the climush bioinformatics pipeline.')
+
+    parser.add_argument('-i', '--input',
+                        required=False,  # if --dry-run flag is used, an input path to seq files to rename is not needed
+                        type=pathlib.PosixPath,
+                        help='The path to a directory containing the sequencing files that require renaming.')
+
+    parser.add_argument('-c', '--config',
+                        required=True,
+                        type=pathlib.PosixPath,
+                        help='The path to the .toml configuration file for 2022 endophyte renaming.')
+
+    parser.add_argument('-m', '--mapping',
+                        required=True,
+                        type=pathlib.PosixPath,
+                        help='The path to the CTAB code / bag label mapping file for 2022 endophytes.')
+
+    parser.add_argument('-o', '--output',
+                        required=False,
+                        type=pathlib.PosixPath,
+                        help='The path to the directory to write out renaming summary information.')
+
+    parser.add_argument('-d', '--delim',
+                        default='-',
+                        help='The delimiter used in the bag labels within the mapping file.')
+
+    parser.add_argument('--no-copy',
+                        action='store_true',  # if no arg passed, defaults to False
+                        help='By default, a copy of the sequencing files with their original file names will be created '
+                             'before the files are renamed. If you want to avoid this behavior and not save a copy of '
+                             'the original files, then use the --no-copy flag.')
+
+    # parser.add_argument('--dry-run',
+    #                     action='store_true',  # if no arg passed, defaults to False
+    #                     help='If you want to test this script on empty files matching the sequence files that need to be '
+    #                          'renamed, without renaming the actual sequence files, then use this flag.')
+
+    # store arguments in a dictionary
+    args = vars(parser.parse_args())
+
+    # # an input path is not required if doing a dry run; if not doing a dry run, then an input path is required
+    # if (args['input'] is None) and (args['dry_run'] is None):
+    #     print(f'ERROR. Both input path and dry run cannot be None.')
+    #     sys.exit()
+    # else:
+    #     pass
+
+########################################################################################################################
+
 
 ## CUSTOMIZE SETTINGS ##################################################################################################
 
@@ -24,10 +97,8 @@ seq_region_prefix = 'its1'
 
 ## REGEX ####################################################################
 
-# lots of errors with the CTAB code prefix, define var with correct one to compare
-CORRECT_CTAB_PREFIX = r'MSC'
-# regex for correcting any prefix error (captures many combinations of 'M', 'S', or 'C' in CTAB ID)
-ANY_CTAB_PREFIX = r'^[MSC]+?(?=\d)'
+# ctab file when using rglob; rglob searches absolute file path so cannot use above prefix
+CTAB_RGLOB_RE = r'[MSC]{3,5}\d+?_S\d{1,3}_R(1|2)_001(\.fastq\.gz)$'
 
 #############################################################################
 
@@ -35,8 +106,8 @@ ANY_CTAB_PREFIX = r'^[MSC]+?(?=\d)'
 
 # as I work through issues, I can silence certain warnings that I've since addressed, but will want to warn me in future
 suppress_warnings = {
-    'duplicated_ctabs': True,       # duplicate CTAB codes found
-    'missing_coll_date': True,      # missing collection date found, fixed following warning
+    'duplicated_ctabs': False,       # duplicate CTAB codes found
+    'missing_coll_date': False,      # missing collection date found, fixed following warning
     'nonuniform_coll_date': False,  # a subplot has various collection dates (YYYY-MM) associated with it
     'multiple_domains': False,      # a state abbreviation has multiple NEON domains associated with it
     'missing_old_site': False,      # a NEON domain doesn't have an old climush site name associated with it
@@ -45,123 +116,112 @@ suppress_warnings = {
 
 #############################################################################
 
-
-## SAFE MODE ################################################################
-
-# whether to create a copy of the original sequencing files before renaming
-MAKE_COPY = True
-
-#############################################################################
-
-
 ########################################################################################################################
 
 
 ## SET FILE PATHS ######################################################################################################
 
-## INPUT ####################################################################
+## OUTPUT ###################################################################
 
-# main path to the file naming helper scripts
-file_naming_path = Path('/Users/carolyndelevich/main/github_repos/climush/helper-scripts/file-naming/')
+## SUMMARY OUTPUT DIRECTORY ##
 
-# path to the directory containing the sequencing files to rename; if doing an empty-file test, leave as empty string
-file_rename_path = ''
+# create a file and directory prefix for output files based on the endophyte sampling year
+mapping_file_yr = re.search('2023|2022', args['mapping'].name).group(0)
+output_file_prefix = f'{mapping_file_yr}-endophytes'
 
-# endophyte sampling dataframe from Google drive
-sampling_main_path = Path('/Users/carolyndelevich/main/github_repos/climush/helper-scripts/config/renaming-mapping-files/from-neda-arnold-lab/')
-endo_sampling_path = 'its1_endophyte-mapping_2023.csv'
+# if no output directory is provided via the command line, create the default
+if args['output'] is None:
 
-# when testing issue with 2022 v 2023 mapping file, add prefix to missing ctab summary file
-mapping_file_yr = re.search('2023|2022', endo_sampling_path.name).group(0)
-mapping_file_prefix = f'{mapping_file_yr}-sample-sheet'
-print(f'Sample sheet = {mapping_file_yr}')
+    # the default summary directory will be at the same level as the input directory
+    args['output'] = args['input'].parent / f'{output_file_prefix}_rename-summary'
 
-# text file that contains the name of the files that need to be renamed; one file name per line
-# test_name_path = file_naming_path / 'illumina_endophytes_2022_file-list.txt'
-test_name_path = file_naming_path / 'its1-endophytes-2023-1_original-file-names.txt'
-
-# when testing issue with 2022 v 2023 mapping file, add prefix to missing ctab summary file
-test_file_yr = re.search('2023|2022', test_name_path.name).group(0)
-test_file_prefix = f'{test_file_yr}-seq-files'
-test_file_dir = f'test-files_{test_file_yr}-sequence-files'
-
-# file renaming configuration file; for whatever reason, the endo toml file wouldn't load correctly
-config_main_path = Path('/Users/carolyndelevich/main/github_repos/climush/helper-scripts/config/')
-rename_settings_path = config_main_path / 'illumina_endos_2023-10_file-rename-config.toml'
-
-## TEST INPUT PATHS #########################################################
-
-# only make a dummy directory and dummy files if there is no value provided for the file_rename_path variable
-if file_rename_path == '':
-
-    # print which group of sequence files are being used to created these empty test files
-    print(f'Sequence files = {test_file_yr}\n')
-
-    # create a parent directory in which to make the empty dummy files
-    file_rename_path = file_naming_path / test_file_dir
-    file_rename_path.mkdir(exist_ok=True)
-
-    # go through each file name in the demux endophyte Illumina seq file names, and create an empty file for each
-    dummy_file_paths = []
-    with open(test_name_path, 'rt') as fin:
-        for f_name in fin.readlines():
-            # only add paths if the file is a sequence file (fasta/fastq/fastq.gz)
-            if re.search(SEQ_FILE_RE, f_name) or re.search(GZIP_REGEX, f_name):
-                dummy_file_paths.append(file_rename_path / f_name.strip())
-            else:
-                pass
-
-    # go through each of these file paths and create empty files for each
-    for dummy_file in dummy_file_paths:
-        with open(dummy_file, 'w') as fout:
-            fout.write('')
+    # after creating path, make this directory based on the path
+    args['output'].mkdir(exist_ok=True)
 
 else:
     pass
 
-#############################################################################
 
-## OUTPUT ###################################################################
-
-# create a path to write out any summary information for this test
-summary_info_path = file_naming_path / 'endophyte-renaming-summary'
-summary_info_path.mkdir(exist_ok=True)
+## UNLINKED CTAB CODE TABLE ##
 
 # name for the .csv file containing a filtered df with only CTAB codes that don't match a file name
 date_today = datetime.today().strftime('%Y-%m-%d')
-unlinked_ctab_path = summary_info_path / f'unlinked-ctab-codes_{test_file_prefix}_{mapping_file_prefix}_{date_today}.csv'
+unlinked_ctab_path = args['output'] / f'{output_file_prefix}_unlinked-ctab-codes_{date_today}.csv'
 
-# define a path for copy of original sequence files if using safe mode
-if MAKE_COPY:
-    original_copy_path = file_rename_path / 'original-files'
-    original_copy_path.mkdir(exist_ok=True)
-else:
+
+## ORIGINAL SEQUENCE FILE COPIES ##
+
+# define a path for copy of original sequence files, unless --no-copy is specified
+if args['no_copy']:
     pass
+else:
+    original_copy_path = args['input'] / 'original-files'
+    original_copy_path.mkdir(exist_ok=True)
+
+
+## FILE NAME CONVERSION TABLE ##
+
+# name for the .csv file that has the original file names and their associated new file names
+convert_table_path = args['output'] / f'{output_file_prefix}_file-name-conversion_{date_today}.csv'
+
+#############################################################################
 
 ########################################################################################################################
 
 
+# ## CREATE TEST FILES ###################################################################################################
+#
+# # only make a dummy directory and dummy files if the --dry-run flag is used
+# if args['dry_run']:
+#
+#     # create a parent directory in which to make the dry run files
+#     file_rename_path = args['input'].parent / f'{output_file_prefix}_dry-run-files'
+#     file_rename_path.mkdir(exist_ok=True)
+#
+#     # look for a file list in the input path parent directory that matches the current sample year (here, 2023)
+#     test_file_list = [f for f in args['input'].parent.glob(f'*{mapping_file_yr}*.txt')]
+#
+#     # if only a single file was found, then create the dummy files
+#     if len(test_file_list) == 1:
+#
+#         # go through each file name in the demux endophyte Illumina seq file names, and create an empty file for each
+#         dummy_file_paths = []
+#         with open(test_file_list[0], 'rt') as fin:
+#             for f_name in fin.readlines():
+#                 # only add paths if the file is a sequence file (fasta/fastq/fastq.gz)
+#                 if re.search(SEQ_FILE_RE, f_name) or re.search(GZIP_REGEX, f_name):
+#                     dummy_file_paths.append(file_rename_path / f_name.strip())
+#                 else:
+#                     pass
+#
+#         # go through each of these file paths and create empty files for each
+#         for dummy_file in dummy_file_paths:
+#             with open(dummy_file, 'w') as fout:
+#                 fout.write('')
+#
+#     elif len(test_file_list) == 0:
+#
+#         # error; no files were found
+#         print(f'error. no files were automatically detected that might be the sequence file name .txt file.')
+#         sys.exit()
+#
+#     else:
+#
+#         # error; multiple possible files found
+#         print(f'error. {len(test_file_list)} files were automatically detected that might be the sequence file name .txt file:\n'
+#               f'   {test_file_list}')
+#         sys.exit()
+#
+# else:
+#     pass
+#
+# ########################################################################################################################
+
+
 ## READ IN SAMPLE MAPPING FILE #########################################################################################
 
-# read in each tab of the excel file; can do this by setting sheet_name=None
-# this will output a dictionary, where the key is the name of the tab and the value is the dataframe within this tab
-endo_sampling_tabs = pd.read_excel(endo_sampling_path, sheet_name=None)
-
-# figure out which tab has the CTAB codes in them
-
-# look for a column name containing the string 'CTAB codes' (w/ or w/o 's') and that has values in its rows
-for tab in endo_sampling_tabs:
-    tab_table = endo_sampling_tabs[tab]
-    for col in tab_table.columns:
-        if re.search(r'ctab code', col, re.I):
-            row_vals = set(tab_table[col].to_list())
-            if len(row_vals) > 1:
-                endo_sampling_df = tab_table
-                break
-            else:
-                continue
-        else:
-            continue
+# read in .csv file; 2023 mapping file is a single tab
+endo_sampling_df = pd.read_csv(args['mapping'])
 
 ########################################################################################################################
 
@@ -169,21 +229,17 @@ for tab in endo_sampling_tabs:
 ## CLEAN ENDOPHYTE MAPPING FILE ########################################################################################
 
 # take only the useful columns in this dataframe (need to look to know what column names are)
-endo_df_original = endo_sampling_df[['CTAB Codes', 'Sample code', 'Collection month']]
+endo_df_original = endo_sampling_df[['Code', 'BAG LABEL']]
 
-# drop any rows where there is no CTAB code
-endo_df = endo_df_original[~endo_df_original['CTAB Codes'].isna()]
-
-# drop the one sample that doesn't have a CTAB Code, instead has '?'
-endo_df = endo_df[endo_df['CTAB Codes'] != '?']
+# make a copy of the original input dataframe before making changes
+endo_df = endo_df_original.copy()
 
 # rename the column names to be more clear
-endo_df.rename(columns={'CTAB Codes': 'sample_id_az',
-                        'Sample code': 'sample_id_or',
-                        'Collection month': 'collection_date'},
+endo_df.rename(columns={'Code': 'sample_id_az',
+                        'BAG LABEL': 'sample_id_or'},
                inplace=True)
 
-# fix any typos with the CTAB code prefix, which should be MSC
+# fix any typos with the CTAB code prefix, which should be MSC (all here are MCSC, which doesn't match seq files)
 endo_df['sample_id_az'] = [re.sub(ANY_CTAB_PREFIX, CORRECT_CTAB_PREFIX, c) for c in endo_df['sample_id_az']]
 
 # strip any white space across any sample ID column
@@ -203,32 +259,7 @@ for col in endo_df.columns:
 # check to see if any of the CTAB codes are duplicated
 duplicate_ctab = endo_df[endo_df['sample_id_az'].duplicated(keep=False)].sort_values('sample_id_az')  # keep=False to return all duplicate rows
 
-# duplicated CTAB codes were found; after looking in CTAB processing tab, I found note to explain this; addressing here
-
-# iterate through the row indices of the original dataframe for these duplicates
-for d in duplicate_ctab.index:
-
-    old_ctab_id = endo_df['sample_id_az'].loc[d]
-
-    # I only have a solution from the notes for the 007# sample numbers
-    if re.search(r'7\d$', old_ctab_id):
-
-        # if the old climush ID starts with KON, add an 'A' suffix to it in the full table
-        if re.search(r'^KON', endo_df['sample_id_or'].loc[d], re.I):
-
-            endo_df.loc[d, 'sample_id_az'] = old_ctab_id + 'A0'
-
-        # if the old climush ID does not start with KON (i.e., BNZ sample), do nothing to ctab ID
-        else:
-            continue
-
-    # if not a 007# sample number, I don't have solution
-    else:
-        continue
-
-# re-check for any remaining duplicates and to ensure the fixes above were properly implemented
-duplicate_ctab = endo_df[endo_df['sample_id_az'].duplicated(keep=False)].sort_values('sample_id_az')  # keep=False to return all duplicate rows
-
+# raise an error if there are duplicate CTAB codes found (unless warning is suppressed)
 if (duplicate_ctab.shape[0] == 0) or (suppress_warnings['duplicated_ctabs']):
     pass
 else:
@@ -236,30 +267,110 @@ else:
         f'{duplicate_ctab.shape[0]} CTAB IDs are duplicated ({duplicate_ctab.shape[0] / 2} pairs):\n'
         f'   {set(duplicate_ctab["sample_id_az"].to_list())}')
 
+########################################################################################################################
 
 
-# one sample later found to lack a collection date; also missing info elsewhere; check if it has a seq file
-problem_sample01 = 'MSC0474'
-problem_sample_found = False
-for seq_file in file_rename_path.glob(SEQ_FILE_GLOB):
-    if seq_file.name.startswith(problem_sample01):
-        problem_sample_found = True
-        problem_sample_name = seq_file.name
-        break
-    else:
-        continue
+## SEQUENCE FILES MISSING FROM TABLE ###################################################################################
 
-search_msg = f'The sample ID {problem_sample01} '
-if problem_sample_found:
-    search_msg += (f'was linked to the following sequence file:\n'
-                   f'   {problem_sample_name}\n')
+# get a list of all files in the input directory that contain the CTAB prefix MSC
+ctab_file_names = [file.name for file in args['input'].glob(SEQ_FILE_GLOB) if re.search(CTAB_RGLOB_RE, file.name, re.I)]
+nonctab_file_names = [file.name for file in args['input'].glob(SEQ_FILE_GLOB) if not file.name in ctab_file_names]
+nonctab_file_names.sort()
+
+# quick check that every file has a pair by making sure number of files is even
+if (len(ctab_file_names) % 2 == 0) and (len(nonctab_file_names) % 2 == 0):
+    pass
+elif (len(ctab_file_names) % 2 == 0):
+    print(f'Non-CTAB file names do not have an even number of files.')
+elif (len(nonctab_file_names) % 2 == 0):
+    print(f'CTAB file names do not have an even number of files.')
 else:
-    search_msg += f'was not linked to a sequencing file.\n'
-print(search_msg)
+    print(f'Neither CTAB nor non-CTAB file names have an even number of files.')
 
-# because this sample has a sequencing file, don't drop it or anything; keep in df
+# print counts for non- and ctab file names
+print(f'number of paired sequence files:\n'
+      f'   CTAB files     = {len(ctab_file_names)} ({len(ctab_file_names)/2:.0f} samples)\n'
+      f'   non-CTAB files = {len(nonctab_file_names)}   ({len(nonctab_file_names)/2:.0f} samples)\n')
+
+# pull out just the CTAB codes from the ctab file names
+seq_file_ctabs = [re.search(ANY_CTAB_CODE, filename).group(0) for filename in ctab_file_names]
 
 ########################################################################################################################
+
+
+## GET PER-SITE BAG LABEL EXAMPLE ######################################################################################
+
+# create a set of the unique site prefixes used for the bag labels
+unique_site_labels = set(label.split('-')[0] for label in endo_df['sample_id_or'])
+
+# for each of the unique site prefixes, pull a random bag label for each to use as an example for renaming
+per_site_label_example = {site:'' for site in unique_site_labels}
+for site in per_site_label_example:
+    per_site_label_example.update({site:endo_df[endo_df['sample_id_or'].str.startswith(site)]['sample_id_or'].iloc[0]})
+    print(f'{per_site_label_example[site]}')
+
+########################################################################################################################
+
+
+## INVESTIGATE PER-SITE LABEL FORMATS ##################################################################################
+
+# get the position and label formats for each site
+with open(args['config'], 'rb') as fin:
+    rename_settings = tomlkit.loads(fin.read())
+    rename_settings.remove('title')
+
+# look at the different labels used within a site
+def unique_labels(label_list, site, label_position, label_delim=args['delim']):
+
+    # create a set of unique labels encountered in the provided position of the bag label
+    unique_label_set = set()
+
+    # create a list to add any bag labels that don't follow the format of other bag labels for this site
+    label_errors = []
+
+    # iterate through each bag label provided...
+    for label in label_list:
+
+        # only add the labels that match the site provided
+        if label.startswith(site):
+
+            # try to find this label in the provided position
+            try:
+                unique_label_set.add(label.split(label_delim)[label_position])
+            # if the index is out of bounds, then this bag label likely doesn't follow the site's naming convention
+            except IndexError:
+                # add the full bag label to the list of bag label errors
+                label_errors.append(label)
+        else:
+            continue
+
+    return unique_label_set, label_errors
+
+# test on BNZ first; used when creating the .toml configuration file
+unique_labels(endo_df['sample_id_or'], site='BNZ', label_position=4)
+
+# iterate through the config file to see the format used for the treatment label
+for site in rename_settings.keys():
+
+    # print the site being viewed
+    print(f'\n{site}')
+
+    # what are the unique labels for treatment - burn history?
+    print('  burn history:')
+    unique_burnhist, errors_burnhist = unique_labels(endo_df['sample_id_or'], site=site,
+                                                     label_position=rename_settings[site]['treatment']['burnhist']['position'])
+    print(f'    labels = {unique_burnhist}\n'
+          f'    errors = {errors_burnhist}')
+
+    # what are the unique labels for treatment - habitat?
+    print(f'  habitat:')
+    unique_habitat, errors_habitat = unique_labels(endo_df['sample_id_or'], site=site,
+                                                   label_position=rename_settings[site]['treatment']['habitat']['position'])
+    print(f'    labels = {unique_habitat}\n'
+          f'    errors = {errors_habitat}')
+
+########################################################################################################################
+
 
 ## UPDATE OLD CLIMUSH SAMPLE ID ########################################################################################
 
@@ -269,6 +380,7 @@ update_filename_cols = []
 # add a column of repeat values for the gene region; dumb but easiest solution right now
 endo_df['sequence_region'] = seq_region_prefix
 update_filename_cols.append('sequence_region')
+
 
 ## COMPARTMENT #########################################################################################################
 
@@ -394,11 +506,6 @@ else:
 
 ### ECOREGION ##########################################################################################################
 
-# get the name of the sites used for each state from the renaming .toml doc
-# if you have any empty values for a key, this won't load; so either put empty string or delete unused sections
-with open(rename_settings_path, 'rb') as fin:
-    rename_settings = tomlkit.loads(fin.read())
-
 def update_domain_dict(domain_dict, configuration_dict, site_section='site_name'):
     '''
     Updates the NEON domains dictionary with new site values.
@@ -512,130 +619,44 @@ update_filename_cols.append('neon_domain')
 
 ## TREATMENT ###########################################################################################################
 
-## HABITAT TYPE #############################################################
+def get_treatment(bag_label, config_dict, label_delim=args['delim']):
 
-# what are the unique habitat types in old sample names?
-old_habitats = set(s.split('-')[1] for s in endo_df['sample_id_or'])
-# print(f'old habitat labels = {old_habitats}')
+    # create a list of the original bag label components
+    label_list = bag_label.split(label_delim)
 
-# check if any unaccepted values for habitat
-accepted_habitats = ['C', 'O', 'G']
-error_habitat = [h for h in old_habitats if not h in accepted_habitats]
+    # get the site ID of this bag label, which is always the first part of the bag label for the 2023 endophytes
+    site_id = label_list[0]
 
-def check_treatment_errors(expected_vals, positions, sample_col):
+    # find the original labels
+    og_burnhist_label = label_list[config_dict[site_id]['treatment']['burnhist']['position']]
+    og_habitat_label = label_list[config_dict[site_id]['treatment']['habitat']['position']]
 
-    # what values are observed in the old sample IDs?
-    old_obs = set(s.split('-')[positions[0]] for s in sample_col)
+    # translate the original labels to new labels
+    new_burnhist_label = config_dict[site_id]['treatment']['burnhist']['format'][og_burnhist_label]
+    new_habitat_label = config_dict[site_id]['treatment']['habitat']['format'][og_habitat_label]
 
-    # are any old values that were observed *not* in the expected sample IDs?
-    old_err = [h for h in old_obs if not h in expected_vals]
+    # return the combined burn history and habitat the treatment labels
+    return new_burnhist_label + new_habitat_label
 
-    # if errors found, look at which sample IDs cause this
-    if len(old_err) > 0:
+# test function
 
-        # list of samples with non-accepted habitats
-        err_samples = [s for s in sample_col if s.split('-')[positions[0]] in old_err]
+new_treatment_dict = {}
+error_labels = []
+for old_label in endo_df['sample_id_or']:
 
-        # check if the burn history part of the sample ID contains an accepted habitat
-        remaining_err_samples = []
-        swapped_position = []
-        for err_samp in err_samples:
-            # check for an accepted value in a possible location provided in function
-            possible_val = err_samp.split('-')[positions[1]]
-            if possible_val in expected_vals:
-                swapped_position.append(err_samp)
-            else:
-                remaining_err_samples.append(err_samp)
+    # skip over SRER and BNZ
+    if not (old_label.startswith('SRER') or old_label.startswith('BNZ')):
 
-        return remaining_err_samples, swapped_position
+        try:
+            # get the new label by using the get_treatment function
+            new_label = get_treatment(bag_label=old_label, config_dict=rename_settings)
 
-    else:
-        return None
+            # update the dictionary with the old label as the key and the new label as the value
+            new_treatment_dict.update({old_label: new_label})
 
+        except tomlkit.exceptions.NonExistentKey:
+            error_labels.append(old_label)
 
-hab_err, hab_swap = check_treatment_errors(expected_vals=accepted_habitats,
-                                           positions=[1,2],
-                                           sample_col=endo_df['sample_id_or'])
-
-def correct_treatment_errors(expected_vals, positions, sample_col):
-
-    corrected_treatment = []
-    uncorrected_treatment = []
-    for samp in sample_col:
-
-        # get the habitat (or what should be habitat)
-        treatment = samp.split('-')[positions[0]]
-
-        # if this is an accepted habitat, add to the list
-        if treatment in expected_vals:
-            corrected_treatment.append(treatment)
-
-        # if this is not an accepted habitat...
-        else:
-
-            # address a specific issue for habitats in NWT samples
-            if (positions[0] == 1) and (treatment == 'CO'):
-                # if its the NWT samples that have CO instead of C, add C to corrected list
-                corrected_treatment.append('C')
-            else:
-                treatment_swapped = samp.split('-')[positions[1]]
-                if treatment_swapped in expected_vals:
-                    corrected_treatment.append(treatment_swapped)
-                # all errors should be caught by now?
-                else:
-                    print(f'Unknown error encountered with treatment: {treatment}')
-                    uncorrected_treatment.append(treatment)
-
-    # make sure there's the right number of habitats
-    if len(corrected_treatment) == len(sample_col):
-        return corrected_treatment
-    else:
-        print(f'The number of corrected habitats does not match the shape of the dataframe.')
-        return None
-
-habitats_corrected = correct_treatment_errors(expected_vals=accepted_habitats,
-                                              positions=[1,2],
-                                              sample_col=endo_df['sample_id_or'])
-
-#############################################################################
-
-
-## BURN HISTORY #############################################################
-
-# what are the unique burn history types in old sample names?
-old_burnhist = set(s.split('-')[2] for s in endo_df['sample_id_or'])
-# print(f'old burn history labels = {old_burnhist}')
-
-# check if any unexpected values for burn history
-accepted_old_burnhist = ['B', 'UB']
-error_burnhist = [bh for bh in old_burnhist if not bh in accepted_old_burnhist]
-
-brn_err, brn_swap = check_treatment_errors(expected_vals=accepted_old_burnhist,
-                                           positions=[2,1],
-                                           sample_col=endo_df['sample_id_or'])
-
-# no remaining burn errors after checking for position swaps, only position swap errors
-burnhist_corrected = correct_treatment_errors(expected_vals=accepted_old_burnhist,
-                                              positions=[2,1],
-                                              sample_col=endo_df['sample_id_or'])
-
-# burnhist_corrected is NOT corrected for renaming, just corrected to have consistent old names
-# still need to change to updated burn history format (do when combining)
-
-#############################################################################
-
-
-## COMBINE HABITAT + BURN HISTORY ###########################################
-
-# habitat format doesn't change in updated sample ID, so take as it is
-# burn history does change, from B/UB to B/U; i.e., just use first letter only
-treatment_col = [(brn[0] + hab) for hab,brn in zip(habitats_corrected, burnhist_corrected)]
-
-# add treatment as new column in df
-endo_df['treatment'] = treatment_col
-update_filename_cols.append('treatment')
-
-#############################################################################
 
 ########################################################################################################################
 
@@ -748,11 +769,11 @@ rename_count = 0
 for old_path, new_path in filepath_rename_dict.items():
 
     # if using safe mode, copy this file to the original file copy directory
-    if MAKE_COPY:
+    if args['no_copy']:
+        pass
+    else:
         copy_dst = original_copy_path / old_path.name
         shutil.copy(old_path, copy_dst)
-    else:
-        pass
 
     # rename the old path to the new path
     old_path.rename(new_path)
@@ -769,6 +790,14 @@ print(f'{rename_count} total sequence files were successfully renamed.\n')
 
 ## EXPORT FILE NAME CONVERSION TABLE ########################################
 
+# get the name of the old and new files and create a conversion table for these pairs
+original_file_names = [og_file.name for og_file in filepath_rename_dict.keys()]
+new_file_names = [new_file.name for new_file in filepath_rename_dict.values()]
+filename_convert_df = pd.DataFrame(data={'original_names': original_file_names,
+                                         'new_names': new_file_names})
+
+# write this table out to the conversion table path
+filename_convert_df.to_csv(convert_table_path, index=False)
 
 #############################################################################
 
