@@ -136,7 +136,7 @@ def exit_process(message, config_section='error.message'):
     # write_to_config(config_section=config_section, script=script_name, timestamp=exit_time, details=message)
     print(message)
     print(f'Exiting {script_name}...\n')
-    return sys.exit(0)
+    return sys.exit(1)
 
 # recursive function that will seek out yes/no/quit response continuously until achieved
 def prompt_yes_no_quit(message, auto_respond=False):
