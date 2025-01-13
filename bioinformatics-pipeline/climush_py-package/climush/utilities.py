@@ -117,18 +117,6 @@ def check_dir_exists(dir_path, auto_respond = False):
             # recursively run function to ensure that this new path exists
             return check_dir_exists(new_path)
 
-# log progress of bioinformatics pipeline
-def log_progress(file_map, run_name):
-    log_file = file_map['pipeline-output']['summary'] / f'log_{run_name}.json'
-
-    log_dict = {'run_name': run_name,
-                'error': {'script':'04_quality-filtering',
-                          'function':''}
-                }
-
-    with open(log_file, 'at') as log_out:
-        log_out.write(json.dumps(log_dict))
-
 # exit current script due to error, save script and timestamp of where error occurred
 def exit_process(message, config_section='error.message'):
     script_name = sys.argv[0]  # unsure if will get name of script it is executed in or the one it is compiled in
