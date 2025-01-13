@@ -2,11 +2,11 @@ import json, re
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
 from Bio.Seq import Seq
-from datetime import datetime
 from Bio import SeqIO
 from Bio.SeqRecord import SeqRecord
 import pandas as pd
 import numpy as np
+from datetime import datetime
 from climush.constants import *
 from climush.utilities import *
 
@@ -34,16 +34,16 @@ def demultiplex(output_dir, file_map, multiplexed_files, verbose, seq_platform='
 
     # CONFIRM THAT PLATFORM IS PACBIO ###############################################################
     # check that the sequence platform is set to pacbio; not suitable for others platforms right now
-    if not seq_platform == 'pacbio':
-        print(f'Currently, this function only accepts PacBio sequences. Not suited for demultiplexing Sanger or '
-              f'Illumina sequences.\n')
-        sys.exit()
+    # if not seq_platform == 'pacbio':
+    #     print(f'Currently, this function only accepts PacBio sequences. Not suited for demultiplexing Sanger or '
+    #           f'Illumina sequences.\n')
+    #     sys.exit()
 
     # LOCATE MAPPING FILE FOR EACH MULTIPLEXED SEQUENCE FILE #########################################
     # get all unique run queue IDs from files needing demux; will use later on
     queue_ids = set()
 
-    # link multiplexed sequence files in needs_demux to their corresponding mapping file in config directory
+    # link multiplexed sequence files to their corresponding mapping file in the config directory
     demux_mapping = {}  # key is mapping file path, value(s) is sequence file path in needs_demux dir
 
     for mp_file in multiplexed_files:
@@ -464,6 +464,9 @@ def demultiplex(output_dir, file_map, multiplexed_files, verbose, seq_platform='
                         fout.write(f'{seq_run}\t{p}\t{sample_ids_err}\t{r}\t{", ".join(bc_list)}\n')
 
 def pair_reads(input_files):
+
+    # accept either list of files or directory as input
+    input_files = create_file_list(input_files)
 
     pairs_dict = {}
     rev_reads = []
@@ -1858,7 +1861,8 @@ def create_query_fasta(input_dir, output_path, file_map, file_fmt='fasta', keep_
 
     # execute the sorting vsearch command
     run_subprocess(vsearch_sort_cmd, dest_dir=output_path, run_name=run_name,
-                   program='vsearch-sort', separate_sample_output=True, auto_respond=False)
+                   program='vsearch-sort', separate_sample_output=True,
+                   auto_respond=settings['automate']['auto_respond'])
 
 
     ## CHECK OUTPUT FILE
