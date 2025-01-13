@@ -761,6 +761,88 @@ def continue_to_next(current_script, config_dict):
 # FILE PATHS ##########
 #######################
 
+def file_finder(reference_dir, search_glob, max_depth=5000):
+    '''
+    Locate a file using a glob string via a directory walk.
+
+    :param reference_dir: a Path object to a directory from which the directory
+    walk will begin
+    :param search_glob: a glob-formatted search string that is used to find the
+    target file
+    :param max_depth: the maximum file depth to search for a matching file
+    :return: if successful, returns a Path object path to the matching file; if multiple
+    matches are found, the user is prompted to select the correct target path; if no
+    matches are found, the script will exit with a descriptive error message
+    '''
+
+    # if the input directory is not a Path object, create a Path object from it
+    if is_pathclass(reference_dir, exit_if_false=False):
+        pass
+    else:
+        reference_dir = Path(reference_dir)
+
+    # set a boolean variable to keep track of whether a file was located
+    file_not_found = True
+
+    # start with a top-down search of the file tree from the reference directory provided
+    for root, dirs, files in reference_dir.walk(top_down=True):
+
+        # check for match to the search_glob among the files
+        file_matches = [file for file in root.glob(search_glob)]
+
+        # if there are matches, stop the walk and move on to file check
+        if len(file_matches) > 0:
+            file_not_found = False
+            break
+
+        # if there are no matches, check child directories
+        else:
+            continue
+
+    # if no file was located through a top-down search, try a bottom-up search
+    if file_not_found:
+
+        # keep track of the depth searched, do not exceed the max_depth param
+        depth_counter = 0
+
+        # walk the parent of the input reference directory from bottom-up
+        for root, dirs, files in reference_dir.parent.walk(top_down=False):
+
+            # only search up to a certain depth, as defined in params
+            if depth_counter > max_depth:
+                break
+            else:
+                depth_counter +=1
+
+            # check for match to the search_glob among the files
+            file_matches = [file for file in root.glob(search_glob)]
+
+            # if there are matches, stop the walk and move on to file check
+            if len(file_matches) > 0:
+                file_not_found = False
+                break
+
+            # if there are no matches, check parent directories
+            else:
+                continue
+
+    # if still no matching file was located, print an error and exit with code 1
+    if file_not_found:
+        err_msg = (f'A file matching the glob {search_glob} was not located through a path walk starting at:\n'
+                   f'   {reference_dir}\n'
+                   f'when searched both top-down and bottom-up (with a maximum bottom-up depth of {max_depth}). '
+                   f'Check that the file exists in relative proximity to the reference directory and retry.\n')
+        return exit_process(err_msg)
+
+    # check how many file matches there are, since there should only be 1
+
+    # if one file match is found, return this single path
+    if len(file_matches) == 1:
+        return file_matches[0]
+
+    # if multiple file matches are found, prompt user to select the correct match
+    else:
+        return prompt_multiple_files(file_matches)
 
 def import_filepath(arg_value, must_exist, make_absolute=True):
     '''
@@ -1670,7 +1752,7 @@ def rename_read_header(input_dir, run_name, file_format='.fasta', unique_headers
 #######################
 
 # define function to simplify import of configuration files
-def get_settings(file_map, default_only=True, config_section='all'):
+def get_settings(reference_dir, default_only=True):
     '''
     ***TEMPORARILY ONLY ACCEPTS THE DEFAULT CONFIG FILE.***
 
@@ -1681,141 +1763,36 @@ def get_settings(file_map, default_only=True, config_section='all'):
     file with priority. If a given field is empty in the user configuration, indicating
     no user preference was provided for that setting, then the value for that field will
     be searched for in the default configuration file.
-    :param file_map: file map describing the file organization of directories and
-    subdirectories in the pipeline; this file map is contained within the
-    mapping.py script and is typically the first item loaded into each pipeline
-    script
+    :param reference_dir: the directory from which to start searching for the configuration files;
+    typically, when used within the climush pipeline scripts, this will be the path of the script
+    in which the function is called (e.g., Path(__file__))
     :param default_only: True; inserted this *TEMPORARY* parameter so that it will
     only read in the default configuration file, rather than compiling the user
     and default configuration
-    :param config_section: option to output only one section of the configuration
-    file.
     :return: dictionary of settings, with keys as configuration file settings and
     values as parameters chosen by the user (priority) or default settings.
     '''
 
-    ##########################
-    # REMOVE AFTER TESTING ###
-    ##########################
-    # import tomlkit
-    # from mapping import filepath_map as file_map
-    # default_only = True
-    # config_section = 'all'
-    # ACTIVATE RETURN STATEMENTS (done)
-    ##########################
+    # construct glob for default configuration file
+    default_settings_glob = '*' + DEFAULT_SETTINGS_HANDLE + CONFIG_FILETYPE
+
 
     if default_only:
-        config_path_default = list(file_map['config']['main'].glob('*default-settings.toml'))
 
-        # confirm that only one of each type exists in the config directory
-        if len(config_path_default) > 1:
-            msg = f'\nERROR. Multiple default configuration files were located '\
-                  f'in the /config directory:\n'\
-                  f'\t{[file.name for file in config_path_default]}\n'\
-                  f'Please remove any extraneous default configuration files, then retry.\n'
-            exit_process(message=msg)
-            return None
-        else:  # update dict so that path is single path and not in list form
-            config_path = config_path_default[0]
+        # locate the default configuration file by walking file paths
+        config_path = file_finder(reference_dir, search_glob=default_settings_glob)
 
-        # read in the config files as a new dict, with primary keys being user or default
-        with open(config_path, 'rt') as fin:
-            compiled_config = tomlkit.parse(fin.read())
+        # read in the default configuration file as a dictionary
+        with open(config_path, 'rt') as config_in:
+            compiled_config = tomlkit.parse(config_in.read())
 
-        # add the date to the default run name
-        # NO THIS CREATES A MESS, FIGURE OUT SOMETHING ELSE AT SOME POINT
-        # date_obj = datetime.today()
-        # date_tag = date_obj.strftime('%y%m%d')  # format is YYMMDD
-        # compiled_config['run_details']['run_name'] = (compiled_config['run_details']['run_name'] + date_tag)
-
-    else:
-        print(f'ERROR. Compilation of pipeline settings from both the user and default configuration files is '
-              f'still under construction. If you see message, ensure that default_only=True for the function '
-              f'get_settings().\n')
-        # get path to the configuration files (/config) from the mapping.py file input
-        config_path_user = list(file_map['config']['main'].glob('*user-settings.toml'))
-        config_path_default = list(file_map['config']['main'].glob('*default-settings.toml'))
-
-        # create a dictionary for a config file description (i.e., user/default) and its file path
-        config_paths = {k:v for k,v in zip(['user', 'default'], [config_path_user, config_path_default])}
-
-        # confirm that only one of each type exists in the config directory
-        for t in config_paths:
-            if len(config_paths[t]) > 1:
-                msg = f'\nERROR. Multiple {t} configuration files were located '\
-                      f'in the /config directory:\n'\
-                      f'\t{[file.name for file in config_paths[t]]}\n'\
-                      f'Please remove any extraneous {t} configuration files, then retry.\n'
-                exit_process(message=msg)
-                return None
-            else:  # update dict so that path is single path and not in list form
-                config_paths[t] = config_paths[t][0]
-
-        # read in the config files as a new dict, with primary keys being user or default
-        configs = {k:{} for k in config_paths}
-        for p in config_paths:
-            with open(config_paths[p], 'rt') as fin:
-                configs[p] = tomlkit.parse(fin.read())
-
-        # get a set of config dictionary keys for each type
-
-        # generator that produces all keys, even nested ones
-        def find_config_keys(type_dict):
-            '''
-            Find primary and nested sections of a .toml file.
-
-            :param type_dict: sectioned dictionary containing configuration values only
-            for the default or only for the user settings, e.g., configs['user']
-            :return: a set of unique keys in the given config
-            file
-            '''
-
-            for key,val in type_dict.items():
-                # if section is nested...
-                if isinstance(val, dict):
-                    # check this nested portion for more keys
-                    yield from find_config_keys(val)
-                # if section is not nested...
-                else:
-                    # return key
-                    yield key
-
-        # go through each dict and create a set of keys for each, save into another dict
-        unique_keys = {k:{} for k in configs}
-        for t in configs:
-            unique_keys[t] = set(k for k in find_config_keys(configs[t]))
-
-        # using the set of keys, compile settings from user (priority) then default
-        shared_keys = unique_keys['default'].union(unique_keys['user'])
-        default_keys = unique_keys['default'].difference(unique_keys['user'])
-        user_keys = unique_keys['user'].difference(unique_keys['default'])
-
-        compiled_config = {}
-        for s in shared_keys:
-            # if the entry in the user config is not empty...
-            if not configs['user'][s] == '':
-                # add this setting to the final config dict
-                compiled_config[s] = configs['user'][s]
-            # if the entry is empty in the user config, then use the default
-            else:
-                compiled_config[s] = configs['default'][s]
-
-
-
-    # return the compiled dictionary; return only specific section, if specified in function args
-    if config_section == 'all':
         return compiled_config
+
     else:
-        if config_section in compiled_config.keys():
-            return compiled_config[config_section]
-        else:
-            msg = f'The provided configuration file section header, {config_section}, is not a valid header for ' \
-                  f'the configuration file. Please enter the number of the correct header that you ' \
-                  f'want:'
-            print(msg)
-            correct_header = prompt_print_options(list(compiled_config.keys()),
-                                                  auto_respond=compiled_config['automate']['auto_respond'])
-            return compiled_config[correct_header]
+        err_msg = f'ERROR. Compilation of pipeline settings from both the user and default configuration files is '\
+                  f'still under construction. If you see message, ensure that default_only=True for the function '\
+                  f'get_settings().\n'
+        return exit_process(err_msg)
 
 # sort the sequences provided in the 'sequences' input directory
 def sort_input_files(filepath_dict, to_sort='main'):
