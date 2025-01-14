@@ -1036,7 +1036,7 @@ def count_files(file_path, search_for='*'):
 
     return len(list(file_path.glob(search_for)))
 
-def check_for_input(file_dir, config_dict, path_must_exist=True, seq_platform=None, file_ext=SEQ_FILE_GLOB, file_prefix=None):
+def check_for_input(file_dir, config_dict, path_must_exist=True, file_identifier=None, file_ext=SEQ_FILE_GLOB, file_prefix=None):
     '''
     Checks if there are input files for the process.
 
@@ -1048,9 +1048,11 @@ def check_for_input(file_dir, config_dict, path_must_exist=True, seq_platform=No
     :param path_must_exist: True/False; whether or not the input directory must
     exist; default True means that the input path must exist, and if it does not
     exist, an exit code of 1 will result
-    :param seq_platform: the type of sequencing files to look for ['illumina',
-    'sanger', 'pacbio']; defaults to None, meaning it will return True if any
-    non-empty directory or file is located
+    :param file_identifier: string or list of strings; a file identifier to look for in
+    a file or directory name, typically the prefix of the sequence file that describes
+    the sequencing platform (e.g., illumina) or sequenced gene region (e.g., its1, 18s);
+    defaults to None, meaning this function will return True if any non-empty directory
+    or file is located
     :param file_ext: the expected file extension of the files to search for,
     using asterisk '*' for wildcard (used in glob); if the desired return list
     is a list of subdirectories and not files, set this argument to None
@@ -1089,12 +1091,12 @@ def check_for_input(file_dir, config_dict, path_must_exist=True, seq_platform=No
         elif count_files(file_path=input_dir, search_for=file_ext) > 0:
 
             # then create a regex to match the sequencing platform files that you want returned in the file list
-            if seq_platform is None:
+            if file_identifier is None:
                 seq_re = r'.+?'  # will return all files in directory
-            elif isinstance(seq_platform, list):
-                seq_re = '|'.join(seq_platform)  # returns only those in provided in seq platform list
+            elif isinstance(file_identifier, list):
+                seq_re = '|'.join(file_identifier)  # returns only those in provided in seq platform list
             else:
-                seq_re = seq_platform  # returns only those of a single platform
+                seq_re = file_identifier  # returns only those of a single platform
 
             # use the platform-specific regex to create a list of relevant file paths
             file_list = [f for f in input_dir.glob(file_ext) if re.search(seq_re, f.name, re.I)]
