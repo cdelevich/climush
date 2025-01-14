@@ -90,9 +90,6 @@ PLATFORM_ANYWHERE_RE = r'illumina|pacbio|sanger'
 ITS1_PREFIX      = 'its1_'
 SSU_PREFIX       = '18s_'
 ITSLSU_PREFIX    = 'itslsu_'
-ITS1_PREFIX_RE   = r'^its1_'
-SSU_PREFIX_RE    = r'^18s_'
-ITSLSU_PREFIX_RE = r'^itslsu_'
 
 # SEQUENCING FILE PREFIX CONVERSION DICT
 SEQ_FILE_PREFIX_DICT = {
