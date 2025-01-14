@@ -86,6 +86,20 @@ KNOWN_FILE_SUFFIXES = tuple(COMPRESSION_SUFFIXES + COMMON_FILE_SUFFIXES)  # make
 ANY_PLATFORM_REGEX = r'^illumina|^pacbio|^sanger'
 PLATFORM_ANYWHERE_RE = r'illumina|pacbio|sanger'
 
+# SEQUENCE REGION PREFIXES + REGEX
+ITS1_PREFIX      = 'its1_'
+SSU_PREFIX       = '18s_'
+ITSLSU_PREFIX    = 'itslsu_'
+ITS1_PREFIX_RE   = r'^its1_'
+SSU_PREFIX_RE    = r'^18s_'
+ITSLSU_PREFIX_RE = r'^itslsu_'
+
+# SEQUENCING FILE PREFIX CONVERSION DICT
+SEQ_FILE_PREFIX_DICT = {
+    'illumina': ['its1', '18s'],
+    'pacbio': ['itslsu'],
+}
+
 # SAMPLE ID FROM FILE NAME
 # to use as default in get_sample_id() if platform not found
 SAMPLE_ID_RE = r'(?<=\w_)(pacbio|sanger|illumina).+?(?=\.)'
