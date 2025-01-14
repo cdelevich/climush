@@ -1048,14 +1048,18 @@ def check_for_input(file_dir, config_dict, path_must_exist=True, file_identifier
     :param path_must_exist: True/False; whether or not the input directory must
     exist; default True means that the input path must exist, and if it does not
     exist, an exit code of 1 will result
-    :param file_identifier: string or list of strings; a file identifier to look for in
-    a file or directory name, typically the prefix of the sequence file that describes
-    the sequencing platform (e.g., illumina) or sequenced gene region (e.g., its1, 18s);
-    defaults to None, meaning this function will return True if any non-empty directory
-    or file is located
+    :param file_identifier: regex string or list of regex strings; a file identifier to look for
+    within a file or directory name, that is as specific as the regex composed (i.e., if just a
+    regular string and not a formatted regex, it will look for this string anywhere in the file
+    name); typically the prefix of the sequence file that describes the sequencing platform
+    (e.g., illumina) or sequenced gene region (e.g., its1, 18s); defaults to None, meaning this
+    function will return True if any non-empty directory or file is located
     :param file_ext: the expected file extension of the files to search for,
     using asterisk '*' for wildcard (used in glob); if the desired return list
     is a list of subdirectories and not files, set this argument to None
+    :param file_prefix: string; a file prefix to search for at the very start of a sequence file
+    name; will only work if it is the start of the file name, which is different from file_identifier
+    which can occur anywhere within the file name
     :return: two items; [1] Boolean T/F, whether there is a directory in this
     path that contains items matching the file_ext; [2] a list of the files matching the
     file extension in the directory, if present
