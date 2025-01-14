@@ -67,7 +67,11 @@ files_demuxed = False
 # platform = 'illumina'
 #
 # # check if there are Illumina reads that need to be demultiplexed
-# is_input, illumina_files = check_for_input(args['input'], config_dict=settings, seq_platform=platform)
+# is_input, illumina_files = = check_for_input(
+#     args['input'],
+#     config_dict=settings,
+#     file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+# )
 #
 # if is_input:
 #     msg = f'WARNING. Currently, there is no script that can demultiplex Illumina reads. You can continue with the ' \
@@ -83,7 +87,11 @@ files_demuxed = False
 platform = 'pacbio'
 
 # check if there are PacBio reads that need to be demultiplexed
-is_input, pacbio_files = check_for_input(args['input'], config_dict=settings, seq_platform=r'\d{4}')
+is_input, pacbio_files = check_for_input(
+    args['input'],
+    config_dict=settings,
+    file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+)
 
 if is_input:
     files_demuxed = True
@@ -103,7 +111,11 @@ else:
 # platform = 'sanger'
 #
 # # check if there are Sanger reads that need to be demultiplexed
-# is_input, sanger_files = check_for_input(args['input'], config_dict=settings, seq_platform=platform)
+# is_input, sanger_files = = check_for_input(
+#     args['input'],
+#     config_dict=settings,
+#     file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+# )
 #
 # if is_input:
 #     msg = f'WARNING. Currently, there is no script that can demultiplex Sanger reads. You can continue with the ' \

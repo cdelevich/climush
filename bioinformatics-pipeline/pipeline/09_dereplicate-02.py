@@ -29,7 +29,11 @@ args = vars(parser.parse_args())
 
 # NOT UPDATED FOR ILLUMINA READS
 # check that there are Illumina reads to dereplicate
-# is_input, illumina_files = check_for_input(file_dir=args['input'], config_dict=settings, seq_platform=platform)
+# is_input, illumina_files = = check_for_input(
+#         args['input'],
+#         config_dict=settings,
+#         file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+#     )
 #
 # if is_input:
 #     dereplicate(input_files=illumina_files, derep_step=2, platform='illumina', file_map=fpm)
@@ -44,8 +48,12 @@ platform = 'pacbio'
 
 # set the file_ext argument to None; this assumes itsx immediately precedes derep and you want a list of
 #   directories, not a list of files (post-itsx, each sample has a directory)
-is_input, pacbio_dirs = check_for_input(file_dir=args['input'], config_dict=settings,
-                                        seq_platform=platform, file_ext=None)
+is_input, pacbio_dirs = check_for_input(
+    args['input'],
+    config_dict=settings,
+    file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform],
+    file_ext=None
+    )
 
 if is_input:
     dereplicate(input_files=pacbio_dirs, derep_step=2, platform=platform, file_map=fpm)

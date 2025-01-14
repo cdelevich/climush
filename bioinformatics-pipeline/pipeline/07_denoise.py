@@ -6,10 +6,11 @@ from climush.constants import *
 from climush.bioinfo import denoise
 from climush.utilities import *
 
+# import settings, get bioinformatics run name from settings
 settings = get_settings(fpm)
 run_name = settings['run_details']['run_name']
 
-## ADD COMMAND LINE OPTIONS
+# ADD COMMAND LINE OPTIONS
 
 parser = argparse.ArgumentParser(prog=Path(__file__).stem,
                                  description='Error correction of Illumina reads using the DENOISE3 algorithm from '
@@ -62,7 +63,11 @@ args = vars(parser.parse_args())
 #####################
 platform = 'illumina'
 
-is_input, illumina_files = check_for_input(file_dir=args['input'], config_dict=settings, seq_platform=platform)
+is_input, illumina_files = check_for_input(
+        args['input'],
+        config_dict=settings,
+        file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+    )
 
 if is_input:
     denoise(input_files=illumina_files, file_map=fpm,
@@ -74,9 +79,13 @@ else:
 #####################
 # PACBIO ############
 #####################
-platform = 'pacbio'
+# platform = 'pacbio'
 
-# is_input, pacbio_files = check_for_input(file_dir=args['input'], config_dict=settings, seq_platform=platform)
+# is_input, pacbio_files = check_for_input(
+#         args['input'],
+#         config_dict=settings,
+#         file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+#     )
 #
 # if is_input:
 #     denoise(input_files=pacbio_files, file_map=fpm,
@@ -87,9 +96,13 @@ platform = 'pacbio'
 #####################
 # SANGER ############
 #####################
-platform = 'sanger'
+# platform = 'sanger'
 
-# is_input, sanger_files = check_for_input(file_dir=args['input'], config_dict=settings, seq_platform=platform)
+# is_input, sanger_files = check_for_input(
+#         args['input'],
+#         config_dict=settings,
+#         file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+#     )
 #
 # if is_input:
 #     denoise(input_files=sanger_files, file_map=fpm,

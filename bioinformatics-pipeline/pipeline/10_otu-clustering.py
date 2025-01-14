@@ -97,7 +97,11 @@ args = vars(parser.parse_args())
 platform = 'illumina'
 
 # check that there are Illumina reads to cluster
-is_input, illumina_files = check_for_input(file_dir=args['input'], config_dict=settings, seq_platform=platform)
+is_input, illumina_files = check_for_input(
+    args['input'],
+    config_dict=settings,
+    file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+)
 
 if is_input:
     cluster_reads(illumina_files, fpm)
@@ -110,7 +114,11 @@ else:
 platform = 'pacbio'
 
 # check that there are Illumina reads to cluster
-is_input, pacbio_files = check_for_input(file_dir=args['input'], config_dict=settings, seq_platform=platform)
+is_input, pacbio_files = check_for_input(
+    args['input'],
+    config_dict=settings,
+    file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+)
 
 if is_input:
     cluster_reads(pacbio_files, fpm)
@@ -122,8 +130,12 @@ else:
 #####################
 platform = 'sanger'
 
-# check that there are Illumina reads to cluster
-is_input, sanger_files = check_for_input(file_dir=args['input'], config_dict=settings, seq_platform=platform)
+# check that there are sanger reads to cluster
+is_input, sanger_files = check_for_input(
+    args['input'],
+    config_dict=settings,
+    file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+)
 
 if is_input:
     cluster_reads(sanger_files, fpm)

@@ -70,7 +70,12 @@ else:
     pass
 
 # check if there are Illumina reads to check for chimeras
-is_input, illumina_files = check_for_input(args['input'], config_dict=settings, seq_platform=platform)
+is_input, illumina_files = check_for_input(
+    args['input'],
+    config_dict=settings,
+    file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform],
+    file_prefix=DENOISE_PREFIX
+    )
 
 if is_input:
     check_chimeras(input_files=illumina_files, file_map=fpm,
@@ -85,15 +90,19 @@ else:
 #####################
 platform = 'pacbio'
 
-# the default input path for Illumina sequences must be from the denoised sequence output
+# the default input path for pacbio sequences will be in the per-region dereplicated folder (dereplicate 02)
 if args['input'] is None:
     args.update({'input': fpm['pipeline-output']['derep-subregions'] / f'{DEREP_PREFIX}02_{run_name}'})
 else:
     pass
 
 # check if there are PacBio reads to check for chimeras
-is_input, pacbio_dirs = check_for_input(args['input'], config_dict=settings,
-                                         seq_platform=platform, file_ext=None)
+is_input, pacbio_dirs = check_for_input(
+    args['input'],
+    config_dict=settings,
+    file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform],
+    file_ext=None
+    )
 
 if is_input:
     check_chimeras(input_files=pacbio_dirs, file_map=fpm,
@@ -115,7 +124,11 @@ platform = 'sanger'
 #     pass
 
 # check if there are Sanger reads to check for chimeras
-is_input, sanger_files = check_for_input(args['input'], config_dict=settings, seq_platform=platform)
+is_input, sanger_files = check_for_input(
+        args['input'],
+        config_dict=settings,
+        file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+    )
 
 if is_input:
     check_chimeras(input_files=sanger_files, file_map=fpm,

@@ -43,7 +43,11 @@ args = vars(parser.parse_args())
 platform = 'illumina'
 
 # check that there are Illumina reads to trim primers from
-is_input, illumina_files = check_for_input(file_dir=args['input'], config_dict=settings, seq_platform=platform)
+is_input, illumina_files = check_for_input(
+    args['input'],
+    config_dict=settings,
+    file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+)
 
 if is_input:
     if args['check_only']:
@@ -62,7 +66,11 @@ else:
 platform = 'pacbio'
 
 # check that there are PacBio reads to trim primers from
-is_input, pacbio_files = check_for_input(file_dir=args['input'], config_dict=settings, seq_platform=platform)
+is_input, pacbio_files = check_for_input(
+    args['input'],
+    config_dict=settings,
+    file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+)
 
 if is_input:
     remove_primers(input_files=pacbio_files, file_map=fpm, platform=platform, verbose=args['verbose'], paired_end=False)
@@ -75,7 +83,11 @@ else:
 platform = 'sanger'
 
 # check if there are Sanger sequences to trim primers from
-# is_input, sanger_files = check_for_input(file_dir=args['input'], config_dict=settings, seq_platform=platform)
+# is_input, sanger_files = check_for_input(
+#     args['input'],
+#     config_dict=settings,
+#     file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+# )
 #
 # if is_input:
 #     remove_primers(sanger_files, file_map=fpm, platform=platform)

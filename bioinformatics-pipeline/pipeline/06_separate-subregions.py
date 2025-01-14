@@ -3,7 +3,8 @@ from mapping import filepath_map as fpm
 import argparse, pathlib
 from pathlib import Path
 from climush.constants import *
-from climush.bioinfo import separate_subregions, concat_regions, check_concat_output
+# from climush.bioinfo import separate_subregions, concat_regions, check_concat_output
+from climush.bioinfo import separate_subregions
 from climush.utilities import *
 
 settings = get_settings(fpm)
@@ -58,15 +59,19 @@ platform = 'pacbio'
 if args['concat_only']:
     for itsx_sample in args['concat_in'].glob('*'):
         print(f'\n{itsx_sample.stem}\n')
-        concat_regions(dir_path=itsx_sample, regions_to_concat=['ITS1', '5_8S', 'ITS2'])  # full ITS
-        concat_regions(dir_path=itsx_sample, regions_to_concat=['ITS1', '5_8S', 'ITS2', 'LSU'])  # full length read (reoriented)
+        # concat_regions(dir_path=itsx_sample, file_map=fpm, regions_to_concat=['ITS1', '5_8S', 'ITS2'])  # full ITS
+        # concat_regions(dir_path=itsx_sample, file_map=fpm, regions_to_concat=['ITS1', '5_8S', 'ITS2', 'LSU'])  # full length read (reoriented)
         # check_concat_output(itsx_dir=concat_path, full_len_dir=args['input'], num_bp_compare=50)
 else:
-    is_input, pacbio_files = check_for_input(file_dir=args['input'], config_dict=settings, seq_platform=platform)
+    is_input, pacbio_files = check_for_input(
+        args['input'],
+        config_dict=settings,
+        file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+    )
     if is_input:
-        itsx_out_path = separate_subregions(input_files=pacbio_files, file_map=fpm)
-        concat_regions(dir_path=itsx_out_path, regions_to_concat=['ITS1', '5_8S', 'ITS2'])  # full ITS
-        concat_regions(dir_path=itsx_out_path, regions_to_concat=['ITS1', '5_8S', 'ITS2', 'LSU'])  # full length read (reoriented)
+        itsx_out_path = separate_subregions(input_files=pacbio_files, file_map=fpm, verbose=True)
+        # concat_regions(dir_path=itsx_out_path, file_map=fpm, regions_to_concat=['ITS1', '5_8S', 'ITS2'])  # full ITS
+        # concat_regions(dir_path=itsx_out_path, file_map=fpm, regions_to_concat=['ITS1', '5_8S', 'ITS2', 'LSU'])  # full length read (reoriented)
         # check_concat_output(itsx_dir=itsx_out_path, full_len_dir=args['input'], num_bp_compare=50)
     else:
         pass

@@ -49,7 +49,11 @@ else:
 
 
 # check that there are Illumina reads to dereplicate
-is_input, illumina_files = check_for_input(file_dir=input_path, config_dict=settings, seq_platform=platform)
+is_input, illumina_files = check_for_input(
+    args['input'],
+    config_dict=settings,
+    file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+)
 
 if is_input:
     print(f'Dereplicating {len(illumina_files)} {platform} reads...\n')
@@ -69,7 +73,11 @@ if args['input'] is None:
 else:
     input_path = Path(args['input'])
 
-is_input, pacbio_files = check_for_input(file_dir=input_path, config_dict=settings, seq_platform=platform)
+is_input, pacbio_files = check_for_input(
+    input_path,
+    config_dict=settings,
+    file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+)
 
 if is_input:
     dereplicate(input_files=pacbio_files, derep_step=1, platform=platform, file_map=fpm)

@@ -13,7 +13,11 @@ settings = get_settings(fpm)
 #####################
 
 # check that there are Illumina reads to dereplicate
-is_input, illumina_files = check_for_input(file_dir=args['input'], config_dict=settings, seq_platform=platform)
+is_input, illumina_files = check_for_input(
+    args['input'],
+    config_dict=settings,
+    file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+)
 
 if is_input:
 
@@ -26,7 +30,11 @@ else:
 #####################
 
 # check that there are PacBio reads to dereplicate
-# is_input, pacbio_files = check_for_input(file_dir=args['input'], config_dict=settings, seq_platform=platform)
+# is_input, pacbio_files = check_for_input(
+#     args['input'],
+#     config_dict=settings,
+#     file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+# )
 #
 # if is_input:
 #     create_blast_db(config_dict, file_map, taxa_list=None)

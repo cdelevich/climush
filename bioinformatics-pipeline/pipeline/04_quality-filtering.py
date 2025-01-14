@@ -72,15 +72,27 @@ print(f'Currently, this is not updated to accomodate changes to the configuratio
       f'Working on it... \n')
 
 # look for input in the input path that are illumina reads
-is_input, illumina_files = check_for_input(args['input'], config_dict=settings, seq_platform=platform)
+is_input, illumina_files = check_for_input(
+    args['input'],
+    config_dict=settings,
+    file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+)
 
 if is_input:
     # if the --merge-from flag is not included, go through quality filter process
     if merge_from is None:
         filtered_path = quality_filter(input_files=illumina_files, platform=platform, file_map=fpm)
-        is_merge, filtered_files = check_for_input(filtered_path, config_dict=settings, seq_platform=platform)
+        is_merge, filtered_files = check_for_input(
+            filtered_path,
+            config_dict=settings,
+            file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+        )
     else:
-        is_merge, filtered_files = check_for_input(filtered_path, config_dict=settings, seq_platform=platform)
+        is_merge, filtered_files = check_for_input(
+            filtered_path,
+            config_dict=settings,
+            file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+        )
     # confirm that there are
     if args['merge'] and is_merge:
         print(f'\nMerging reads from {filtered_path}...')
