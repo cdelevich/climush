@@ -188,11 +188,19 @@ def prompt_print_options(option_list, auto_respond=False):
 
 # print a CLI prompt when multiple files are detected when only one is expected
 def prompt_multiple_files(file_path, auto_respond=False):
-    print(f'\nWARNING: Multiple files were detected in the '
-          f'{file_path.stem} folder. Please type the number '
-          f'corresponding to the correct file to use:')
-    file_list = [file.stem for file in file_path.glob('*') if not re.search(HIDDEN_FILE_REGEX, file.stem)]
-    return prompt_print_options(file_list, auto_respond=auto_respond)
+    if isinstance(file_path, list):
+        print(f'\nWARNING: Multiple files were detected when only '
+              f'one was expected. Please type the number '
+              f'corresponding to the correct file to use:')
+        return prompt_print_options(file_path, auto_respond=auto_respond)
+    else:
+        if is_pathclass(file_path, exit_if_false=False):
+            if file_path.is_dir():
+                print(f'\nWARNING: Multiple files were detected in the '
+                      f'{file_path.stem} folder. Please type the number '
+                      f'corresponding to the correct file to use:')
+                file_list = [file.stem for file in file_path.glob('*') if not re.search(HIDDEN_FILE_REGEX, file.stem)]
+                return prompt_print_options(file_list, auto_respond=auto_respond)
 
 # provide options for the sequencing platform if it cannot be otherwise detected
 def prompt_sequencing_platform(sample_id, auto_respond=False):
