@@ -769,8 +769,18 @@ def file_finder(reference_dir, search_glob, max_depth=5000):
     else:
         reference_dir = Path(reference_dir)
 
-    # set a boolean variable to keep track of whether a file was located
+    # if the reference_dir is instead a file, the path walk won't work
+    # if a file path is provided, use its parent instead as the reference_dir
+    if reference_dir.is_dir():
+        pass
+    else:
+        reference_dir = reference_dir.parent
+
+    # set a boolean variable to keep track of whether at least a single file was located
     file_not_found = True
+
+    # create a list of file Paths that were found in the walk that match the search_glob provided
+    files_matching_search = []
 
     # start with a top-down search of the file tree from the reference directory provided
     for root, dirs, files in reference_dir.walk(top_down=True):
@@ -778,10 +788,10 @@ def file_finder(reference_dir, search_glob, max_depth=5000):
         # check for match to the search_glob among the files
         file_matches = [file for file in root.glob(search_glob)]
 
-        # if there are matches, stop the walk and move on to file check
+        # if there are matches, append these to the file match list, so all matches are gathered
         if len(file_matches) > 0:
             file_not_found = False
-            break
+            files_matching_search = [*files_matching_search, *file_matches]
 
         # if there are no matches, check child directories
         else:
@@ -808,7 +818,7 @@ def file_finder(reference_dir, search_glob, max_depth=5000):
             # if there are matches, stop the walk and move on to file check
             if len(file_matches) > 0:
                 file_not_found = False
-                break
+                files_matching_search = [*files_matching_search, *file_matches]
 
             # if there are no matches, check parent directories
             else:
@@ -825,12 +835,12 @@ def file_finder(reference_dir, search_glob, max_depth=5000):
     # check how many file matches there are, since there should only be 1
 
     # if one file match is found, return this single path
-    if len(file_matches) == 1:
-        return file_matches[0]
+    if len(files_matching_search) == 1:
+        return files_matching_search[0]
 
     # if multiple file matches are found, prompt user to select the correct match
     else:
-        return prompt_multiple_files(file_matches)
+        return prompt_multiple_files(files_matching_search)
 
 def import_filepath(arg_value, must_exist, make_absolute=True):
     '''
