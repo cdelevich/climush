@@ -21,6 +21,13 @@ parser.add_argument('-i', '--input',
                          'will default to the location that is expected in the Docker container\'s native file '
                          'structure, detailed in pipeline/mapping.py.')
 
+# output directory for the dereplicated files
+parser.add_argument('-o', '--output',
+                    default=None,
+                    type=pathlib.PosixPath,
+                    help='The main output directory in which to create the bioinformatics run subfolder for '
+                         'dereplicated sequences.')
+
 args = vars(parser.parse_args())
 
 ## REMOVE AFTER TESTING
@@ -58,7 +65,11 @@ is_input, illumina_files = check_for_input(
 if is_input:
     print(f'Dereplicating {len(illumina_files)} {platform} reads...\n')
 
-    dereplicate(input_files=illumina_files, derep_step=1, platform='illumina', file_map=fpm)
+    dereplicate(input_files=illumina_files,
+                derep_step=1,
+                platform='illumina',
+                file_map=fpm,
+                output_path=args['output'])
 else:
     pass
 
@@ -80,7 +91,11 @@ is_input, pacbio_files = check_for_input(
 )
 
 if is_input:
-    dereplicate(input_files=pacbio_files, derep_step=1, platform=platform, file_map=fpm)
+    dereplicate(input_files=pacbio_files,
+                derep_step=1,
+                platform=platform,
+                file_map=fpm,
+                output_path=args['output'])
 else:
     pass
 

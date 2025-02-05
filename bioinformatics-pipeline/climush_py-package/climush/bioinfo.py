@@ -10,34 +10,17 @@ from datetime import datetime
 from climush.constants import *
 from climush.utilities import *
 
-def demultiplex(output_dir, file_map, multiplexed_files, verbose, seq_platform='pacbio'):
-
-    # REMOVE AFTER TESTING ############
-    # DON'T FORGET TO UNCOMMENT THE RUN_SUBPROCESS LINE WHERE LIMA ACTUALLY RUNS!!! #################
-    # file_map = fpm.copy()
-    # multiplexed_files = pacbio_files
-    # settings_dict = settings.copy()
-    # seq_platform = 'pacbio'
-    #
-    # excel_df = next(file_map['config']['bc_mapping'].glob('pacbio*.xlsx'))
-    # csv_df = next(file_map['config']['bc_mapping'].glob('*.csv'))
-    ###################################
+def demultiplex(output_dir, reference_dir, multiplexed_files, verbose):
 
     # DEFINE RELEVANT FILE PATHS ####################################################################
     # get the paths needed for demux
-    mapping_dir = file_map['config']['bc_mapping']  # directory containing all mapping files
+    # mapping_dir = file_map['config']['bc_mapping']  # directory containing all mapping files
+    mapping_dir = file_finder(reference_dir, files=r'.+?barcode.csv$', dirs=r'config')
     mapping_files = list(mapping_dir.glob('*'))  # get mapping files, as list (will reuse + exhaust)
 
     # ACCESS USER SETTINGS FROM CONFIG ##############################################################
-    settings = get_settings(file_map)
+    settings = get_settings(reference_dir)
     run_name = settings['run_details']['run_name']  # name to use for this bioinformatics run
-
-    # CONFIRM THAT PLATFORM IS PACBIO ###############################################################
-    # check that the sequence platform is set to pacbio; not suitable for others platforms right now
-    # if not seq_platform == 'pacbio':
-    #     print(f'Currently, this function only accepts PacBio sequences. Not suited for demultiplexing Sanger or '
-    #           f'Illumina sequences.\n')
-    #     sys.exit()
 
     # LOCATE MAPPING FILE FOR EACH MULTIPLEXED SEQUENCE FILE #########################################
     # get all unique run queue IDs from files needing demux; will use later on
@@ -104,6 +87,7 @@ def demultiplex(output_dir, file_map, multiplexed_files, verbose, seq_platform='
             print_indented_list(matches)  # print out the columns of the dataframe (formatted to be indented)
             retry_pattern = input()
             return get_col_name(pattern=retry_pattern, df=df)
+
     def get_barcodes(map_path, primers):
 
         # create an empty list to add fwd/rev barcodes to; output from function then added to set from all mapping df
@@ -493,14 +477,14 @@ def pair_reads(input_files):
 
     return pairs_dict
 
-def filter_out_phix(input_files, file_map, kmer=31, hdist=1, keep_log=True, keep_removed_seqs=True):
+def filter_out_phix(input_files, reference_dir, kmer=31, hdist=1, keep_log=True, keep_removed_seqs=True):
 
     # make sure parent directory exists/is created before making child
     mkdir_exist_ok(new_dir=file_map['pipeline-output']['prefiltered']['main'])
     phix_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['prefiltered']['prefilt01_no-phix'])
 
     # load in the configuration settings
-    settings = get_settings(file_map=file_map)
+    settings = get_settings(reference_dir)
     run_name = settings['run_details']['run_name']
 
     # create a parent directory to sort reads w/ and reads w/o PhiX into
@@ -534,12 +518,12 @@ def filter_out_phix(input_files, file_map, kmer=31, hdist=1, keep_log=True, keep
 
     return nophix_path
 
-def prefilter_fastx(input_files, file_map, maxn=0):
+def prefilter_fastx(input_files, reference_dir, maxn=0):
     # make sure parent directory exists/is created before making child
     mkdir_exist_ok(new_dir=file_map['pipeline-output']['prefiltered']['main'])
     noambig_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['prefiltered']['prefilt02_no-ambig'])
 
-    settings = get_settings(file_map=file_map)
+    settings = get_settings(reference_dir)
     run_name = settings['run_details']['run_name']
 
     noambig_path = mkdir_exist_ok(new_dir=f'./{NOAMBIG_PREFIX}_{run_name}', parent_dir=noambig_parent)
@@ -601,14 +585,14 @@ def identify_primers(platform, config_dict, verbose=True):
 
     return target_primers
 
-def confirm_no_primers(input_files, file_map, platform):
+def confirm_no_primers(input_files, reference_dir, platform):
 
     # if directory path provided, create generator of file paths
     if input_files.is_dir():
         input_files = input_files.glob(SEQ_FILE_GLOB)
 
     # read in settings from the configuration file
-    settings = get_settings(file_map)
+    settings = get_settings(reference_dir)
     run_name = settings['run_details']['run_name']
 
     # create a regex from fwd, rev, fwd_rc, and rev_rc primer sequences, to confirm no primer remains
@@ -725,13 +709,13 @@ def confirm_no_primers(input_files, file_map, platform):
 
     return None
 
-def remove_primers(input_files, file_map, platform, paired_end=True, verbose=False):
+def remove_primers(input_files, reference_dir, platform, paired_end=True, verbose=False):
 
     # make the main directory for output from primer removal
     trim_primers_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['primers-trimmed'])
 
     # read in settings from the configuration file
-    settings = get_settings(file_map)
+    settings = get_settings(reference_dir)
     run_name = settings['run_details']['run_name']
 
     # access cutadapt settings from the configuration
@@ -906,10 +890,10 @@ def remove_primers(input_files, file_map, platform, paired_end=True, verbose=Fal
 
     return trim_path
 
-def quality_filter(input_files, platform, file_map):
+def quality_filter(input_files, platform, reference_dir):
 
     # get filtering settings from the configuration file
-    settings = get_settings(file_map)
+    settings = get_settings(reference_dir)
     run_name = settings['run_details']['run_name']
     qfilt_dict = settings['quality_filtering'][platform]
     min_len = qfilt_dict['min_len']
@@ -980,10 +964,10 @@ def quality_filter(input_files, platform, file_map):
 
     return qfilt_path
 
-def merge_reads(input_files, file_map):
+def merge_reads(input_files, reference_dir):
 
     # import settings from the configuration file
-    settings = get_settings(file_map)
+    settings = get_settings(reference_dir)
     run_name = settings['run_details']['run_name']
 
     if settings['quality_filtering']['illumina']['merge_reads']:
@@ -1031,10 +1015,10 @@ def merge_reads(input_files, file_map):
     else:
         return input_files
 
-def dereplicate(input_files, derep_step, platform, file_map):
+def dereplicate(input_files, derep_step, platform, reference_dir, output_path=None):
 
     # read in settings from the configuration file
-    settings = get_settings(file_map)
+    settings = get_settings(reference_dir)
     run_name = settings['run_details']['run_name']
     min_unique = settings['dereplicate'][platform]['min_count'][f'derep0{derep_step}']
     premerged = settings['quality_filtering']['illumina']['merge_reads']
@@ -1049,8 +1033,12 @@ def dereplicate(input_files, derep_step, platform, file_map):
 
     # create main file paths for dereplicated read output
 
-    # main directory for dereplication output
-    derep_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output'][out_tag])
+    # if no alternative output path is provided, use the default
+    if output_path is None:
+        # main directory for dereplication output
+        derep_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output'][out_tag])
+    else:
+        derep_parent = mkdir_exist_ok(new_dir=output_path)
 
     # subfolder within the main directory for this specific bioinformatics run
     derep_path = mkdir_exist_ok(new_dir=f'./{derep_prefix}_{run_name}', parent_dir=derep_parent)
@@ -1106,10 +1094,10 @@ def dereplicate(input_files, derep_step, platform, file_map):
 
     return None
 
-def separate_subregions(input_files, file_map, verbose=False):
+def separate_subregions(input_files, reference_dir, verbose=False):
 
     # import configuration settings
-    settings = get_settings(file_map)
+    settings = get_settings(reference_dir)
     run_name = settings['run_details']['run_name']
 
     # create a directory for all ITSx output, if one does not exist
@@ -1791,7 +1779,7 @@ def separate_subregions(input_files, file_map, verbose=False):
 #
 #     return None
 
-def create_query_fasta(input_dir, output_path, file_map, file_fmt='fasta', keep_unsorted=False):
+def create_query_fasta(input_dir, output_path, reference_dir, file_fmt='fasta', keep_unsorted=False):
 
     # process input_dir to allow for either a directory or list of files; either way, must be Path object(s)
 
@@ -1813,7 +1801,7 @@ def create_query_fasta(input_dir, output_path, file_map, file_fmt='fasta', keep_
         exit_process(messages=err_msg)
 
     # import settings from the configuration .toml file
-    settings = get_settings(file_map)
+    settings = get_settings(reference_dir)
     run_name = settings['run_details']['run_name']
 
     # rename the read headers, post-chimera detection, so that the read ID contains the sample ID with sample= prefix
@@ -1954,12 +1942,12 @@ def create_query_fasta(input_dir, output_path, file_map, file_fmt='fasta', keep_
     return combined_sorted_out
 
 
-def denoise(input_files, file_map, alpha, minsize, clust_threshold, pool_samples=True):
+def denoise(input_files, reference_dir, alpha, minsize, clust_threshold, pool_samples=True):
 
     ## GET SETTINGS ###################################
 
     # read in the configuration settings, get bioinformatics run name from settings
-    settings = get_settings(file_map)
+    settings = get_settings(reference_dir)
     run_name = settings['run_details']['run_name']
 
 
@@ -2151,12 +2139,12 @@ def denoise(input_files, file_map, alpha, minsize, clust_threshold, pool_samples
 
     return None
 
-def check_chimeras(input_files, file_map, method, alpha, keep_chimeras):
+def check_chimeras(input_files, reference_dir, method, alpha, keep_chimeras):
 
     ## GET SETTINGS ###################################
 
     # read in the configuration settings, get bioinformatics run name from settings
-    settings = get_settings(file_map)
+    settings = get_settings(reference_dir)
     run_name = settings['run_details']['run_name']
 
 
@@ -2306,13 +2294,13 @@ def check_chimeras(input_files, file_map, method, alpha, keep_chimeras):
     return None
 
 
-def create_otu_fasta(query_fasta, file_map, otu_label='OTU', keep_abund=True, clust_threshold=None):
+def create_otu_fasta(query_fasta, reference_dir, otu_label='OTU', keep_abund=True, clust_threshold=None):
 
     # confirm that the input directory is a Path object
     is_pathclass(input_dir, exit_if_false=False)
 
     # import settings from the configuration .toml file
-    settings = get_settings(file_map)
+    settings = get_settings(reference_dir)
     run_name = settings['run_details']['run_name']
 
     # if no clustering threshold is provided directly to the function, then look in the settings config file to
@@ -2468,10 +2456,10 @@ def choose_representative(input_files, file_map):
 #
 #     return output_db
 
-def assign_taxonomy(otu_fasta, query_fasta, file_map, method=None):
+def assign_taxonomy(otu_fasta, query_fasta, reference_dir, method=None):
 
     # import settings from the configuration file
-    settings = get_settings(file_map)
+    settings = get_settings(reference_dir)
     run_name = settings['run_details']['run_name']
 
     # define list of available methods
