@@ -1014,7 +1014,7 @@ def mkdir_exist_ok(new_dir, parent_dir=None):
     :return: Path object of directory path
     '''
     if not (isinstance(new_dir, str)) and (new_dir.is_absolute()):
-        new_dir.mkdir(exist_ok=True)
+        new_dir.mkdir(exist_ok=True, parents=True)
         return new_dir
     elif (parent_dir is None):
         return print(f'\nThe provided file path of the new directory is not absolute. Please '
@@ -1022,7 +1022,7 @@ def mkdir_exist_ok(new_dir, parent_dir=None):
                            f'retry.\n')
     else:
         new_path = Path(parent_dir / new_dir)
-        new_path.mkdir(exist_ok=True)
+        new_path.mkdir(exist_ok=True, parents=True)
         return new_path
 
 # move files from current location (source_path) to new location (dest_path)
@@ -1409,13 +1409,13 @@ def get_sample_id(file_path, log_error=False, platform=None):
     if platform is None:
         # try to get it from the file name
         platform = get_seq_platform(file_path)
-        # if it is still None...s
+        # if it is still None...
         if platform is None:
             platform_re = SAMPLE_ID_RE  # search for sample ID for any of the seq platforms
         else:  # if it did find a platform, then use in regex
             platform_re = f'{platform.lower()}' + r'_.+?(?=\.)'
     else:  # if a platform was provided, then use this in the regex
-        platform_re = f'{platform.lower()}' + r'_.+?(?=\.)'
+        platform_re = f'{platform.lower()}' + r'.+?(?=\.)'
 
     # try to locate the sample ID in the file path
     try:
