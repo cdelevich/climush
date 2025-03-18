@@ -1730,6 +1730,348 @@ def concat_regions(dir_path, reference_dir, platform=None, regions_to_concat=['I
 
     return None
 
+def check_chimeras(input_files, reference_dir, output_dir, method, alpha, keep_chimeras):
+
+    ## GET SETTINGS ###################################
+
+    # read in the configuration settings, get bioinformatics run name from settings
+    settings = get_settings(reference_dir)
+    run_name = settings['run_details']['run_name']
+
+
+    ## CREATE OUTPUT DIRECTORIES ######################
+
+    # make the main output directory for chimera check output
+    chim_parent = mkdir_exist_ok(new_dir=output_dir)
+
+    # within main chimera check output directory, create a subdirectory for the chimeric and non-chimeric reads
+    nochim_path = mkdir_exist_ok(new_dir=f'./{NOCHIM_PREFIX}_{run_name}', parent_dir=chim_parent)
+    chim_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(NOCHIM_PREFIX)}_{run_name}', parent_dir=chim_parent)
+
+    # create a log file for any UCHIME summary content produce by vsearch flag --uchimeout
+    uchime_log = chim_parent / f'uchime_{run_name}.log'
+
+
+    ## DE NOVO CHIMERA DETECTION #######################
+
+    # if the method is set to denovo, then do de novo chimera detection
+    if method == 'denovo':
+
+        # function for de novo chimera detection depends on whether sequences have been denoised or not
+
+        # sort input files into whether they have been denoised (have denoise_ file prefix) or not
+        input_sorted = {p: [] for p in [DENOISE_PREFIX, flip_prefix(DENOISE_PREFIX)]}
+
+        # go through each input file and sort by whether sequences in file are denoised or not
+        for file in create_file_list(input_files):
+
+            # get the file prefix of the file
+            file_prefix = file.name.split('_')[0]
+
+            # add the file path to the sorted dictionary, based on prefix
+            if file_prefix == DENOISE_PREFIX:
+                input_sorted[DENOISE_PREFIX].append(file)
+            else:
+                input_sorted[flip_prefix(DENOISE_PREFIX)].append(file)
+
+        # run UCHIME3 de novo chimera detection on denoised sequences
+        for denoised_file in input_sorted[DENOISE_PREFIX]:
+
+            # create an output file path for the non-chimeric read output
+            nochim_out = add_prefix(file_path=denoised_file, prefix=NOCHIM_PREFIX,
+                                    dest_dir=nochim_path, action=None)
+
+            # assemble the vsearch UCHIME3 command for the command line
+            vsearch_denovo_cmd = ['vsearch', '--uchime3_denovo', denoised_file,
+                                  '--abskew', str(alpha),
+                                  '--nonchimeras', nochim_out,
+                                  '--uchimeout', uchime_log]
+
+            if keep_chimeras:
+
+                # if configured to keep chimeras, create an output file path for chimeric reads
+                chim_out = add_prefix(file_path=denoised_file, prefix=flip_prefix(NOCHIM_PREFIX),
+                                      dest_dir=chim_path, action=None)
+
+                # insert the command to keep chimeras into the uchime command
+                append_subprocess(
+                    cli_command_list=vsearch_denovo_cmd,
+                    options_to_add=['--chimeras', chim_out],
+                    position=-2,
+                    return_copy=False,
+                )
+
+            else:
+                pass
+
+            # execute the vsearch UCHIME command
+            run_subprocess(vsearch_denovo_cmd, dest_dir=chim_parent, run_name=run_name, program='uchime3-denovo',
+                           auto_respond=settings['automate']['auto_respond'])
+
+        # run UCHIME de novo chimera detection on sequences that have not been denoised
+        for undenoised_file in input_sorted[flip_prefix(DENOISE_PREFIX)]:
+
+            # create an output file path for the non-chimeric read output
+            nochim_out = add_prefix(file_path=undenoised_file, prefix=NOCHIM_PREFIX,
+                                    dest_dir=nochim_path, action=None)
+
+            # assemble the vsearch UCHIME3 command for the command line
+            vsearch_denovo_cmd = ['vsearch', '--uchime_denovo', undenoised_file,
+                                  '--abskew', str(alpha),
+                                  '--nonchimeras', nochim_out,
+                                  '--uchimeout', uchime_log]
+
+            if keep_chimeras:
+
+                # if configured to keep chimeras, create an output file path for chimeric reads
+                chim_out = add_prefix(file_path=undenoised_file, prefix=flip_prefix(NOCHIM_PREFIX),
+                                      dest_dir=chim_path, action=None)
+
+                # insert the command to keep chimeras into the uchime command
+                append_subprocess(
+                    cli_command_list=vsearch_denovo_cmd,
+                    options_to_add=['--chimeras', chim_out],
+                    position=-2,
+                    return_copy=False,
+                )
+
+            else:
+                pass
+
+            # execute the vsearch de novo UCHIME command
+            run_subprocess(vsearch_denovo_cmd, dest_dir=chim_parent, run_name=run_name, program='uchime-denovo',
+                           auto_respond=settings['automate']['auto_respond'])
+
+    ## REFERENCE-BASED CHIMERA DETECTION #################
+
+    # if the method is set to reference-based, then do reference-based chimera detection
+    elif method == 'reference':
+
+        # get the path to the directory with the chimera reference datasets
+        chim_ref_dir = file_finder(
+            reference_dir=reference_dir,
+            search_glob='reference-sequences/chimera-check',
+        )
+
+        # if the directory with the chimera reference datasets contains a single directory, then replace
+        #  the file path with the path to this child directory
+
+        # create a list of contents of chim_ref_dir, ignoring hidden files like .DS_Store
+        chim_ref_dir_contents = [child for child in chim_ref_dir.iterdir() if not child.name.startswith('.')]
+
+        # if only a single item and this item is a directory, replace path variable with this child directory path
+        if (len(chim_ref_dir_contents) == 1) and (chim_ref_dir_contents[0].is_dir()):
+            chim_ref_dir = chim_ref_dir_contents[0]
+        else:
+            pass
+
+
+        # sort the input files based on the DNA region; e.g., ITS1 and ITS2 have distinct reference datasets
+
+        # create a dictionary where the key is the DNA region that will match the file tags and values are empty list
+        ref_chim_regions = [region_tag.lower() for region_tag in POST_ITSX_SUFFIXES.values() if
+                            not (region_tag in ['5_8S', 'LSU'])]
+        input_files_sorted = {region: [] for region in ref_chim_regions}
+
+        # create a regex that will search for any of the regions
+        ref_chim_regions_re = '|'.join(ref_chim_regions)
+
+        # if input files are directories (pacbio), create a list of all sequence files within all input directories
+        updated_file_list = []
+        for file_in in input_files:
+            if file_in.is_dir():
+                for fasta_file in file_in.glob(SEQ_FILE_GLOB):
+                    updated_file_list.append(fasta_file)
+            else:
+                updated_file_list.append(file_in)
+
+        # go through the input files and sort files by region
+        for file_in in updated_file_list:
+            wanted_region_found = re.search(ref_chim_regions_re, file_in.name, re.I)
+            if wanted_region_found:
+                input_files_sorted[wanted_region_found.group(0).lower()].append(file_in)
+            else:
+                continue
+
+        # keep track of whether multiple regions are included in the input files; later use this to decide whether to
+        #   create multiple output subdirectories, one for each region (only do this if multiple regions processed)
+        input_region_count = 0
+        for dna_region, region_file_list in input_files_sorted.items():
+            if len(region_file_list) > 0:
+                input_region_count += 1
+            else:
+                pass
+
+        # create a dictionary with the same keys as the input_files_sorted list, to add paths to the correct
+        #   reference files to use for each region
+        chim_ref_by_region = {r:'' for r in input_files_sorted.keys()}
+
+        # go through each DNA region
+        for dna_region in chim_ref_by_region:
+
+            # create a list of all file paths that match this DNA region in the chimera reference dir path
+            region_ref_files = []
+
+            # locate all matching directories or files for this DNA region
+            for ref_file in chim_ref_dir.iterdir():
+
+                # if a file or directory matches this region...
+                match_found = re.search(dna_region, ref_file.name, re.I)
+                if match_found:
+
+                    # if the matching path is a directory, look inside directory for a sequence file
+                    if ref_file.is_dir():
+                        match_found_inside = [f for f in ref_file.glob(SEQ_FILE_GLOB) if re.search(dna_region, f.name, re.I)]
+
+                        # if a single sequence file is located that matches the region, add this to the list of ref files
+                        if len(match_found_inside) == 1:
+                            region_ref_files.append(match_found_inside[0])
+
+                        # if multiple sequence files match the region inside this directory, add all of them
+                        elif len(match_found_inside) > 1:
+                            region_ref_files.append(*match_found_inside)
+
+                        # if no matching files are found in this directory, pass over it
+                        else:
+                            pass
+
+                    # if the matching path is a sequence file, add it to the matching file list
+                    elif re.search(SEQ_FILE_RE, ref_file.suffix, re.I):
+                        region_ref_files.append(ref_file)
+
+                    # if the matching path isn't a directory nor a sequence file, skip over it (don't add to list)
+                    else:
+                        pass
+
+                else:
+                    continue
+
+            # if a single file / directory is located for this region...
+            if len(region_ref_files) == 1:
+                # add this as the path location of the chimera ref file for this region
+                chim_ref_by_region.update({dna_region: region_ref_files[0]})
+
+            # if multiple are located for this region...
+            elif len(region_ref_files) > 1:
+                # print an error; can't proceed with multiple matches
+                err_msg = (f'Multiple chimera reference files were detected for the DNA region {dna_region} based '
+                           f'on matching the region string to a file name in the directory: \n'
+                           f'   {chim_ref_dir}')
+                return exit_process(err_msg)
+
+            # if no reference datasets exactly match this region...
+            else:
+
+                # likely indicates that the general-use reference file should be used for this region
+                if dna_region.lower() in ['full-its', 'its-lsu']:
+                    general_ref = [fasta_file for fasta_file in chim_ref_dir.glob(SEQ_FILE_GLOB)][0]
+                    chim_ref_by_region.update({dna_region: general_ref})
+                else:
+                    err_msg = (f'A reference chimera dataset for the {dna_region} DNA region should be available '
+                               f'for vsearch to use, but one was not detected.')
+                    return exit_process(err_msg)
+
+
+        # go through the list of input files by region...
+        for dna_region, region_file_list in input_files_sorted.items():
+
+            # if there aren't any files for this region, skip over it
+            if len(region_file_list) == 0:
+                continue
+
+            else:
+
+                # get the reference dataset to use based on the DNA region of the input files
+                chim_ref_file = chim_ref_by_region[dna_region]
+
+                # create a subdirectory for this DNA region, only if multiple regions are represented in input files
+                if input_region_count > 1:
+                    region_nonchim_out = mkdir_exist_ok(
+                        new_dir=dna_region,
+                        parent_dir=nochim_path,
+                    )
+                # otherwise, put directory into the main output directory
+                else:
+                    region_nonchim_out = nochim_path
+
+                # process one input file at a time from this region file list
+                for input_file in region_file_list:
+
+                    # file name of the non-chimeric sequences for this sample
+                    nochim_out = add_prefix(file_path=input_file, prefix=NOCHIM_PREFIX,
+                                            dest_dir=region_nonchim_out, action=None)
+
+                    vsearch_ref_cmd = ['vsearch', '--uchime_ref', input_file,
+                                       '--nonchimeras', nochim_out,
+                                       '--uchimeout', uchime_log,
+                                       '--db', chim_ref_file]
+
+                    if keep_chimeras:
+
+                        # create a subdirectory for this DNA region, only if multiple regions are represented in input files
+                        if input_region_count > 1:
+                            region_chim_out = mkdir_exist_ok(
+                                new_dir=dna_region,
+                                parent_dir=chim_path,
+                            )
+                        # otherwise, put directory into the main output directory
+                        else:
+                            region_chim_out = chim_path
+
+                        # file name of the chimeric sequences for this sample (if keep_chimeras=True)
+                        chim_out = add_prefix(file_path=input_file, prefix=flip_prefix(NOCHIM_PREFIX),
+                                              dest_dir=region_chim_out, action=None)
+
+                        # insert the command to keep chimeras into the uchime command
+                        append_subprocess(
+                            cli_command_list=vsearch_ref_cmd,
+                            options_to_add=['--chimeras', chim_out],
+                            position=5,
+                            return_copy=False,
+                        )
+
+                    else:
+                        pass
+
+                    # execute the chimera detection vsearch command for this sample sequence file
+                    run_subprocess(vsearch_ref_cmd, dest_dir=chim_parent, run_name=run_name, program='uchime-ref',
+                                   auto_respond=settings['automate']['auto_respond'])
+
+    else:
+        pass
+
+    ## OUTPUT SUMMARY FILE WITH TABLE OF SAMPLES WITHOUT NON-CHIMERA READS
+
+    # create an empty dictionary to add sample IDs and read counts of empty files only (no sequences)
+    empty_nonchim = {}
+
+    # go through each non-chimeric file that was just created
+    for nonchim_file in nochim_path.glob(f'{NOCHIM_PREFIX}*fasta'):
+
+        # for each non-chimeric file, count the number of sequences (read count)
+        read_count = 0
+        with open(nonchim_file) as fasta_in:
+            for record in SeqIO.parse(fasta_in, 'fasta'):
+                read_count += 1
+
+        # if there are no sequences in the non-chim file for this sample...
+        if read_count == 0:
+
+            # get the sample ID
+            sample_id = get_sample_id(file_path=nonchim_file)
+
+            # append the sample ID and read count to the empty non-chim dictionary
+            empty_nonchim.update({sample_id: read_count})
+
+    # after going through each non-chimeric file, write out the empty non-chimeric samples to a summary file
+    empty_nonchim_out = chim_parent / f'{run_name}_no-nonchim-reads.txt'
+    with open(empty_nonchim_out, 'wt') as fout:
+        fout.write(f'read count\tsample id\n')
+        for sample_id, read_count in empty_nonchim.items():
+            fout.write(f'{read_count}\t{sample_id}\n')
+
+    return None
+
 
 # def concat_regions(dir_path, file_map, regions_to_concat=['ITS1', '5_8S', 'ITS2'], verbose=True, header_delim=None):
 #     '''
@@ -2703,159 +3045,6 @@ def denoise(input_files, reference_dir, alpha, minsize, clust_threshold, pool_sa
 
     return None
 
-def check_chimeras(input_files, reference_dir, method, alpha, keep_chimeras):
-
-    ## GET SETTINGS ###################################
-
-    # read in the configuration settings, get bioinformatics run name from settings
-    settings = get_settings(reference_dir)
-    run_name = settings['run_details']['run_name']
-
-
-    ## CREATE OUTPUT DIRECTORIES ######################
-
-    # make the main output directory for chimera check output
-    chim_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['chimera-checked'])
-
-    # within main chimera check output directory, create a subdirectory for the chimeric and non-chimeric reads
-    nochim_path = mkdir_exist_ok(new_dir=f'./{NOCHIM_PREFIX}_{run_name}', parent_dir=chim_parent)
-    chim_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(NOCHIM_PREFIX)}_{run_name}', parent_dir=chim_parent)
-
-    # create a log file for any UCHIME summary content produce by vsearch flag --uchimeout
-    uchime_log = chim_parent / f'uchime_{run_name}.log'
-
-    ## DE NOVO CHIMERA DETECTION #######################
-
-    # if the method is set to denovo, then do de novo chimera detection
-    if method == 'denovo':
-
-        # depending on whether sequences were pooled prior to denoising, input_files may be a list of files (unpooled)
-        #  or a single file (pooled); either way, create a list from the input_files argument
-        if isinstance(input_files, list):
-            pass
-        else:
-            input_files = [input_files]
-
-        # de novo chimera detection is platform-dependent, so sort input files by platform
-
-        # create dictionary, where key (p) is name of platform, value is list of files from this platform
-        input_sorted = {p: [] for p in SEQ_PLATFORM_OPTS}
-
-        # go through each input file, and sort by platform
-        for file in input_files:
-
-            # get the platform based on the sequence file name
-            file_platform = get_seq_platform(file)
-
-            # add the file to the correct platform key in the sorted input file dictionary
-            input_sorted[file_platform].append(file)
-
-        # then go through the Illumina reads, and run UNOISE then UCHIME2
-        for illumina_file in input_sorted['illumina']:
-
-            # require that the input Illumina files have the prefix denoise_, which indicates that
-            #  denoising has already been carried out; is required for de novo chimera detection
-            if illumina_file.name.startswith(DENOISE_PREFIX):
-                pass
-            else:
-                err_msg = (f'ERROR. The input Illumina files provided to {check_chimeras.__name__} do not appear to '
-                           f'have been run through denoising. In order to do de novo chimera detection of Illumina '
-                           f'reads, they must be run through denoising. If these sequences have been run through '
-                           f'denoising, make sure the file names start with the prefix {DENOISE_PREFIX}, and rerun.\n')
-                exit_process(message=err_msg)
-
-            ## CHIMERA CHECK
-
-            # create an output file path for the non-chimeric read output
-            nochim_out = add_prefix(file_path=illumina_file, prefix=NOCHIM_PREFIX,
-                                    dest_dir=nochim_path, action=None)
-
-            # assemble the vsearch UCHIME command for the command line
-            vsearch_denovo_cmd = ['vsearch', '--uchime3_denovo', illumina_file,
-                                  '--abskew', str(alpha),
-                                  '--nonchimeras', nochim_out,
-                                  '--uchimeout', uchime_log]
-
-            if keep_chimeras:
-
-                # if configured to keep chimeras, create an output file path for chimeric reads
-                chim_out = add_prefix(file_path=illumina_file, prefix=flip_prefix(NOCHIM_PREFIX),
-                                      dest_dir=chim_path, action=None)
-
-                # insert the command to keep chimeras into the uchime command
-                vsearch_denovo_cmd.insert(-2, '--chimeras')
-                vsearch_denovo_cmd.insert(-2, chim_out)
-
-            else:
-                pass
-
-            # execute the vsearch UCHIME command
-            run_subprocess(vsearch_denovo_cmd, dest_dir=chim_parent, run_name=run_name, program='uchime',
-                           auto_respond=settings['automate']['auto_respond'])
-
-    ## REFERENCE-BASED CHIMERA DETECTION #################
-
-    # if reference is NOT set to None, it should ... ?
-    # else:
-    #
-    #     # get the path to the chimera reference datasets
-    #     chim_ref_files = file_map['config']['reference-db']['chimera'].glob(SEQ_FILE_GLOB)
-    #
-    #     refs_to_use = []
-    #     for r in chim_ref_files:
-    #         result = re.search(ref, r, re.I)
-    #         if result:
-    #             refs_to_use.append(result.group(0))
-    #         else:
-    #             continue
-    #
-    #     for chim_ref in refs_to_use:
-    #         for file in input_files:
-    #             nochim_out = add_prefix(file_path=file, prefix=NOCHIM_PREFIX,
-    #                                     dest_dir=chim_path, action=None)
-    #             chim_out = add_prefix(file_path=file, prefix=flip_prefix(NOCHIM_PREFIX),
-    #                                   dest_dir=chim_path, action=None)
-    #
-    #             vsearch_ref_cmd = ['vsearch', '--uchime_ref', file,
-    #                                '--chimeras', chim_out,
-    #                                '--nonchimeras', nochim_out,
-    #                                '--uchimeout', uchime_log,
-    #                                '--db', chim_ref]
-    #
-    #             run_subprocess(vsearch_ref_cmd, dest_dir=chim_parent, run_name=run_name,
-    #                            auto_respond=settings['automate']['auto_respond'])
-
-    ## OUTPUT SUMMARY FILE WITH TABLE OF SAMPLES WITHOUT NON-CHIMERA READS
-
-    # create an empty dictionary to add sample IDs and read counts of empty files only (no sequences)
-    empty_nonchim = {}
-
-    # go through each non-chimeric file that was just created
-    for nonchim_file in nochim_path.glob(f'{NOCHIM_PREFIX}*fasta'):
-
-        # for each non-chimeric file, count the number of sequences (read count)
-        read_count = 0
-        with open(nonchim_file) as fasta_in:
-            for record in SeqIO.parse(fasta_in, 'fasta'):
-                read_count += 1
-
-        # if there are no sequences in the non-chim file for this sample...
-        if read_count == 0:
-
-            # get the sample ID
-            sample_id = get_sample_id(file_path=nonchim_file)
-
-            # append the sample ID and read count to the empty non-chim dictionary
-            empty_nonchim.update({sample_id: read_count})
-
-    # after going through each non-chimeric file, write out the empty non-chimeric samples to a summary file
-    empty_nonchim_out = chim_parent / f'{run_name}_no-nonchim-reads.txt'
-    with open(empty_nonchim_out, 'wt') as fout:
-        fout.write(f'read count\tsample id\n')
-        for sample_id, read_count in empty_nonchim.items():
-            fout.write(f'{read_count}\t{sample_id}\n')
-
-    return None
 
 
 def create_otu_fasta(query_fasta, reference_dir, otu_label='OTU', keep_abund=True, clust_threshold=None):
