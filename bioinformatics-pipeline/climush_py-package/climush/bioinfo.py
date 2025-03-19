@@ -3105,31 +3105,7 @@ def create_otu_fasta(query_fasta, reference_dir, otu_label='OTU', keep_abund=Tru
     return query_fasta.parent
 
 
-# def cluster_reads(input_files, file_map):
-#
-#     settings = get_settings(file_map)
-#     run_name = settings['run_details']['run_name']
-#
-#     min_threshold = settings['otu_clustering']['min_threshold']
-#
-#     clust_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['otus-clustered'])
-#
-#     # rename headers for each file to retain source of sample
-#     # rename_read_headers()
-#
-#     # combine all reads into one fasta file
-#     combined_reads = combine_all_reads(input_files, file_map)
-#
-#     clust_out = add_prefix(file_path=combined_reads, prefix=CLUSTER_PREFIX,
-#                            dest_dir=clust_parent, action=None)
-#     # cluster
-#     vsearch_clust_cmd = ['vsearch', '--cluster_fast', combined_reads, '--clusters',
-#                          clust_out, '--id', str(min_threshold)]
-#
-#     run_subprocess(vsearch_clust_cmd, dest_dir=clust_parent, run_name=run_name,
-#                    auto_respond=settings['automate']['auto_respond'])
-#
-#     return None
+
 
 def choose_representative(input_files, file_map):
     '''
@@ -3261,3 +3237,144 @@ def assign_taxonomy(otu_fasta, query_fasta, reference_dir, method=None):
     exit_process(error_msg)
 
     return None
+
+def cluster_reads(input_files, output_dir, reference_dir, clust_threshold, clust_method, group=True):
+
+    ## IMPORT SETTINGS FOR PIPELINE ###################
+
+    # import configuration settings
+    settings = get_settings(reference_dir)
+    run_name = settings['run_details']['run_name']
+
+
+    ## CREATE OUTPUT FILE PATHS #######################
+
+    # create a directory for all clustering output
+    clust_parent = mkdir_exist_ok(new_dir=output_dir)
+
+    # create a directory within the main clustering output for this particular pipeline run
+    clust_output = mkdir_exist_ok(new_dir=f'./{CLUSTER_PREFIX}_{run_name}', parent_dir=clust_parent)
+
+
+    ## FLATTEN INPUT FILE LIST ########################
+
+    # if input files are directories (pacbio), create a list of all sequence files within all input directories
+    updated_file_list = []
+    for file_in in input_files:
+        if file_in.is_dir():
+            for fasta_file in file_in.glob(SEQ_FILE_GLOB):
+                updated_file_list.append(fasta_file)
+        else:
+            updated_file_list.append(file_in)
+
+
+    ## COMBINE SAMPLE SEQUENCES PRE-CLUSTERING ########
+
+    # if group=True, gather all like sequences together into a single .fasta before clustering
+    if group:
+
+        ## SORT BY DNA REGION ##
+
+        # create a dictionary where the key is the DNA region that will match the file tags and values are empty list
+        clust_regions = [region_tag.lower() for region_tag in POST_ITSX_SUFFIXES.values() if
+                            not (region_tag in ['5_8S', 'LSU'])]
+        input_files_sorted = {region: [] for region in clust_regions}
+
+        # create a regex that will search for any of the regions in the input .fasta files
+        clust_regions_re = '|'.join(clust_regions)
+
+        # go through the input files and sort files by region
+        for file_in in updated_file_list:
+            wanted_region_found = re.search(clust_regions_re, file_in.name, re.I)
+            if wanted_region_found:
+                input_files_sorted[wanted_region_found.group(0).lower()].append(file_in)
+            else:
+                continue
+
+        ## COMBINE BY DNA REGION ##
+
+        # create an output file path for these grouped sequences in the bioinfo run clustering directory
+        combined_seq_output = mkdir_exist_ok(
+            new_dir=f'pre-{CLUSTER_PREFIX}_grouped-sequences',
+            parent_dir=clust_output,
+        )
+
+        # create a dict of the combined sequence files created below, will be input for vsearch clustering
+        seq_files_to_cluster = {}
+
+        # go through the list of sorted input files by DNA region...
+        for dna_region, region_files in input_files_sorted.items():
+
+            # gather all sequence records into a list of sequence records for this DNA region
+            region_seq_records = []
+
+            # create an output file path for these grouped sequences in the bioinfo run clustering directory
+            region_seq_output = combined_seq_output / f'pre-{CLUSTER_PREFIX}_{run_name}_{dna_region}.fasta'
+
+            # add this output file path to the list of combined sequence files to cluster
+            seq_files_to_cluster.update({dna_region: region_seq_output})
+
+            # go through each sample's sequence file for this DNA region...
+            for sample_fasta in region_files:
+
+                # get the sample ID from the input sequence file name
+                sample_id = get_sample_id(sample_fasta, platform='itslsu').replace(f'{run_name}_', '')
+
+                # go through each record (read) in this sample's sequence file...
+                for record in SeqIO.parse(sample_fasta, 'fasta'):
+
+                    # update the read header to include sample=<sample-id>; as first item, which is required
+                    #  in order for vsearch clustering to recognize the sample ID for the OTU table
+                    # otu=<read-id> is also required in order for the sequence read IDs to be used as the OTU name
+                    updated_record_header = f'sample={sample_id};otu={record.id}'
+
+                    # create a new sequence record using this updated header
+                    seq_record_updated = SeqRecord(
+                        id = updated_record_header,
+                        name = updated_record_header,
+                        description = updated_record_header,
+                        seq = record.seq,
+                    )
+
+                    # add this updated sequence record to the list of sequence records for this DNA region
+                    region_seq_records.append(seq_record_updated)
+
+            # once new sequence records have been created for all samples for this DNA region, write out .fasta
+            SeqIO.write(region_seq_records, region_seq_output, 'fasta')
+
+    # if group=False, cluster reads only within a sequence file, not among input sequence files
+    else:
+
+        # COME BACK AND ADD THIS #
+
+        seq_files_to_cluster = {'NA': updated_file_list}
+
+
+    ## CLUSTER SEQUENCE FILE READS W/ VSEARCH #########
+
+    ## CLUSTER BY DNA REGION ##
+
+    for dna_region, clust_input in seq_files_to_cluster.items():
+
+        # create output file paths for the centroid sequences and OTU table
+        centroid_seqs_out = clust_output / f'{CLUSTER_PREFIX}_{run_name}_{dna_region}_centroids-{str(clust_threshold)}.fasta'
+        otu_table_out = clust_output / f'{CLUSTER_PREFIX}_{run_name}_{dna_region}_otu-table-{str(clust_threshold)}.txt'
+
+        # compile the clustering command for vsearch
+        vsearch_clust_cmd = ['vsearch', '--cluster_fast', clust_input,
+                             '--id', str(clust_threshold), '--iddef', str(clust_method),
+                             '--centroids', centroid_seqs_out, '--clusterout_id',
+                             '--otutabout', otu_table_out]
+
+        # execute the compiled command for vsearch clustering
+        run_subprocess(
+            cli_command_list = vsearch_clust_cmd,
+            dest_dir = clust_output,
+            run_name = run_name,
+            program = 'vsearch-clust',
+            separate_sample_output = True,
+            auto_respond = settings['automate']['auto_respond'],
+        )
+
+    # return the output path for clustered sequences from this bioinformatics run
+    return clust_output
