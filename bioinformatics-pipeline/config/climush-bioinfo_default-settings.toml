@@ -9,7 +9,7 @@ climush_endpoint = 'ba6d86af-0b0d-46b7-a56a-bb4ebadec1b9'  # string: the Globus 
                                                            #    group collection
 
 [run_details]
-run_name = 'isl-2407'  # string: generic name for now
+run_name = 'spore-seqs-rename'  # string: generic name for now
 
 
 [automate]
@@ -21,8 +21,9 @@ auto_respond =  true   # true/false: if automated, set to 'true' to respond 'yes
 verbose =       false  # true/false: will not print out warnings if set to False, if True prints everything
 
 [formatting]
-fasta_headers = ['sequence', 'region_len', 'full-len_copies']  # CURRENTLY NOT OPEN FOR DISCUSSION
-header_delim  = ';'
+fasta_headers =  ['sequence', 'region_len', 'full-len_copies']  # CURRENTLY NOT OPEN FOR DISCUSSION
+header_delim  =  ';'
+filename_delim = '_'  # delimiter to use in the file names to separate file name components
 
 [demultiplex]
 multiplex.7803 = 'pacbio_soil-litter_2023-10'  # 4-digit UO sequencing core needed to find multiplexed files
@@ -33,6 +34,7 @@ multiplex.7983 = 'pacbio_sporocarp-f_2024-01'  # 4-digit UO sequencing core need
 multiplex.8007 = 'pacbio_sporocarp-f_2024-03'  # 4-digit UO sequencing core needed to find multiplexed files
 multiplex.8126 = 'pacbio_sporocarp-f_2024-04'  # 4-digit UO sequencing core needed to find multiplexed files
 multiplex.8304 = 'pacbio_sporocarp-f_2024-06'
+multiplex.8545 = 'pacbio_sporocarp-f_2024-10'
 
 min_precision =  { 'fwd' = 93, 'rev' = 93 }   # integer: barcode precision minimum score (93 = 93%);
                                               #          93 recommended by Tedersoo et al. 2021
@@ -83,15 +85,18 @@ which_regions = 'all'  # optional: region or subregion to output; options are SS
 
 
 [denoise]
-minsize =         8         # integer: minimum abundance of sequence to pass denoising, prior to de novo chimera check
-alpha =           2.0       # float: minimum abundance skew; factor by which read abundance of centroid exceeds chimera
-clust_threshold = 0         # float [between 0.0 and 1.0, inclusive]; minimum pairwise alignment identity to cluster
+minsize =         8         # integer: minimum read abundance of a sequence required to pass denoising
+alpha =           2.0       # float: minimum abundance skew; factor by which read abundance of centroid exceeds read (?)
+clust_threshold = 0.98      # float [between 0.0 and 1.0, inclusive]; minimum pairwise alignment identity to cluster
                             #   to a centroid sequence
 
 [chimera_check]
-method =          'denovo'  # 'reference'/'denovo': whether to use uchime denovo or reference-based using UNITE's chim ref dataset
-keep_chimeras =   true      # true/false: keep reads that are chimeras, separated into a directory of chimeras
-
+method =          'denovo'                      # 'reference'/'denovo': whether to use uchime denovo or reference-based
+                                                #   using UNITE's chim ref dataset
+keep_chimeras =   true                          # true/false: keep reads that are chimeras, separated into a directory
+                                                #   of chimeras
+alpha = { 'denovo' = 16.0, 'reference' = 2.0}   # float: minimum abundance skew; factor by which read abundance of
+                                                #   centroid exceeds chimera
 
 [otu_clustering]
 min_threshold = 0.95         # float [between 0.0 and 1.0, inclusive]: minimum percent identity to cluster reads into OTUs
