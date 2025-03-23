@@ -1526,7 +1526,7 @@ def copy_original_files(directory, copy_directory='original_files', compress=Tru
     mkdir_exist_ok(new_dir = copy_path)
 
     # create a list of files to copy, excluding any non-sequencing files
-    files_to_copy = [ file for file in dir_path.glob(SEQ_FILE_GLOB) ]
+    files_to_copy = [ file for file in dir_path.glob(GZIP_GLOB) ]
 
     # copy each sequence file to the new copy directory
     for file in files_to_copy:
@@ -1541,10 +1541,8 @@ def copy_original_files(directory, copy_directory='original_files', compress=Tru
 
         # if all files copied, then compress output
         if compress:
-
             # zip the copy directory
-            copy_path_zip = copy_path.with_suffix('.zip')
-            shutil.make_archive(copy_path, 'zip', copy_path_zip)
+            shutil.make_archive(copy_path, 'zip', copy_path)
 
             # remove the unzipped copy directory
             shutil.rmtree(copy_path)
