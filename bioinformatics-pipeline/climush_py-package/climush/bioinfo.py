@@ -486,9 +486,11 @@ def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_lo
     settings = get_settings(reference_dir)
     run_name = settings['run_details']['run_name']
 
-    # create a parent directory to sort reads w/ and reads w/o PhiX into
-    nophix_path = mkdir_exist_ok(new_dir=f'./{NOPHIX_PREFIX}_{run_name}', parent_dir=phix_parent)
-    phix_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(NOPHIX_PREFIX)}_{run_name}', parent_dir=phix_parent)
+    # create an output directory for reads that pass the PhiX filter
+    nophix_path = mkdir_exist_ok(
+        new_dir=f'./{NOPHIX_PREFIX}_{run_name}',
+        parent_dir=phix_parent,
+    )
 
     # create a log file
     bbduk_log = phix_parent / f'bbduk_{run_name}.log'
@@ -498,26 +500,77 @@ def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_lo
 
     for input_fwd, input_rev in pairs_dict.items():
 
-        # format the output files based on the input files
+        # create output file paths based on the input file basename
         # fwd (R1)
-        nophix_fwd_out = add_prefix(file_path=input_fwd, prefix=NOPHIX_PREFIX, action=None, dest_dir=nophix_path)
-        phix_fwd_out = add_prefix(file_path=input_fwd, prefix=flip_prefix(NOPHIX_PREFIX), action=None, dest_dir=phix_path)
-
+        nophix_fwd_out = add_prefix(
+            file_path=input_fwd,
+            prefix=NOPHIX_PREFIX,
+            action=None,
+            dest_dir=nophix_path,
+        )
         # rev (R2)
-        nophix_rev_out = add_prefix(file_path=input_rev, prefix=NOPHIX_PREFIX, action=None, dest_dir=nophix_path)
-        phix_rev_out = add_prefix(file_path=input_rev, prefix=flip_prefix(NOPHIX_PREFIX), action=None, dest_dir=phix_path)
+        nophix_rev_out = add_prefix(
+            file_path=input_rev,
+            prefix=NOPHIX_PREFIX,
+            action=None,
+            dest_dir=nophix_path,
+        )
+
+        # create a standard bbduk command list, without any extra options like log files or keeping discarded reads
+        bbduk_cmd = ['bbduk.sh',                # shell script that runs bbduk
+                     f'in1={input_fwd}',        # input file - forward reads
+                     f'out1={nophix_fwd_out}',  # output file - forward reads
+                     f'in2={input_rev}',        # input file - reverse reads
+                     f'out2={nophix_rev_out}',  # output file - reverse reads
+                     'ref=phix',                # compare against the bbduk phix reference dataset
+                     f'k={str(kmer)}',          # kmers to compare to; must be added as string
+                     f'hdist={str(hdist)}',     # hamming distance for phix sequence comparison; must be added as string
+                     ]
 
         # check whether reads that don't pass the filter should be retained
         if keep_removed_seqs:
-            bbduk_cmd = ['bbduk.sh',
-                         f'in1={input_fwd}', f'out1={nophix_fwd_out}', f'outm1={phix_fwd_out}',
-                         f'in2={input_rev}', f'out2={nophix_rev_out}', f'outm2={phix_rev_out}',
-                         'ref=phix', f'k={kmer}', f'hdist={hdist}']
+
+            # create an output directory for sequences that do *not* pass the PhiX filter
+            phix_path = mkdir_exist_ok(
+                new_dir=f'./{flip_prefix(NOPHIX_PREFIX)}_{run_name}',
+                parent_dir=phix_parent,
+            )
+
+            # create output file paths for the PhiX reads based on the input file basename
+            # fwd (R1)
+            phix_fwd_out = add_prefix(
+                file_path=input_fwd,
+                prefix=flip_prefix(NOPHIX_PREFIX),
+                action=None,
+                dest_dir=phix_path,
+            )
+            # rev (R2)
+            phix_rev_out = add_prefix(
+                file_path=input_rev,
+                prefix=flip_prefix(NOPHIX_PREFIX),
+                action=None,
+                dest_dir=phix_path,
+            )
+
+            # create a list of values that need to be added to the original bbduk command in order for the
+            #  PhiX reads to be retained
+            bbduk_keepseqs = [
+                'outm1', phix_fwd_out,  # keep removed PhiX sequences - forward read output
+                'outm2', phix_rev_out,  # keep removed PhiX sequences - reverse read output
+            ]
+
+            # add the outm1 / outm2 commands and output file paths for PhiX reads to the original bbduk command
+            append_subprocess(
+                cli_command_list=bbduk_cmd,
+                options_to_add=bbduk_keepseqs,
+                position=5,
+                return_copy=False,
+            )
+
+        # don't alter the original bbduk command here if PhiX reads should be thrown out completely
         else:
-            bbduk_cmd = ['bbduk.sh',
-                         f'in1={input_fwd}', f'out1={nophix_fwd_out}',
-                         f'in2={input_rev}', f'out2={nophix_rev_out}',
-                         'ref=phix', f'k={kmer}', f'hdist={hdist}']
+            pass
+
 
         # if keep_log=True, then append the arguments for all bbduk summary files available
         if keep_log:
@@ -527,14 +580,20 @@ def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_lo
                 position=-1,
                 return_copy=False,
             )
+
+        # otherwise, don't make further changes to the bbduk command
         else:
             pass
 
+        # execute the compiled bbduk PhiX filtering command
+        run_subprocess(
+            bbduk_cmd,
+            dest_dir=phix_parent,
+            run_name=run_name,
+            auto_respond=settings['automate']['auto_respond'],
+        )
 
-        run_subprocess(bbduk_cmd, dest_dir=phix_parent, run_name=run_name,
-                       auto_respond=settings['automate']['auto_respond'])
-
-    return nophix_path
+    return create_file_list(nophix_path)
 
 def prefilter_fastx(input_files, output_dir, reference_dir, maxn, keep_removed_seqs):
 
