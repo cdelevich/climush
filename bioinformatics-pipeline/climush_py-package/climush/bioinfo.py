@@ -536,52 +536,112 @@ def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_lo
 
     return nophix_path
 
-def prefilter_fastx(input_files, reference_dir, maxn=0):
-    # make sure parent directory exists/is created before making child
-    mkdir_exist_ok(new_dir=file_map['pipeline-output']['prefiltered']['main'])
-    noambig_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['prefiltered']['prefilt02_no-ambig'])
+def prefilter_fastx(input_files, output_dir, reference_dir, maxn, keep_removed_seqs):
 
+    ## LOAD SETTINGS ##
+
+    # load in the configuration settings
     settings = get_settings(reference_dir)
     run_name = settings['run_details']['run_name']
 
-    noambig_path = mkdir_exist_ok(new_dir=f'./{NOAMBIG_PREFIX}_{run_name}', parent_dir=noambig_parent)
-    ambig_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(NOAMBIG_PREFIX)}_{run_name}', parent_dir=noambig_parent)
+    ## CREATE OUTPUT FILE PATHS ##
 
-    fastq_maxns_log = make_log_file(file_name=Path('fastq_maxns'), dest_path=noambig_parent)
+    # create a directory to send all output files and directories to
+    noambig_parent = mkdir_exist_ok(new_dir=output_dir)
 
-    # must provide pair of forward and reverse:
+    # create a parent directory to sort reads w/ and reads w/o ambiguous base calls into
+    noambig_path = mkdir_exist_ok(
+        new_dir=f'./{NOAMBIG_PREFIX}_{run_name}',
+        parent_dir=noambig_parent,
+    )
+    ambig_path = mkdir_exist_ok(
+        new_dir=f'./{flip_prefix(NOAMBIG_PREFIX)}_{run_name}',
+        parent_dir=noambig_parent,
+    )
+
+
+    ## FILTER INPUT SEQUENCES IN PAIRS ##
+
+    # create pairs of R1/R2 reads in order to process reads in paired files (required)
     pairs_dict = pair_reads(input_files)
 
-    for file in pairs_dict.keys():
+    for input_fwd, input_rev in pairs_dict.items():
 
-        # file paths post-compression, with .fastq.gz file extension
-        noambig_out_fwd_gzip = add_prefix(file_path=file, prefix=NOAMBIG_PREFIX, action=None, dest_dir=noambig_path)
-        noambig_out_rev_gzip = add_prefix(file_path=pairs_dict[file], prefix=NOAMBIG_PREFIX, action=None,
-                                          dest_dir=noambig_path)
+        # determine the file format of the input sequence files; pull just the difference
+        #    between .fasta and .fastq (i.e., the a or q from the string)
+        input_filefmt = input_fwd.suffixes[0][-1]
 
-        ambig_out_fwd_gzip = add_prefix(file_path=file, prefix=flip_prefix(NOAMBIG_PREFIX), action=None,
-                                        dest_dir=ambig_path)
-        ambig_out_rev_gzip = add_prefix(file_path=pairs_dict[file], prefix=flip_prefix(NOAMBIG_PREFIX), action=None,
-                                        dest_dir=ambig_path)
+        # create an output file name for sequences without ambiguous base call counts exceeding maxn
+        # fwd (R1)
+        noambig_fwd_out = add_prefix(
+            file_path=input_fwd,
+            prefix=NOAMBIG_PREFIX,
+            action=None,
+            dest_dir=noambig_path,
+        )
+        # rev (R2)
+        noambig_rev_out = add_prefix(
+            file_path=input_rev,
+            prefix=NOAMBIG_PREFIX,
+            action=None,
+            dest_dir=noambig_path,
+        )
 
-        # file paths pre-compression, with .fastq file extension, to use for VSEARCH cmd output paths
-        noambig_out_fwd = noambig_out_fwd_gzip.with_suffix('')
-        noambig_out_rev = noambig_out_rev_gzip.with_suffix('')
+        # compile the standard VSEARCH filtering function and options
+        vsearch_filter_cmd = [
+            'vsearch', '--fastx_filter',                       # filter command
+            f'--fast{input_filefmt}out', noambig_fwd_out,      # output file - fwd reads
+            f'--fast{input_filefmt}out_rev', noambig_rev_out,  # output file - rev reads
+            f'--fast{input_filefmt}_maxns', str(maxn),         # maximum number of ambiguous base calls allowed
+        ]
 
-        ambig_out_fwd = ambig_out_fwd_gzip.with_suffix('')
-        ambig_out_rev = ambig_out_rev_gzip.with_suffix('')
 
-        # compile CLI command for VSEARCH filtering of reads with any ambiguous bases
-        vsearch_cmd = ['vsearch', '--fastq_filter', file, '--reverse', pairs_dict[file], '--fastq_maxns', str(maxn),
-                       '--fastqout', noambig_out_fwd, '--fastqout_rev', noambig_out_rev, '--fastqout_discarded',
-                       ambig_out_fwd, '--fastqout_discarded_rev', ambig_out_rev]
+        # check whether reads that don't pass the filter should be retained in a separate directory
+        if keep_removed_seqs:
 
-        # run CLI VSEARCH command
-        run_subprocess(vsearch_cmd, dest_dir=noambig_parent, run_name=run_name,
-        auto_respond=settings['automate']['auto_respond'])
+            # create an output file name for sequences *with* ambiguous base call counts exceeding maxn
+            # fwd (R1)
+            ambig_fwd_out = add_prefix(
+                file_path=input_fwd,
+                prefix=flip_prefix(NOAMBIG_PREFIX),
+                action=None,
+                dest_dir=ambig_path,
+            )
+            # rev (R2)
+            ambig_rev_out = add_prefix(
+                file_path=input_rev,
+                prefix=flip_prefix(NOAMBIG_PREFIX),
+                action=None,
+                dest_dir=ambig_path,
+            )
 
-        # compress the .fastq output from VSEARCH to .fastq.gz format; required for cutadapt input
-        # UNDER CONSTRUCTION
+            # compile the list of commands to append to the filtering command so that discarded reads are saved
+            vsearch_filter_keepseqs = [
+                f'--fast{input_filefmt}_discarded', ambig_fwd_out,     # output file - discarded fwd reads
+                f'--fast{input_filefmt}_discarded_rev', ambig_rev_out, # output file - discarded rev reads
+            ]
+
+            # add these additional parameters and arguments to the basic vsearch filtering command
+            append_subprocess(
+                cli_command_list=vsearch_filter_cmd,
+                options_to_add=vsearch_filter_keepseqs,
+                position=6,  # just after the output paths for the fwd/rev reads that pass the filter
+                return_copy=False,
+            )
+
+        # make no additional changes to the vsearch filtering function if keep_removed_seqs=False
+        else:
+            pass
+
+        # execute the vsearch filtering command that has been compiled
+        run_subprocess(
+            vsearch_filter_cmd,
+            dest_dir=noambig_parent,
+            run_name=run_name,
+            program='vsearch-prefilter',
+            separate_sample_output=True,
+            auto_respond=settings['automate']['auto_respond'],
+        )
 
     return noambig_path
 
