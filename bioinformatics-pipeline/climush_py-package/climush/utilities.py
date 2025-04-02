@@ -383,7 +383,7 @@ def append_subprocess(cli_command_list, options_to_add, position, return_copy=Fa
 
     # check type of input received for options_to_add; if valid, create list
     if isinstance(options_to_add, str):
-        options_to_add = list(options_to_add)
+        options_to_add = [options_to_add]
     elif isinstance(options_to_add, list):
         pass
     else:
