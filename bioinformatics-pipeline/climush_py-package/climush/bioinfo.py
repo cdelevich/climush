@@ -477,7 +477,7 @@ def pair_reads(input_files):
 
     return pairs_dict
 
-def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_log, keep_removed_seqs):
+def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_log, keep_removed_seqs, bbduk_mem=None):
 
     # create a directory to send all output files and directories to
     phix_parent = mkdir_exist_ok(new_dir=output_dir)
@@ -494,6 +494,43 @@ def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_lo
 
     # create a log file
     bbduk_log = phix_parent / f'bbduk_{run_name}.log'
+
+    #
+    # # if no memory size is provided as argument, auto-detect the maximum available memory
+    # if bbduk_mem is None:
+    #     bbduk_mem_unit, bbduk_mem_size = get_available_memory(memory_units='GB')
+    #
+    # # if memory size is provided as an argument...
+    # else:
+    #
+    #     # ensure that bbduk_mem is an integer, and if not, then round down to nearly whole number
+    #     bbduk_mem = math.floor(bbduk_mem)
+    #
+    #     # auto-detect the units of the input value for bbduk_mem based on likely cut-off values
+    #     if bbduk_mem < 20:
+    #         bbduk_mem_unit = 'g'
+    #     elif 1000 < bbduk_mem <= 20:
+    #         bbduk_mem_unit = 'm'
+    #     else:
+    #         bbduk_mem_unit = 'b'
+    #
+    #     # check that the size specified by bbduk_mem is available on the system
+    #     if bbduk_mem <= len(os.sched_getaffinity(0)):
+    #         bbduk_mem_size = bbduk_mem
+    #
+    #     # if it isn't, then warn user that it exceeds what is available
+    #     else:
+    #         bbduk_mem_size = len(os.sched_getaffinity(0))
+    #         warning_msg = (f'The requested available memory to use for bbduk ({bbduk_mem}) exceeds the available '
+    #                        f'memory. Instead using the maximum available memory for this '
+    #                        f'job ({bbduk_mem_size}).\n')
+    #         print(warning_msg)
+    #
+    # # combine the memory size and unit together with the bbduk memory flag (-Xmx) into a single command string
+    # bbduk_mem_str = '-Xmx' + str(bbduk_mem_size) + bbduk_mem_unit.lower()[0]
+    #
+    # print(f'bbduk is using {bbduk_mem_size} {bbduk_mem_unit} of memory.')
+
 
     # create pairs of R1/R2 reads in order to detect PhiX pair-wise (required)
     pairs_dict = pair_reads(input_files)
@@ -525,6 +562,7 @@ def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_lo
                      'ref=phix',                # compare against the bbduk phix reference dataset
                      f'k={str(kmer)}',          # kmers to compare to; must be added as string
                      f'hdist={str(hdist)}',     # hamming distance for phix sequence comparison; must be added as string
+                     # bbduk_mem_str,             # maximum available memory that bbduk can use to filter out phix
                      ]
 
         # check whether reads that don't pass the filter should be retained
@@ -555,8 +593,8 @@ def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_lo
             # create a list of values that need to be added to the original bbduk command in order for the
             #  PhiX reads to be retained
             bbduk_keepseqs = [
-                'outm1', phix_fwd_out,  # keep removed PhiX sequences - forward read output
-                'outm2', phix_rev_out,  # keep removed PhiX sequences - reverse read output
+                f'outm1={phix_fwd_out}',  # keep removed PhiX sequences - forward read output
+                f'outm2={phix_rev_out}',  # keep removed PhiX sequences - reverse read output
             ]
 
             # add the outm1 / outm2 commands and output file paths for PhiX reads to the original bbduk command
@@ -574,7 +612,7 @@ def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_lo
 
         # if keep_log=True, then append the arguments for all bbduk summary files available
         if keep_log:
-            append_to_subprocess(
+            append_subprocess(
                 cli_command_list=bbduk_cmd,
                 options_to_add = f'stats={bbduk_log}',
                 position=-1,
@@ -595,7 +633,7 @@ def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_lo
 
     return create_file_list(nophix_path)
 
-def prefilter_fastx(input_files, output_dir, reference_dir, maxn, keep_removed_seqs):
+def prefilter_fastx(input_files, output_dir, reference_dir, maxn, keep_removed_seqs, qmax):
 
     ## LOAD SETTINGS ##
 
@@ -648,12 +686,26 @@ def prefilter_fastx(input_files, output_dir, reference_dir, maxn, keep_removed_s
 
         # compile the standard VSEARCH filtering function and options
         vsearch_filter_cmd = [
-            'vsearch', '--fastx_filter',                       # filter command
+            'vsearch',                                         # call vsearch
+            '--fastx_filter', input_fwd,                       # filter command - fwd reads
+            '--reverse', input_rev,                            # filter command - rev reads
             f'--fast{input_filefmt}out', noambig_fwd_out,      # output file - fwd reads
             f'--fast{input_filefmt}out_rev', noambig_rev_out,  # output file - rev reads
             f'--fast{input_filefmt}_maxns', str(maxn),         # maximum number of ambiguous base calls allowed
         ]
 
+        # if the input files are .fastq files, will need to increase the maximum quality score allowed for input
+        #  files in order to avoid an error with the default maximum quality score of 41
+        if input_filefmt == 'q':
+            append_subprocess(
+                cli_command_list=vsearch_filter_cmd,
+                options_to_add=['--fastq_qmax', str(qmax)],
+                position=-1,  # add to the end of the standard vsearch filter command, just after --fastx_maxns
+                return_copy=False,
+            )
+        # if the input files are .fasta files, then no need to worry about the quality scores
+        else:
+            pass
 
         # check whether reads that don't pass the filter should be retained in a separate directory
         if keep_removed_seqs:
@@ -684,7 +736,7 @@ def prefilter_fastx(input_files, output_dir, reference_dir, maxn, keep_removed_s
             append_subprocess(
                 cli_command_list=vsearch_filter_cmd,
                 options_to_add=vsearch_filter_keepseqs,
-                position=6,  # just after the output paths for the fwd/rev reads that pass the filter
+                position=9,  # just after the output paths for the fwd/rev reads that pass the filter
                 return_copy=False,
             )
 
