@@ -4,7 +4,7 @@ build-backend = 'setuptools.build_meta'
 
 [project]
 name = 'climush'
-version = '0.0.7'
+version = '0.0.9'
 authors = [
     { name='Carolyn Delevich', email='cdelevic@uoregon.edu' }]
 description = 'Tools to run the CliMush bioinformatics pipeline.'
@@ -16,26 +16,20 @@ classifiers = [
     'Development Status :: 3 - Alpha',
     'Topic :: Scientific/Engineering :: Bio-Informatics',
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
-    'pandas',
-    'scipy',  # included in optional dependencies for pandas (see project.optional-dependencies below)
-    'numpy',  # included in optional dependencies for pandas (see project.optional-dependencies below)
-    'matplotlib',  # included in optional dependencies for pandas (see project.optional-dependencies below)
-    'seaborn',
-    'Bio',
-    'tomlkit',
+    'pandas[excel]',         # interacting with and creating dataframes
+    'pandas[performance]',  # recommended by pandas to improve performance
+    'numpy',                # basic numerical operations; required dependency for pandas
+    'scipy',                # advanced statistical functions
+    'matplotlib',           # basic data visualization
+    'seaborn',              # advanced data visualization
+    'Bio',                  # handling of sequencing data and sequencing data files (.fastq, .fasta)
+    'tomlkit',              # parsing bioinformatics configuration from the .toml configuration file
+    'psutil',               # determine available system memory for use with bbduk to filter out PhiX reads
 ]
 
-#[project.optional-dependencies]
-#pandas = [
-#    "pandas[excel]",  # includes openpyxl
-#    "pandas[computation]",  # includes numpy, scipy
-#    "pandas[visualization]",  # includes matplotlib
-#    "pandas[performance]",  # recommended out of optional dependencies
-#]
-
 [project.urls]
-Homepage = 'https://github.com/cdelevich/climush/tree/main/bioinformatics-pipeline'
+Homepage = 'https://github.com/cdelevich/climush/tree/main'
 Repository = 'https://github.com/cdelevich/climush/tree/main/bioinformatics-pipeline/climush_py-package'
 Issues = 'https://github.com/cdelevich/climush/issues'
