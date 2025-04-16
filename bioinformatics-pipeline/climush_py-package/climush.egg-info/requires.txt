@@ -1,0 +1,9 @@
+pandas[excel]
+pandas[performance]
+numpy
+scipy
+matplotlib
+seaborn
+Bio
+tomlkit
+psutil
