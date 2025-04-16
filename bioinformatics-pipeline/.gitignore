@@ -2,8 +2,6 @@ testing
 
 climush-seqs_empty-rep
 
-climush_py-package/climush.egg-info
-climush_py-package/dist
 climush_py-package/climush/mapping.py
 climush_py-package/climush/bioinfo_old.py
 
