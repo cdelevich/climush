@@ -1,105 +1,222 @@
-from mapping import filepath_map as fpm
-
-import argparse, sys, subprocess, pathlib
+import argparse, pathlib
 from pathlib import Path
-from climush.constants import *
 from climush.bioinfo import filter_out_phix, prefilter_fastx
-from climush.utilities import *
+from climush.utilities import get_settings, check_for_input, continue_to_next
 
-settings = get_settings(fpm)
+## IMPORT PIPELINE CONFIGURATION #######################################################################################
 
-parser = argparse.ArgumentParser(prog=Path(__file__).stem,
-                                 description='Remove PhiX and reads with ambiguous bases',
-                                 epilog='This script is part of the CliMush bioinformatics pipeline.')
+# create a reference directory path for file-finding functions
+ref_dir=Path(__file__).parent.parent
 
-parser.add_argument('-i', '--input', default=fpm['sequences']['main'],
-                    type=pathlib.PosixPath,
-                    help='The path to the input sequencing files. Will default to the location that is '
-                         'expected with the Docker container\'s native file structure.')
+# import the settings for the bioinformatics configuration
+settings = get_settings(ref_dir)
 
-parser.add_argument('-o', '--output', default=fpm['pipeline-output']['prefiltered']['main'],
-                    type=pathlib.PosixPath,
-                    help='A path to write the output files to. Will default to the location that is '
-                         'expected with the Docker container\'s native file structure.')
+########################################################################################################################
+
+
+## COMMAND LINE ARGUMENTS ##############################################################################################
+
+## INSTANTIATE PARSER ##
+
+parser = argparse.ArgumentParser(
+    prog=Path(__file__).stem,
+    description='Remove PhiX and reads with ambiguous bases',
+    epilog='This script is part of the CliMush bioinformatics pipeline.',
+)
+
+## FILE PATHS ##
+
+# input directory
+parser.add_argument(
+    '-i', '--input',
+    type=pathlib.PosixPath,
+    help='The path to the input sequencing files that require prefiltering; path must '
+         'be absolute.'
+)
+
+# output directory
+parser.add_argument(
+    '-o', '--output',
+    type=pathlib.PosixPath,
+    help='A path to write the prefiltered sequence files to; path must be absolute.',
+)
+
+## PHIX FILTER OPTIONS ##
+
+# kmers for filtering out phix with bbduk
+parser.add_argument(
+    '-k', '--kmer',
+    required=False,
+    default=settings['quality_filtering']['prefilter']['phix_kmer'],
+    type=int,
+    help='The number of kmers to use in the search for PhiX spike-in reads for filtering, using bbduk. [max=31]',
+)
+
+# hamming distance for phix filtering with bbduk
+parser.add_argument(
+    '--hdist',
+    required=False,
+    default=settings['quality_filtering']['prefilter']['phix_hammingdist'],
+    type=int,
+    help='The hamming distance to use in the search for PhiX spike-in reads for filtering, using bbduk.',
+)
+
+# the available memory that bbduk can use for its phix filter
+parser.add_argument(
+    '--max_mem',
+    required=False,
+    default=None,
+    type=int,
+    help='The maximum amount of memory that the PhiX filtering function, bbduk, can use for filtering out '
+         'PhiX spike-in reads. If a value is not provided, the maximum available system memory is detected and used. '
+         'Accepted units are bytes, megabytes, or gigabytes and the unit should not be included in the value. '
+         'All values, regardless of unit, must be rounded to the nearest whole number.',
+)
+
+## PREFILTER OPTIONS ##
+
+# maximum number of ambiguous base calls per read
+parser.add_argument(
+    '--maxn',
+    required=False,
+    default=settings['quality_filtering']['prefilter']['maxn'],
+    type=int,
+    help='The maximum number of allowed ambiguous base calls in a read in order for it to pass prefiltering.',
+)
+
+# maximum read quality score of illumina sequences
+parser.add_argument(
+    '--qscore_max',
+    required=False,
+    default=settings['quality_filtering']['max_qscore']['illumina'],
+    type=int,
+    help='The maximum allowed read quality score that cannot be surpassed in order for Illumina reads to '
+         'pass prefiltering.'
+)
+
+## FUNCTION OUTPUT OPTIONS ##
+
+# whether to keep the sequences that were filtered out due to them being PhiX or having ambiguous base calls
+parser.add_argument(
+    '--keep',
+    action='store_true',
+    help='Flag that, when used, will retain all of the sequences that are filtered out of the input sequences '
+         'in a separate discard directory. This will produce two additional directories, one for PhiX spike-in reads '
+         'that were filtered out and one for reads with ambiguous bases that were filtered out.',
+)
+
+# whether to produce a log file from bbduk
+parser.add_argument(
+    '--log',
+    action='store_true',
+    help='Flag that when used will write a log summary as produced by bbduk that summarizes the search '
+         'and filtering out of PhiX spike-in reads.'
+)
+
+## PARSE OPTIONS INTO DICTIONARY ##
 
 args = vars(parser.parse_args())
 
-# divided into sections instead of looping through each platform to maintain a similar structure among all scripts, as
-# sometimes (like in prefiltering) there are different processes based on the platform
+########################################################################################################################
+
+
+## FIND FILES + PREFILTER READS ########################################################################################
+
 
 #####################
 # ILLUMINA ##########
 #####################
-# platform = 'illumina'
-#
-# # check that there are Illumina reads to pre-filter
-# is_input, illumina_files = check_for_input(
-#     args['input'],
-#     config_dict=settings,
-#     file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
-# )
-#
-# print(f'WARNING. Hard-coded this to gather all soil/litter Illumina samples, not reproducible at the moment.\n')
-#
-# all_dirs = [Path('/home/cdelevic/roylab/globus_climush-sequences/illumina/illumina_soil-litter/illumina_soil-litter_2022-05/illumina_soil-litter_2022-05_raw-reads'),
-#             Path('/home/cdelevic/roylab/globus_climush-sequences/illumina/illumina_soil-litter/illumina_soil-litter_2022-10/illumina_soil-litter_2022-10_raw-reads'),
-#             Path('/home/cdelevic/roylab/globus_climush-sequences/illumina/illumina_soil-litter/illumina_soil-litter_2022-10/non-climush_sequences'),
-#             Path('/home/cdelevic/roylab/globus_climush-sequences/illumina/illumina_soil-litter/illumina_soil-litter_2023-05/illumina_soil-litter_2023-05_raw-reads'),
-#             Path('/home/cdelevic/roylab/globus_climush-sequences/illumina/illumina_soil-litter/illumina_soil-litter_2023-10/illumina_soil-litter_2023-10_raw-reads'),
-#             Path('/home/cdelevic/roylab/globus_climush-sequences/illumina/illumina_soil-litter/illumina_soil-litter_2023-10/non-climush_sequences/horseshoe')]
-#
-# print(f'WARNING. Hard-coded this to gather all Illumina samples from illumina_soil-litter_2023-10, '
-#       f'not reproducible at the moment.\n')
-#
-# base_dir = Path('/home/cdelevic/roylab/globus_climush-sequences/illumina/illumina_soil-litter/illumina_soil-litter_2023-10/')
-# all_dirs = [base_dir / 'illumina_soil-litter_2023-10_raw-reads',
-#             base_dir / 'non-climush_sequences/horseshoe']
-#
-# is_input = True
-# illumina_files = []
-# for dir in all_dirs:
-#     for file in dir.glob(GZIP_GLOB):
-#         if not file.name.startswith(platform):
-#             new_name = 'illumina_' + file.name
-#             new_path = dir / new_name
-#             file.rename(new_path)
-#
-#         illumina_files.append(file)
-#
-# print(f'Processing sequences from {len(illumina_files)} samples...\n')
+platform = 'illumina'
 
-# if is_input:
-nophix_path = filter_out_phix(input_files=args['input'], file_map=fpm)
-nophix_files = list(nophix_path.glob(SEQ_FILE_GLOB))
-noambig_path = prefilter_fastx(input_files=nophix_files, file_map=fpm, maxn=0)
-# else:
-#     pass
+# check if there are ITS1 illumina reads to pre-filter
+is_input, illumina_files = check_for_input(
+    file_dir=args['input'],
+    config_dict=settings,
+    file_identifier=platform,
+)
 
-#####################
-# PACBIO ############
-#####################
+# if ITS1 illumina sequences were located, prefilter and remove PhiX from these sequences
+if is_input:
 
-# no pre-filtering for PacBio reads
+    # detect and remove PhiX spike-in sequences from input ITS1 illumina sequence files
+    illumina_nophix_files = filter_out_phix(
+        input_files=illumina_files,
+        output_dir=args['output'],
+        reference_dir=ref_dir,
+        kmer=args['kmer'],
+        hdist=args['hdist'],
+        keep_removed_seqs=args['keep'],
+        keep_log=args['log'],
+        bbduk_mem=args['max_mem'],
+    )
+
+    # detect and remove sequences with ambiguous base calls exceeding value set by maxn (default=0) from ITS1
+    #   illumina sequence files that have previously been filtered to remove PhiX spike-in
+    illumina_noambig_path = prefilter_fastx(
+        input_files=illumina_nophix_files,
+        output_dir=args['output'],
+        reference_dir=ref_dir,
+        maxn=args['maxn'],
+        qmax=args['qscore_max'],
+        keep_removed_seqs=args['keep'],
+        keep_log=args['log'],
+    )
+
+# if no ITS1 illumina sequence files were located, do nothing
+else:
+    pass
 
 #####################
 # SANGER ############
 #####################
 platform = 'sanger'
-# unfamiliar with whether any prefiltering necessary for Sanger reads, any PhiX spike-in?
 
+# check if there are 18S illumina sequences to pre-filter
 is_input, sanger_files = check_for_input(
-    args['input'],
+    file_dir=args['input'],
     config_dict=settings,
-    file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+    file_identifier=platform,
 )
 
-
+# if 18S illumina sequences were located, prefilter and remove PhiX from these sequences
 if is_input:
-    nophix_path = filter_out_phix(input_files=sanger_files, file_map=fpm)
-    nophix_files = list(nophix_path.glob(SEQ_FILE_GLOB))
-    noambig_path = prefilter_fastx(input_files=nophix_files, file_map=fpm, maxn=0)
+
+    # detect and remove PhiX spike-in sequences from input 18S illumina sequence files
+    sanger_nophix_files = filter_out_phix(
+        input_files=sanger_files,
+        output_dir=args['output'],
+        reference_dir=ref_dir,
+        kmer=args['kmer'],
+        hdist=args['hdist'],
+        keep_removed_seqs=args['keep'],
+        keep_log=args['log'],
+        bbduk_mem=args['max_mem'],
+    )
+
+    # detect and remove sequences with ambiguous base calls exceeding value set by maxn (default=0) from 18S
+    #   illumina sequence files that have previously been filtered to remove PhiX spike-in
+    sanger_noambig_path = prefilter_fastx(
+        input_files=sanger_nophix_files,
+        output_dir=args['output'],
+        reference_dir=ref_dir,
+        maxn=args['maxn'],
+        qmax=args['qscore_max'],
+        keep_removed_seqs=args['keep'],
+        keep_log=args['log'],
+    )
+
+# if no 18S illumina sequence files were located, do nothing
 else:
     pass
+
+#####################
+# PACBIO ############
+#####################
+platform = 'pacbio'
+
+# no pre-filtering for PacBio reads
+
+########################################################################################################################
 
 # when all are prefiltered, continue to next
 continue_to_next(__file__, settings)
