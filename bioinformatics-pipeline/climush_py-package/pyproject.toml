@@ -4,14 +4,15 @@ build-backend = 'setuptools.build_meta'
 
 [project]
 name = 'climush'
-version = '0.0.9'
+dynamic = ['version']
 authors = [
     { name='Carolyn Delevich', email='cdelevic@uoregon.edu' }]
 description = 'Tools to run the CliMush bioinformatics pipeline.'
 readme = 'README.md'
+license = 'MIT'  # SPDX format
+license-files = ["LICEN[CS]E.*"]  # glob for locating the MIT license for climush
 classifiers = [
     'Programming Language :: Python :: 3',
-    'License :: OSI Approved :: MIT License',
 #    'Operating System :: Unix',  # unsure whether I want to include; also not 100% there's a Unix-only restriction
     'Development Status :: 3 - Alpha',
     'Topic :: Scientific/Engineering :: Bio-Informatics',
@@ -33,3 +34,4 @@ dependencies = [
 Homepage = 'https://github.com/cdelevich/climush/tree/main'
 Repository = 'https://github.com/cdelevich/climush/tree/main/bioinformatics-pipeline/climush_py-package'
 Issues = 'https://github.com/cdelevich/climush/issues'
+Download = 'https://pypi.org/project/climush/'
