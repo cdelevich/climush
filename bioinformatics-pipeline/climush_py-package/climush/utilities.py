@@ -1,4 +1,4 @@
-import subprocess, re, sys, pathlib, shutil, json, tomlkit, gzip
+import subprocess, re, sys, pathlib, shutil, json, tomlkit, gzip, psutil, math
 from pathlib import Path
 from datetime import datetime
 from functools import wraps
@@ -395,7 +395,7 @@ def append_subprocess(cli_command_list, options_to_add, position, return_copy=Fa
 
     # if a negative index is provided, convert to positive; makes everything below easier
     if position < 0:
-        position = len(cli_command_list) + position
+        position = len(cli_command_list) + (position+1)
 
     ## CONFIRM POSITION IN BOUNDS
 
@@ -408,6 +408,7 @@ def append_subprocess(cli_command_list, options_to_add, position, return_copy=Fa
         # confirm that the index position is in bounds
         if position <= len_input_list + 1:
             pass
+
         # otherwise not valid
         else:
             print(f'ERROR. The provided index to add new command line options to, {position}, is outside of the '
@@ -486,7 +487,7 @@ def get_seq_platform(fastx_file, delim='_'):
           f'Exiting...\n')
     return None
 
-def import_mapping_df(df_path, filter=True, auto_respond=False):
+def import_mapping_df(df_path, ignore_tabs=True, filter=True, auto_respond=False):
     '''
     Import .csv, .txt, or .xlsx table as a dictionary.
 
@@ -500,6 +501,9 @@ def import_mapping_df(df_path, filter=True, auto_respond=False):
     handled in the same way, regardless of file type (e.g., loop through tabs
     even if a .csv, which will have a single tab).
     :param df_path: path to the dataframe
+    :param ignore_tabs: True/False; ignore any tabs in the mapping file that do not
+    match 1 or 2 when looking for pool numbers; useful when mapping files have more
+    than two pools (PacBio Revio) but you only want to use pool 1 and pool 2
     :param filter: True/False; whether to remove all tabs that are not detected as
     a pool tab (pool01/pool02); set to the default True because I am not sure that
     the demultiplex() function will work if more than just pool01 and pool02
@@ -535,9 +539,12 @@ def import_mapping_df(df_path, filter=True, auto_respond=False):
                 elif re.search(r'2', pool_num):
                     found_pools['pool2'] += tab
                 else:
-                    print(f'ERROR. A pool number was detected in the tab {tab} in the mapping file {df_path.name}, '
-                          f'but it could not be determined whether this was the number for pool 01 or pool 02.\n')
-                    return sys.exit()
+                    if ignore_tabs:
+                        continue
+                    else:
+                        print(f'ERROR. A pool number was detected in the tab {tab} in the mapping file {df_path.name}, '
+                              f'but it could not be determined whether this was the number for pool 01 or pool 02.\n')
+                        return sys.exit()
 
             except AttributeError:  # if this tab does not contain pool information, or at least not detected as such...
 
@@ -579,9 +586,12 @@ def import_mapping_df(df_path, filter=True, auto_respond=False):
         elif re.search(r'2', pool_num):
             formatted_pool_num = '2'
         else:
-            print(f'ERROR. A pool number was detected in the tab {tab} in the mapping file {df_path.name}, '
-                  f'but it could not be determined whether this was the number for pool 01 or pool 02.\n')
-            return sys.exit()
+            if ignore_tabs:
+                pass
+            else:
+                print(f'ERROR. A pool number was detected in the tab {tab} in the mapping file {df_path.name}, '
+                      f'but it could not be determined whether this was the number for pool 01 or pool 02.\n')
+                return sys.exit()
 
         mapping_tabs = {f'pool{formatted_pool_num}': pd.read_csv(df_path)}  # make dict to match format from .xlsx
 
@@ -596,11 +606,25 @@ def import_mapping_df(df_path, filter=True, auto_respond=False):
     # filter out any other tabs in the input file if they are not the pool01 or pool02 tab
     if filter:
         filtered_tabs = {}
+
+        # go through the tabs in the input dataframe (which now has updated pool1 and pool2 tabs)...
         for tab_name,content in mapping_tabs.items():
-            if tab_name in miscell_tabs:
-                continue
+
+            # if you want to ignore any tabs that are not pool1 or pool2...
+            if ignore_tabs:
+
+                # only add the pool1 and pool2 tabs to the output dataframe
+                 if tab_name in found_pools.keys():
+                     filtered_tabs.update({tab_name: content})
+
+            # if you want to include any tabs that weren't found to be 'pool' tabs...
+            ## THIS PART DOESN'T MAKE SENSE ##
             else:
-                filtered_tabs.update({tab_name: content})
+
+                if tab_name in miscell_tabs:
+                    filtered_tabs.update({tab_name: content})
+                else:
+                    filtered_tabs.update({tab_name: content})
 
         return filtered_tabs
 
@@ -757,7 +781,7 @@ def continue_to_next(current_script, config_dict):
 # FILE PATHS ##########
 #######################
 
-def file_finder(reference_dir, search_glob, max_depth=5000):
+def file_finder(reference_dir, search_glob, multiple_matches=False, max_depth=5000):
     '''
     Locate a file using a glob string via a directory walk.
 
@@ -765,6 +789,8 @@ def file_finder(reference_dir, search_glob, max_depth=5000):
     walk will begin
     :param search_glob: a glob-formatted search string that is used to find the
     target file
+    :param multiple_matches: True/False; whether to return multiple matches as a list (True) or
+    print all matching file paths and require a choice of a single file path (False)
     :param max_depth: the maximum file depth to search for a matching file
     :return: if successful, returns a Path object path to the matching file; if multiple
     matches are found, the user is prompted to select the correct target path; if no
@@ -848,7 +874,14 @@ def file_finder(reference_dir, search_glob, max_depth=5000):
 
     # if multiple file matches are found, prompt user to select the correct match
     else:
-        return prompt_multiple_files(files_matching_search)
+
+        # check if multiple files is okay and should be returned as list
+        if multiple_matches:
+            return files_matching_search
+
+        # if multiple matches not okay, then prompt user to chose one from list of all matches
+        else:
+            return prompt_multiple_files(files_matching_search)
 
 def import_filepath(arg_value, must_exist, make_absolute=True):
     '''
@@ -1247,7 +1280,7 @@ def gzip_compress(uncompressed_path, delete_uncompressed=True, **kwargs):
 #######################
 
 # add prefix to file name
-def add_prefix(file_path, prefix, dest_dir, action='rename', f_delim='_'):
+def add_prefix(file_path, prefix, dest_dir, action='rename', f_delim='_', output_compressed=False, replace_prefix=True):
     '''
     Add prefix to file name.
 
@@ -1263,43 +1296,125 @@ def add_prefix(file_path, prefix, dest_dir, action='rename', f_delim='_'):
     :param prefix: prefix to add to the file
     :param f_delim: file name separator to use between the prefix and the rest
     of the file name; defaults to an underscore
+    :param output_compressed: True/False; whether to retain the compressed file
+    extension if the file extension of the input file (`file_path`) is also a
+    compressed file extension (e.g., .gz)
+    :param replace_prefix: True/False; if True, the input file name in the input file
+    path (`file_path`) has a file name prefix that should be replaced with the input
+    string `prefix`; if False, the input file name in the input file path (`file_path`)
+    does not have a file name prefix, or if it does, the prefix should be retained and not
+    replaced by the `prefix` string
     :return: Path object with new file name
     '''
 
+    ## CHECK FUNCTION INPUT ##
+
+    # input file path must be a Path object
     assert is_pathclass(file_path, exit_if_false=False)
 
+    # the action must be an accepted value
+    if action in ['mkdir', 'rename', 'copy', None]:
+        pass
+    else:
+        err_msg = (f'The input provided to the add_prefix() parameter `action`, {action}, is not a valid input. '
+                   f'Use one of the following valid input options for '
+                   f'`action` = `mkdir`, `rename`, `copy`, or None.\n')
+        return exit_process(err_msg)
+
+    # subfunction; at this time, this is the entire function of add_prefix() really
     def prefix_single(file_name):
 
-        if action=='mkdir':
-            # if making a new directory, will not want the file extension in the name
+        ## GET OLD FILE NAME ##
+
+        # if output is a directory...
+        if action == 'mkdir':
+
+            # do not include the file extension in the old name
             old_name = file_name.stem
+
+        # if the output is NOT a directory (i.e., is a file)...
         else:
-            old_name = file_name.name
 
-        platform_present = re.search(r'illumina|pacbio|sanger', old_name, re.I)
+            # if the input file has more than one file extension, it is likely compressed
+            if len(file_name.suffixes) > 1:
 
-        try:
-            # if there's a match, put prefix before the platform, remove all else
-            location = platform_present.span()[0]
-            new_name = prefix + f_delim + old_name[location:]
-        except AttributeError:
-            ## if there's no match, just add prefix to start of file name
-            # new_name = prefix + f_delim + old_name
+                # if it is okay that the output file also has a compressed file extension...
+                if output_compressed:
 
-            # I changed this so that it will work with denoise(), effects on other uses possible
-            old_name_no_prefix = f_delim.join(old_name.split(f_delim)[1:])
-            new_name = f_delim.join([prefix, old_name_no_prefix])
+                    # use both the original name and file extension(s) of the input file path
+                    old_name = file_name.name
 
-        # replace old name with new name
+                # if the output file should NOT have a compressed file extension...
+                else:
+
+                    # drop the compressed part of the file extension, retaining only the
+                    #    first file extension of the input file
+                    old_name = Path(file_name.stem).with_suffix(file_name.suffixes[0]).name
+
+            # if the input file only has one file extension, no need to evaluate whether output should be compressed
+            else:
+
+                # use both the original name and file extension(s) of the input file path
+                old_name = file_name.name
+
+
+        ## CREATE OUTPUT FILE NAME WITH NEW PREFIX ##
+
+        # if the input prefix should be replaced...
+        if replace_prefix:
+
+            # determine where to replace the old prefix with the new prefix by using the sequence
+            #   platform as a reference point
+
+            # use regex to try to locate the platform in the input file name
+            platform_present = re.search(PLATFORM_ANYWHERE_RE, old_name, re.I)
+
+            # if a match to a sequence platform is located in the input file name...
+            if platform_present:
+
+                # get location of sequence platform in the input file name
+                location = platform_present.span()[0]
+
+                # add the file prefix just before the sequence platform to create the output file name
+                # only keep the part of the input file name from the sequence platform through the end, removing old prefix
+                new_name = prefix + f_delim + old_name[location:]
+
+            # if a match to a sequence platform is not located, then just replace whatever the first label of the
+            #  input file path is
+            else:
+                # this was originally written to work with denoise()
+                old_name_no_prefix = f_delim.join(old_name.split(f_delim)[1:])
+                new_name = f_delim.join([prefix, old_name_no_prefix])
+
+        # if there is not a prefix to be replaced in the input file name...
+        else:
+
+            # add to the existing input file name without replacing anything
+            new_name = prefix + f_delim + old_name
+
+
+        ## CREATE FUNCTION OUTPUT ##
+
+        # rename
         if action == 'rename':
+            # replace the input file name with the output file name
             new_path = file_name.rename(dest_dir / new_name)
+
+        # copy
         elif action == 'copy':
+            # make a copy of the original input file, renaming the copy with the new file prefix
             new_path = dest_dir / new_name
             shutil.copy(file_path, new_path)
+
+        # make directory (mkdir)
         elif action == 'mkdir':
+            # create a directory using the updated directory name with the prefix added
             new_path = dest_dir / new_name
             mkdir_exist_ok(new_dir=new_path, parent_dir=dest_dir)
+
+        # other (None)
         else:
+            # create a file path; does not make any changes to or within the file system
             new_path = dest_dir / new_name
 
         return new_path
@@ -2247,3 +2362,87 @@ def create_file_list(file_input, file_regex=[SEQ_FILE_RE, GZIP_REGEX]):
 
     # return the filtered file list; which is a list of PosixPath objects matching the provided file regex
     return output_file_list
+
+# create a function that will detect the available system memory
+def get_available_memory(memory_units='GB'):
+    '''
+    Get the available system memory of the current system.
+
+    :param memory_units: the units of measurement that the returned memory will be in
+    :return: the available system memory, in memory_units, rounded down to the
+    nearest whole number
+    '''
+
+    # check input value for memory_units to ensure its an accepted value
+    accepted_memory_units = {
+        'bytes': 'B',
+        'megabytes': 'MB',
+        'gigabytes': 'GB',
+    }
+    if memory_units in accepted_memory_units:
+        pass
+    else:
+        err_msg = (f'The input value for the parameter memory_units in the '
+                   f'function {get_available_memory.__name__} is not among '
+                   f'the accepted values for this parameter:\n'
+                   f'   accepted values     = {list(accepted_memory_units.values())}\n'
+                   f'   invalid input value = {memory_units}\n')
+        exit_process(err_msg)
+
+    # define a function to convert the input units of memory to the desired output units, memory_units
+    def convert_system_memory(sys_mem, units_in, units_out):
+
+        # convert from bytes...
+        if units_in == 'B':
+            if units_out == 'B':     # to bytes
+                return sys_mem
+            elif units_out == 'MB':  # to megabytes
+                return sys_mem*1e-6
+            elif units_out == 'GB':  # to gigabytes
+                return sys_mem*1e-9
+            else:                    # return error if not bytes, megabytes, or gigabytes
+                pass
+
+        # convert from megabytes...
+        elif units_in == 'MB':
+            if units_out == 'B':     # to bytes
+                return sys_mem/1e-6
+            elif units_out == 'MB':  # to megabytes
+                return sys_mem
+            elif units_out == 'GB':  # to gigabytes
+                return sys_mem/1000
+            else:                    # return error if not bytes, megabytes, or gigabytes
+                pass
+
+        # convert from gigabytes...
+        elif units_in == 'GB':
+            if units_out == 'B':     # to bytes
+                return sys_mem*1e-9
+            elif units_out == 'MB':  # to megabytes
+                return sys_mem*1000
+            elif units_out == 'GB':  # to gigabytes
+                return sys_mem
+            else:                    # return error if not bytes, megabytes, or gigabytes
+                pass
+
+        # invalid unit of measurement, print error below
+        else:
+            pass
+
+        err_msg = (f'Invalid input units provided to the function {convert_system_memory.__name__}, '
+                   f'a subfunction within {get_available_memory.__name__}\n'
+                   f'   accepted values     = {list(accepted_memory_units.values())}\n'
+                   f'   invalid input value = {units_in}\n')
+        exit_process(err_msg)
+
+    # convert the available system memory in bytes to the unit of memory_units
+    avail_sys_mem = convert_system_memory(
+        sys_mem=psutil.virtual_memory().available,  # get available system memory
+        units_in='B',                               # psutil will always return in bytes
+        units_out=memory_units,                     # return value as memory_units
+    )
+
+    bbduk_fmt_unit = memory_units.lower()[0]
+
+    return bbduk_fmt_unit, math.floor(avail_sys_mem)
+    return bbduk_fmt_unit, math.floor(avail_sys_mem)
