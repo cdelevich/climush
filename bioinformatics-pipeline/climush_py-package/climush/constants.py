@@ -60,6 +60,7 @@ QUIT_RE = r'^quit.*?|^exit.*?'  # avoids confusion about whether to use quit or 
 
 # FILE EXTENSION GLOBS AND REGEX
 HIDDEN_FILE_REGEX = r'^\.'
+ZIP_REGEX = r'(\.zip)$'
 GZIP_REGEX = r'(\.fast.\.gz)$'
 GZIP_GLOB = '*.fastq.gz'
 SEQ_FILE_GLOB = '*.fast*'
