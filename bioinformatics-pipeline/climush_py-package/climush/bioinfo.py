@@ -552,7 +552,7 @@ def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_lo
             action=None,
             dest_dir=nophix_path,
             f_delim=settings['formatting']['filename_delim'],
-            output_compressed=False,
+            output_compressed=True,
             replace_prefix=True,
         )
         # rev (R2)
@@ -562,7 +562,7 @@ def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_lo
             action=None,
             dest_dir=nophix_path,
             f_delim=settings['formatting']['filename_delim'],
-            output_compressed=False,
+            output_compressed=True,
             replace_prefix=True,
         )
 
@@ -595,7 +595,7 @@ def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_lo
                 action=None,
                 dest_dir=phix_path,
                 f_delim=settings['formatting']['filename_delim'],
-                output_compressed=False,
+                output_compressed=True,
                 replace_prefix=True,
             )
             # rev (R2)
@@ -605,7 +605,7 @@ def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_lo
                 action=None,
                 dest_dir=phix_path,
                 f_delim=settings['formatting']['filename_delim'],
-                output_compressed=False,
+                output_compressed=True,
                 replace_prefix=True,
             )
 
