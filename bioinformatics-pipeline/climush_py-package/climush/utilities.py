@@ -1,4 +1,4 @@
-import subprocess, re, sys, pathlib, shutil, json, tomlkit, gzip, psutil, math
+import subprocess, re, sys, pathlib, shutil, json, tomlkit, gzip, psutil, math, zipfile
 from pathlib import Path
 from datetime import datetime
 from functools import wraps
@@ -1195,83 +1195,196 @@ def check_for_input(file_dir, config_dict, path_must_exist=True, file_identifier
 
 # compress a fastq file to .fastq.gzip format
 # DOES NOT WORK, WILL NOT COMPRESS A .FASTQ FORMAT BECAUSE IT CAN'T DETECT BYTES
-def gzip_compress(uncompressed_path, delete_uncompressed=True, **kwargs):
+def compress_data(input_path, output_path=None, compress_fmt='gzip', keep_input=False):
     '''
-    Compress an input file to the gzip compression format.
+    Compress or decompress .zip or .gz files.
 
-    :param uncompressed_path: Path object describing path to the uncompressed
-    file that requires compression
-    :param delete_uncompressed: True (default), False; whether to remove the
-    uncompressed version of the file after successfully compressing it
-    :param kwargs: compressed_path may be provided, which should be a Path object
-    that is used as the output path for the compressed version of the input file; if
-    one is not provided, then the input uncompressed Path is used as the basis for
-    the compressed file name
-    :return: None; saves the gzip version
+    :param input_path: path to the file or directory or directory of files that contain either
+    compressed or uncompressed files that should be decompressed / compressed
+    :param output_path: path to write the decompressed / compressed output files to
+    this directory; if None, the files are written to the input_path
+    :param compress_fmt: ['gzip','zip']; the compression algorithm of the input compressed
+    files or the desired output compressed files / directories
+    :param keep_input: True/False; if False (default), the input files are removed and only
+    the output files are retained
+    :return: None
     '''
 
-    # confirm that the input uncompressed file is a Path object
-    if is_pathclass(uncompressed_path):
+    ## CHECK FILE PATHS ##
+
+    # confirm that the input path is a path object
+    is_pathclass(input_path, exit_if_false=True)
+
+    # if an output path was not provided...
+    if output_path is None:
+
+        # use the input path as the output path
+        output_path = input_path
+
+    # if any input path was provided...
+    else:
+
+        # confirm that the output path is a path object
+        is_pathclass(output_path, exit_if_false=True)
+
+    ## CHECK COMPRESSION FORMAT ##
+
+    # create a list of the compression formats currently working in this function
+    accepted_compress_fmts = {
+        'gzip': {
+            'open_function': gzip.open,   # how to
+            'magic_number': b'\x1f\x8b',
+            'file_extension': '.gz',
+        },
+        'zip': {
+                'open_function': zipfile.ZipFile,     # this doesn't work, need to create a ZipFile class object, then use .
+                'magic_number': b'\x50\x4b\x03\x04',
+                'file_extension': '.zip',
+            },
+    }
+
+    # confirm that the argument for compress_fmt is a valid compression format
+    if compress_fmt in accepted_compress_fmts:
         pass
     else:
-        try:  # try to create a Path object from the input
-            uncompressed_path = Path(uncompressed_path)
-        except:  # if it can't be converted to a Path object, then print error and exit
-            msg = (f'The path provided, {uncompressed_path}, was not originally a Path object, and could not be '
-                   f'automatically converted to a Path object. Please provide a Path object to '
-                   f'the parameter \'uncompressed_path\' to continue.\n')
-            exit_process(message=msg)
-            return None
+        err_msg = (f'The compression format provided, {compress_fmt}, is not one of the accepted compression '
+                   f'file formats for this function at this time. The accepted formats are:\n'
+                   f'   {accepted_compress_fmts}\n')
+        raise KeyError(err_msg)
 
-    # if the compressed path is provided as a keyword argument...
-    if 'compressed_path' in kwargs.keys():
-        # confirm that it is a Path object
-        if is_pathclass(kwargs['compressed_path']):
-            # write in to variable
-            compressed_path = kwargs['compressed_path']
-        # if it is not a Path object...
+
+    # create a list of the files in the input file path; a list will be created even if the input is a path to a file
+    input_file_list = create_file_list(input_path)
+
+    # create an empty list to add the input names to and make updates in cases where a name conflict w/ output file occurs
+    input_files_corrected = []
+
+    # iterate through each file in the input directory (or if input is a file, just that file)
+    for input_file in input_file_list:
+
+        ## IS THE INPUT FILE COMPRESSED? ##
+
+        # check if the input file is zip compressed
+        if zipfile.is_zipfile(input_file):
+            input_compressed = True
+            input_fmt = accepted_compress_fmts['zip']['file_extension']
+            output_fmt = ''
+
+        # if not zip compressed...
         else:
-            try:  # try to create a Path object from the input
-                compressed_path = Path(kwargs['compressed_path'])
-            except:  # if it can't be converted to a Path object, then print error and exit
-                msg = (f'The path provided, {kwargs["compressed_path"]}, was not originally a Path object, '
-                       f'and could not be automatically converted to a Path object. Please provide a Path '
-                       f'object to the keyword \'compressed_path\' to continue.\n')
-                exit_process(message=msg)
-                return None
-    # if no keyword argument for compressed path is included...
+
+            # open file and inspect the first few lines...
+            with open(input_file, 'rb') as file_in:
+
+                # if the first two lines match the gzip magic number, it is compressed
+                if file_in.read(2) == accepted_compress_fmts['gzip']['magic_number']:  # compare the first two bytes
+                    input_compressed = True
+                    input_fmt = accepted_compress_fmts['gzip']['file_extension']  # .gz
+                    output_fmt = input_file.suffixes[0]                           # whichever file ext precedes .gz
+
+                # if the first two lines don't match the gzip magic number, it is not compressed
+                else:
+
+                    input_compressed = False
+
+                    # check if the input file has a erroneous compressed file format (issue w/vsearch output)
+                    if len(input_file.suffixes) > 1:
+
+                        # create a new file name for the input file so it isn't named the same as the output file
+                        input_file_new = input_path / input_file.name.replace(input_file.suffixes[1], '')  # remove compress fmt
+
+                        # rename the input file using this re-formatted file name
+                        input_file = input_file.replace(input_file_new)
+
+                    # if the input file name only has an uncompressed file suffix...
+                    else:
+                        # do nothing here
+                        pass
+
+                    # add the input file, as it originally was or corrected, to the input_files_corrected list
+                    input_files_corrected.append(input_file)
+
+                    # create the output file format based on the single input file suffix and the output compressed file ext
+                    output_fmt = input_file.suffix + accepted_compress_fmts[compress_fmt]['file_extension']
+
+
+        ## CREATE OUTPUT FILE PATH ##
+
+        # get the input file name without any file extensions included
+        output_basename = input_file.name.replace(''.join(input_file.suffixes), '')
+
+        # create a file path by including the output file extension and path
+        output_file = (output_path / output_basename).with_suffix(output_fmt)
+
+
+        ## DECOMPRESS INPUT FILE IF IT IS COMPRESSED ##
+
+        # if input file is compressed...
+        if input_compressed:
+
+            # use the compression type's open() function to read in the information within it
+            with accepted_compress_fmts[compress_fmt]['open_function'](input_file, 'rb') as compressed_in:
+
+                # open the uncompressed output file to write the compressed content into...
+                with open(output_file, 'wb') as decompressed_out:
+
+                    # copy the content from the compressed input file to the decompressed output file
+                    shutil.copyfileobj(compressed_in, decompressed_out)
+
+
+        ## COMPRESS INPUT FILE IF IT IS DECOMPRESSED ##
+
+        # if input file is uncompressed...
+        else:
+
+            # open the uncompressed input file to copy content into a compressed file...
+            with open(input_file, 'rb') as decompressed_in:
+
+                # use the compression type's open() function to open the file to write the uncompressed data into
+                with accepted_compress_fmts[compress_fmt]['open_function'](output_file, 'wb') as compressed_out:
+
+                    # copy the content from the uncompressed input file to the compressed output file
+                    shutil.copyfileobj(decompressed_in, compressed_out)
+
+
+        ## CONFIRM OUTPUT FILE WAS CREATED ##
+
+        # confirm that the output file was created
+        if output_file.exists():
+            continue
+        else:
+            raise OSError(f'The output file was not properly written to the file system:\n'
+                          f'   {output_file}\n')
+
+
+    ## OPTIONAL; REMOVE INPUT FILES ##
+
+    # if the input files should be kept still...
+    if keep_input:
+
+        # do nothing here
+        pass
+
+    # if the default option is used, where keep_input=False...
     else:
-        # create compressed path by adding .gz to input uncompressed path
-        compressed_path = uncompressed_path.with_suffix('.'.join([uncompressed_path.suffix, 'gz']))
 
-    # first open the uncompressed file to read content
-    with open(uncompressed_path, 'rb') as uncomp_in:
-        # then open the compressed file to write uncompressed content to
-        with gzip.open(compressed_path, 'wb') as comp_out:
-            # read uncompressed content and write to the gzip output file
-            shutil.copyfileobj(uncomp_in, comp_out)
+        # check if input_files_corrected has files paths included...
+        if len(input_files_corrected) > 0:
 
-    # check that the compressed file isn't empty
-    if compressed_path.stat().st_size == 0:
-        msg = (f'ERROR. The uncompressed file, {uncompressed_path.name}, was not successfully written to the '
-               f'compressed file {compressed_path.name}, as the compressed file size is zero (0).\n')
-        exit_process(message=msg)
-        return None
+            # go through each of the input files from the corrected input file list...
+            for input_file in input_files_corrected:
 
-    # check that the compressed file is properly compressed
-    with open(compressed_path, 'r') as comp_in:
-        try:
-            comp_in.read(1)
-        except gzip.BadGzipFile:
-            msg = (f'ERROR. The uncompressed file, {uncompressed_path.name}, was not successfully written to the '
-                   f'compressed file {compressed_path.name}, as the compressed filee was flagged as BadGzipFile '
-                   f'by the gzip Python library.\n')
-            exit_process(message=msg)
-            return None
+                # delete each input file
+                input_file.unlink()
 
-    # remove uncompressed file, if delete_uncompressed set to True (default)
-    if delete_uncompressed:
-        uncompressed_path.unlink()
+        # if there weren't any instances of renamed / corrected input file paths...
+        else:
+
+            # iterate through the original input file paths...
+            for input_file in input_file_list:
+
+                # delete each input file
+                input_file.unlink()
 
     return None
 
