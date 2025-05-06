@@ -14,9 +14,11 @@ def demultiplex(output_dir, reference_dir, multiplexed_files, verbose):
 
     # DEFINE RELEVANT FILE PATHS ####################################################################
     # get the paths needed for demux
-    # mapping_dir = file_map['config']['bc_mapping']  # directory containing all mapping files
-    mapping_dir = file_finder(reference_dir, files=r'.+?barcode.csv$', dirs=r'config')
-    mapping_files = list(mapping_dir.glob('*'))  # get mapping files, as list (will reuse + exhaust)
+    mapping_files = file_finder(
+        reference_dir=reference_dir,
+        search_glob='pacbio*mapping*',
+        multiple_matches=True,
+    )
 
     # ACCESS USER SETTINGS FROM CONFIG ##############################################################
     settings = get_settings(reference_dir)
@@ -61,7 +63,7 @@ def demultiplex(output_dir, reference_dir, multiplexed_files, verbose):
 
     # CREATE A FASTA FILE OF ALL UNIQUE BARCODES USED TO MULTIPLEX ###################################
     # define subfunctions to help locate and prepare barcodes for demultiplexing
-    def get_col_name(pattern, df):
+    def get_col_name(pattern, df, auto_respond=False):
 
         # search for columns that match the provided pattern
         matches = [c for c in df.columns if re.search(pattern, c, re.I)]
@@ -85,8 +87,12 @@ def demultiplex(output_dir, reference_dir, multiplexed_files, verbose):
             print(error_msg)
 
             print_indented_list(matches)  # print out the columns of the dataframe (formatted to be indented)
-            retry_pattern = input()
-            return get_col_name(pattern=retry_pattern, df=df)
+
+            if auto_respond:
+                pass  # INCOMPLETE
+            else:
+                retry_pattern = input()
+                return get_col_name(pattern=retry_pattern, df=df)
 
     def get_barcodes(map_path, primers):
 
@@ -176,8 +182,9 @@ def demultiplex(output_dir, reference_dir, multiplexed_files, verbose):
 
     # get the fwd/rev primers, since they are sometimes included in the barcode sequence and need to be removed
     primer_dict = {}
-    primer_dict['fwd_primer'] = settings['primers']['fwd']['sequence']['pacbio']
-    primer_dict['rev_primer'] = settings['primers']['rev']['sequence']['pacbio']
+    # primer_dict['fwd_primer'] = settings['primers']['fwd']['sequence']['pacbio']
+    primer_dict['fwd_primer'] = list(settings['primers']['fwd']['pacbio'].values())[0]
+    primer_dict['rev_primer'] = list(settings['primers']['rev']['pacbio'].values())[0]
 
     # create a dict to add all barcodes to; will be used to create the unique barcode fasta
     unique_barcodes = {'fwd_bc': set(),
@@ -324,7 +331,7 @@ def demultiplex(output_dir, reference_dir, multiplexed_files, verbose):
             for i in range(mapping_df[tab].shape[0]):
 
                 # from the dataframe, get the sample ID, fwd barcode sequence, and rev barcode sequence
-                smp_id = mapping_df[tab][smp_col][i]
+                smp_id = mapping_df[tab][smp_col][i].strip()  # make sure whitespace is stripped from sample ID
                 fwd_full_bc = mapping_df[tab][fwd_col][i]  # pull full barcode from df (may contain primer still)
                 rev_full_bc = mapping_df[tab][rev_col][i]  # may also container primer
 
@@ -544,6 +551,9 @@ def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_lo
             prefix=NOPHIX_PREFIX,
             action=None,
             dest_dir=nophix_path,
+            f_delim=settings['formatting']['filename_delim'],
+            output_compressed=False,
+            replace_prefix=True,
         )
         # rev (R2)
         nophix_rev_out = add_prefix(
@@ -551,6 +561,9 @@ def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_lo
             prefix=NOPHIX_PREFIX,
             action=None,
             dest_dir=nophix_path,
+            f_delim=settings['formatting']['filename_delim'],
+            output_compressed=False,
+            replace_prefix=True,
         )
 
         # create a standard bbduk command list, without any extra options like log files or keeping discarded reads
@@ -581,6 +594,9 @@ def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_lo
                 prefix=flip_prefix(NOPHIX_PREFIX),
                 action=None,
                 dest_dir=phix_path,
+                f_delim=settings['formatting']['filename_delim'],
+                output_compressed=False,
+                replace_prefix=True,
             )
             # rev (R2)
             phix_rev_out = add_prefix(
@@ -588,6 +604,9 @@ def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_lo
                 prefix=flip_prefix(NOPHIX_PREFIX),
                 action=None,
                 dest_dir=phix_path,
+                f_delim=settings['formatting']['filename_delim'],
+                output_compressed=False,
+                replace_prefix=True,
             )
 
             # create a list of values that need to be added to the original bbduk command in order for the
@@ -633,7 +652,7 @@ def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_lo
 
     return create_file_list(nophix_path)
 
-def prefilter_fastx(input_files, output_dir, reference_dir, maxn, keep_removed_seqs, qmax):
+def prefilter_fastx(input_files, output_dir, reference_dir, maxn, qmax, keep_log, keep_removed_seqs):
 
     ## LOAD SETTINGS ##
 
@@ -646,13 +665,9 @@ def prefilter_fastx(input_files, output_dir, reference_dir, maxn, keep_removed_s
     # create a directory to send all output files and directories to
     noambig_parent = mkdir_exist_ok(new_dir=output_dir)
 
-    # create a parent directory to sort reads w/ and reads w/o ambiguous base calls into
+    # create a parent directory to sort reads w/o ambiguous base calls into
     noambig_path = mkdir_exist_ok(
         new_dir=f'./{NOAMBIG_PREFIX}_{run_name}',
-        parent_dir=noambig_parent,
-    )
-    ambig_path = mkdir_exist_ok(
-        new_dir=f'./{flip_prefix(NOAMBIG_PREFIX)}_{run_name}',
         parent_dir=noambig_parent,
     )
 
@@ -675,6 +690,9 @@ def prefilter_fastx(input_files, output_dir, reference_dir, maxn, keep_removed_s
             prefix=NOAMBIG_PREFIX,
             action=None,
             dest_dir=noambig_path,
+            f_delim=settings['formatting']['filename_delim'],
+            output_compressed=False,
+            replace_prefix=True,
         )
         # rev (R2)
         noambig_rev_out = add_prefix(
@@ -682,6 +700,9 @@ def prefilter_fastx(input_files, output_dir, reference_dir, maxn, keep_removed_s
             prefix=NOAMBIG_PREFIX,
             action=None,
             dest_dir=noambig_path,
+            f_delim=settings['formatting']['filename_delim'],
+            output_compressed=False,
+            replace_prefix=True,
         )
 
         # compile the standard VSEARCH filtering function and options
@@ -710,6 +731,12 @@ def prefilter_fastx(input_files, output_dir, reference_dir, maxn, keep_removed_s
         # check whether reads that don't pass the filter should be retained in a separate directory
         if keep_removed_seqs:
 
+            # create an output directory for sequences with ambiguous base calls
+            ambig_path = mkdir_exist_ok(
+                new_dir=f'./{flip_prefix(NOAMBIG_PREFIX)}_{run_name}',
+                parent_dir=noambig_parent,
+            )
+
             # create an output file name for sequences *with* ambiguous base call counts exceeding maxn
             # fwd (R1)
             ambig_fwd_out = add_prefix(
@@ -717,6 +744,9 @@ def prefilter_fastx(input_files, output_dir, reference_dir, maxn, keep_removed_s
                 prefix=flip_prefix(NOAMBIG_PREFIX),
                 action=None,
                 dest_dir=ambig_path,
+                f_delim=settings['formatting']['filename_delim'],
+                output_compressed=False,
+                replace_prefix=True,
             )
             # rev (R2)
             ambig_rev_out = add_prefix(
@@ -724,12 +754,15 @@ def prefilter_fastx(input_files, output_dir, reference_dir, maxn, keep_removed_s
                 prefix=flip_prefix(NOAMBIG_PREFIX),
                 action=None,
                 dest_dir=ambig_path,
+                f_delim=settings['formatting']['filename_delim'],
+                output_compressed=False,
+                replace_prefix=True,
             )
 
             # compile the list of commands to append to the filtering command so that discarded reads are saved
             vsearch_filter_keepseqs = [
-                f'--fast{input_filefmt}_discarded', ambig_fwd_out,     # output file - discarded fwd reads
-                f'--fast{input_filefmt}_discarded_rev', ambig_rev_out, # output file - discarded rev reads
+                f'--fast{input_filefmt}out_discarded', ambig_fwd_out,     # output file - discarded fwd reads
+                f'--fast{input_filefmt}out_discarded_rev', ambig_rev_out, # output file - discarded rev reads
             ]
 
             # add these additional parameters and arguments to the basic vsearch filtering command
@@ -744,6 +777,38 @@ def prefilter_fastx(input_files, output_dir, reference_dir, maxn, keep_removed_s
         else:
             pass
 
+        # check whether a log file should be written out, which will include quality scores and read counts
+        if keep_log:
+
+            # create an output log file path
+            vsearch_filter_log = noambig_parent / f'vsearch_prefilter_{run_name}.log'
+
+            # regardless of input file format, add the --log option to the vsearch prefilter command list
+            append_subprocess(
+                cli_command_list=vsearch_filter_cmd,
+                options_to_add=['--log', vsearch_filter_log],
+                position=-1,
+                return_copy=False,
+            )
+
+            # if the input files are .fastq, write out additional stats only available for .fastq files
+            if input_filefmt == 'q':
+
+                append_subprocess(
+                    cli_command_list=vsearch_filter_cmd,
+                    options_to_add=['--fastq_stats', vsearch_filter_log],
+                    position=-1,
+                    return_copy=False,
+                )
+
+            # do not add any additional flags if input files are .fasta
+            else:
+                pass
+
+        # if no log is to be written out, do nothing
+        else:
+            pass
+
         # execute the vsearch filtering command that has been compiled
         run_subprocess(
             vsearch_filter_cmd,
@@ -753,6 +818,27 @@ def prefilter_fastx(input_files, output_dir, reference_dir, maxn, keep_removed_s
             separate_sample_output=True,
             auto_respond=settings['automate']['auto_respond'],
         )
+
+    ## COMPRESS OUTPUT SEQUENCE FILES ##
+
+    # compress the output written by vsearch, removing the uncompressed copies
+    compress_data(
+        input_path=noambig_path,    # reads without ambiguous base calls
+        output_path=None,           # write to the same directory as noambig_path
+        compress_fmt='gzip',        # compress using the gzip algorithm
+        keep_input=False,           # remove the uncompressed input files, retaining only the .gz compressed versions
+    )
+
+    # also compress the ambiguous base call sequence files, if written to the file system
+    if keep_removed_seqs:
+        compress_data(
+            input_path=ambig_path,  # reads with ambiguous base calls, if keep_removed_seqs=True
+            output_path=None,       # write to the same directory as ambig_path
+            compress_fmt='gzip',    # comrpess using the gzip algorithm
+            keep_input=False,       # remove the uncompressed input files, retaining only the .gz compressed versions
+        )
+    else:
+        pass
 
     return noambig_path
 
@@ -902,21 +988,33 @@ def confirm_no_primers(input_files, reference_dir, platform):
 
     return None
 
-def remove_primers(input_files, output_dir, reference_dir, platform, paired_end=True, verbose=False):
+def remove_primers(input_files, output_dir, reference_dir, platform, keep_log, keep_removed_seqs):
 
-    # make the main directory for output from primer removal
-    trim_primers_parent = mkdir_exist_ok(new_dir=output_dir)
+    ## IMPORT CONFIGURATION SETTINGS ##########################################
 
     # read in settings from the configuration file
     settings = get_settings(reference_dir)
+
+    # get the bioinformatics run name for tagging output directories and files
     run_name = settings['run_details']['run_name']
+
+    ## INPUT / OUTPUT DIRECTORIES #############################################
+
+    # make the main directory for output for primer trimming
+    trim_parent = mkdir_exist_ok(new_dir=output_dir)
+
+    # create a subdirectory for the primer-trimmed sequence output
+    trim_path = mkdir_exist_ok(
+        new_dir=f'./{TRIMMED_PREFIX}_{run_name}',
+        parent_dir=trim_parent,
+    )
 
     # access cutadapt settings from the configuration
     cutadapt_settings = settings['remove_primers']
     fwd_max_err = cutadapt_settings['max_error_rate']['fwd']
     rev_max_err = cutadapt_settings['max_error_rate']['rev']
     if fwd_max_err == rev_max_err:
-        max_err = fwd_max_err
+        max_error = fwd_max_err
     max_untrimmed = cutadapt_settings['max_untrimmed']
 
     # get the forward and reverse primers
@@ -926,9 +1024,11 @@ def remove_primers(input_files, output_dir, reference_dir, platform, paired_end=
     fwd_revcomp_primer = primer_dict['fwd_rc']
     rev_revcomp_primer = primer_dict['rev_rc']
 
-    # create trimmed and untrimmed read directories
-    trim_path = mkdir_exist_ok(new_dir=f'./{TRIMMED_PREFIX}_{run_name}', parent_dir=trim_primers_parent)
-    notrim_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(TRIMMED_PREFIX)}_{run_name}', parent_dir=trim_primers_parent)
+
+    notrim_path = mkdir_exist_ok(
+        new_dir=f'./{flip_prefix(TRIMMED_PREFIX)}_{run_name}',
+        parent_dir=trim_parent,
+    )
 
     # if verbose, then print full report
     if verbose:  # best for troubleshooting
@@ -938,77 +1038,56 @@ def remove_primers(input_files, output_dir, reference_dir, platform, paired_end=
 
     # compose and execute the command line command to run cutadapt for paired-end reads
     if paired_end:
+
+        # create a dictionary that will link the forward (R1) and reverse (R2) sequence files for each given sample
         paired_dict = pair_reads(input_files)
 
-        for file in paired_dict.keys():
+        for fwd_seqs_in, rev_seqs_in in paired_dict.items():
 
-            fwd_read_out = add_prefix(file_path=file, prefix=TRIMMED_PREFIX, dest_dir=trim_path, action=None)
-            rev_read_out = add_prefix(file_path=paired_dict[file], prefix=TRIMMED_PREFIX, dest_dir=trim_path, action=None)
+            # forward (R1) read: create an output path for the primer-trimmed sequences
+            fwd_seqs_out = add_prefix(
+                file_path=fwd_seqs_in,
+                prefix=TRIMMED_PREFIX,
+                dest_dir=trim_path,
+                action=None,
+            )
 
-            # this will only work on half the reads
-            # cutadapt_cmd = ['cutadapt', f'--report={report}',
-            #                 '-a', fwd_primer, '-A', rev_primer,
-            #                 '-n', '2', '-e', str(max_err),
-            #                 '-o', fwd_read_out, '-p', rev_read_out,
-            #                 file, paired_dict[file]]
+            # reverse (R2) read: create an output path for the primer-trimmed sequences
+            rev_seqs_out = add_prefix(
+                file_path=rev_seqs_in,
+                prefix=TRIMMED_PREFIX,
+                dest_dir=trim_path,
+                action=None,
+            )
 
-            # from the DADA2 cutadapt step; this will only work on half the reads
-            # cutadapt_cmd = ['cutadapt', f'--report={report}',
-            #                 '-g', fwd_primer, '-a', rev_revcomp_primer,
-            #                 '-G', rev_primer, '-A', fwd_revcomp_primer,
-            #                 '-n', '2', '-e', str(max_err),
-            #                 '-o', fwd_read_out, '-p', rev_read_out,
-            #                 file, paired_dict[file]]
-            #
-            # this worked on pacbio, does not work at all on Illumina paired-end
-            # cutadapt_cmd = ['cutadapt', f'--report={report}',
-            #                 '-a', f'^{fwd_primer}...{rev_revcomp_primer}$',
-            #                 '-a', f'^{rev_primer}...{fwd_revcomp_primer}$',
-            #                 '-n', '2', '-e', str(max_err),
-            #                 '-o', fwd_read_out, '-p', rev_read_out,
-            #                 file, paired_dict[file]]
+            cutadapt_cmd = [
+                'cutadapt',
+                '-g', fwd_primer,                   # R1 5': forward primer
+                # '-a', rev_revcomp_primer,           # R1 3': reverse primer - reverse complement
+                '-g', rev_primer,                   # R1 5': reverse primer
+                # '-a', fwd_revcomp_primer,           # R1 3': forward primer - reverse complement
+                '-G', rev_primer,                   # R2 5': reverse primer
+                # '-A', fwd_revcomp_primer,           # R2 3': forward primer - reverse complement
+                '-G', fwd_primer,                   # R2 5': forward primer
+                # '-A', rev_revcomp_primer,           # R2 3': reverse primer - reverse complement
+                '--revcomp',                        # for each primer, search for its reverse complement as well
+                '-n', '2',
+                '-e', str(max_error),               # global maximum error rate
+                '--cores', str(0),                  # auto-detect the number of available CPUs to use
+                f'--report={report}',               # type of report that cutadapt will return
+                '--output', fwd_seqs_out,           # forward (R1) output sequence file
+                '--paired-output', rev_seqs_out,    # reverse (R2) output sequence file
+                fwd_seqs_in,                        # forward (R1) input sequence file
+                rev_seqs_in,                        # reverse (R2) input sequence file
+            ]
 
-            # some combination of all, where it will search for both combos in both reads?
-            # does not work at all
-            # cutadapt_cmd = ['cutadapt', f'--report={report}',
-            #                 '-g', f'^{fwd_primer}...{rev_revcomp_primer}$',
-            #                 '-a', f'^{rev_primer}...{fwd_revcomp_primer}$',
-            #                 '-G', f'^{fwd_primer}...{rev_revcomp_primer}$',
-            #                 '-A', f'^{rev_primer}...{fwd_revcomp_primer}$',
-            #                 '-n', '2', '-e', str(max_err),
-            #                 '-o', fwd_read_out, '-p', rev_read_out,
-            #                 file, paired_dict[file]]
-
-            # DADA2 cutadapt but with --interleaved to do two passes to account for mixed R1/R2 orientation
-            # doesn't work; also tried again with remove -n 2 from both
-            # cutadapt_cmd = ['cutadapt', f'--report={report}',
-            #                 '-g', fwd_primer, '-a', rev_revcomp_primer,
-            #                 '-G', rev_primer, '-A', fwd_revcomp_primer,
-            #                 '-n', '2', '-e', str(max_err),
-            #                 '--interleaved',
-            #                 file, paired_dict[file],
-            #                 '|',
-            #                 'cutadapt', f'--report={report}',
-            #                 '-g', rev_primer, '-a', fwd_revcomp_primer,
-            #                 '-G', fwd_primer, '-A', rev_revcomp_primer,
-            #                 '-n', '2', '-e', str(max_err),
-            #                 '--interleaved',
-            #                 '-o', fwd_read_out, '-p', rev_read_out,
-            #                 '-']
-
-            # WORKS!
-            cutadapt_cmd = ['cutadapt', f'--report={report}',
-                            '-g', fwd_primer, '-a', rev_revcomp_primer,
-                            '-g', rev_primer, '-a', fwd_revcomp_primer,
-                            '-G', rev_primer, '-A', fwd_revcomp_primer,
-                            '-G', fwd_primer, '-A', rev_revcomp_primer,
-                            '-n', '2', '-e', str(max_err),
-                            '-o', fwd_read_out, '-p', rev_read_out,
-                            file, paired_dict[file]]
-
-            run_subprocess(cutadapt_cmd, dest_dir=trim_primers_parent,
-                           separate_sample_output=False, run_name=run_name,
-                           auto_respond=settings['automate']['auto_respond'])
+            run_subprocess(
+                cutadapt_cmd,
+                dest_dir=trim_parent,
+                separate_sample_output=False,
+                run_name=run_name,
+                auto_respond=settings['automate']['auto_respond'],
+            )
 
     # compose and execute the command line command to run cutadapt for single-end reads
     else:
@@ -1017,69 +1096,85 @@ def remove_primers(input_files, output_dir, reference_dir, platform, paired_end=
 
             trim_out = add_prefix(file_path=file, prefix=TRIMMED_PREFIX, dest_dir=trim_path, action=None)
 
+            cutadapt_cmd = [
+                'cutadapt',
+                f'--report={report}',
+                '-a', f'^{fwd_primer}...{rev_revcomp_primer}$',     # search 5' end for anchored, linked primers
+                '-a', f'^{rev_primer}...{fwd_revcomp_primer}$',     # search 3' end for anchored, linked primers
+                '-n', '2',                                          # do two passes over each read
+                '-e', str(max_err),                                 # maximum expected error
+                '--cores', str(0),                                  # auto-detect the number of available CPUs to use
+                untrim_cmd,
+                '-o', trim_out,
+                file,
+            ]
+
             if cutadapt_settings['keep_untrimmed']:
-                notrim_out = add_prefix(file_path=file, prefix=flip_prefix(TRIMMED_PREFIX),
-                                        dest_dir=notrim_path, action=None)
+                notrim_out = add_prefix(
+                    file_path=file,
+                    prefix=flip_prefix(TRIMMED_PREFIX),
+                    dest_dir=notrim_path,
+                    action=None,
+                )
                 untrim_cmd = f'--untrimmed-output={notrim_out}'
             else:
                 untrim_cmd = ''
 
 
-            cutadapt_cmd = ['cutadapt', f'--report={report}',
-                            '-a', f'^{fwd_primer}...{rev_revcomp_primer}$',
-                            '-a', f'^{rev_primer}...{fwd_revcomp_primer}$',
-                            '-n', '2', '-e', str(max_err), untrim_cmd, '-o', trim_out, file]
-
             # create or append to cutadapt stderr/stdout, all output goes to one file (not one per sample)
-            run_subprocess(cutadapt_cmd, dest_dir=trim_primers_parent,
-                           separate_sample_output=False, run_name=run_name,
-                           auto_respond=settings['automate']['auto_respond'])
+            run_subprocess(
+                cutadapt_cmd,
+                dest_dir=trim_parent,
+                separate_sample_output=False,
+                run_name=run_name,
+                auto_respond=settings['automate']['auto_respond'],
+            )
 
-    # also helpful to see the command that is run during troubleshooting
-    if verbose:
-        print(f'cutadapt command: {cutadapt_cmd}\n')
-        print(f'WARNING. Currently, the max proportion of untrimmed reads cannot be analyzed '
-              f'with verbose set to True. To have the max proportion check, turn verbose to False.\n')
-    else:
-        # quantify proportion untrimmed; only works if not verbose
-        with open((trim_primers_parent / f'cutadapt_{run_name}.out'), 'rt') as fin:
-
-            # counters to add values from the summary file to, for running totals per sample
-            total_reads_in = 0
-            total_reads_out = 0
-            total_warnings = 0
-
-            # read in the lines from the text file, only keeping information for data rows, not headers
-            for line in fin.readlines():
-                if re.search(r'^OK', line, re.I) or re.search(r'^WARN', line, re.I):
-                    # create a list of all the summary info for this sample
-                    cutadapt_sample_info = line.split('\t')
-
-                    # per cutadapt documentation for minimal summary, in_reads is 2nd column (index 1)
-                    total_reads_in += int(cutadapt_sample_info[1])
-                    # out_reads is 7th column (index 6)
-                    total_reads_out += int(cutadapt_sample_info[6])
-
-                    # also create a warning file if any of these lines had the WARN status in 1st column (index 0)
-                    if re.search(r'^WARN', line, re.I):
-                        total_warnings += 1
-
-            # write out the number of warnings, if any (can't get the related sample though...)
-            if total_warnings > 0:
-                with open((trim_primers_parent / f'cutadapt_warnings_{run_name}.txt'), 'wt') as fout:
-                    fout.write(f'Number of samples with WARNING status from cutadapt: {total_warnings}')
-
-            # calculate the percent of reads lost across all samples in this bioinformatics run
-            total_percent_lost = ((total_reads_in - total_reads_out) / total_reads_in) * 100
-
-            if total_percent_lost > max_untrimmed:
-                msg = (f'ERROR. After primer trimming, {total_percent_lost:.2f}% of the input reads were lost, '
-                       f'which is above the user-defined maximum allowable threshold of {max_untrimmed}%.\n')
-                exit_process(message=msg)
-            else:
-                print(f'SUCCESS. {total_percent_lost:.2f}% of input reads were lost to primer trimming. This is below '
-                      f'the user-provided maximum allowable threshold of {max_untrimmed}%, so proceeding to '
-                      f'next step...\n')
+    # # also helpful to see the command that is run during troubleshooting
+    # if verbose:
+    #     print(f'cutadapt command: {cutadapt_cmd}\n')
+    #     print(f'WARNING. Currently, the max proportion of untrimmed reads cannot be analyzed '
+    #           f'with verbose set to True. To have the max proportion check, turn verbose to False.\n')
+    # else:
+    #     # quantify proportion untrimmed; only works if not verbose
+    #     with open((trim_parent / f'cutadapt_{run_name}.out'), 'rt') as fin:
+    #
+    #         # counters to add values from the summary file to, for running totals per sample
+    #         total_reads_in = 0
+    #         total_reads_out = 0
+    #         total_warnings = 0
+    #
+    #         # read in the lines from the text file, only keeping information for data rows, not headers
+    #         for line in fin.readlines():
+    #             if re.search(r'^OK', line, re.I) or re.search(r'^WARN', line, re.I):
+    #                 # create a list of all the summary info for this sample
+    #                 cutadapt_sample_info = line.split('\t')
+    #
+    #                 # per cutadapt documentation for minimal summary, in_reads is 2nd column (index 1)
+    #                 total_reads_in += int(cutadapt_sample_info[1])
+    #                 # out_reads is 7th column (index 6)
+    #                 total_reads_out += int(cutadapt_sample_info[6])
+    #
+    #                 # also create a warning file if any of these lines had the WARN status in 1st column (index 0)
+    #                 if re.search(r'^WARN', line, re.I):
+    #                     total_warnings += 1
+    #
+    #         # write out the number of warnings, if any (can't get the related sample though...)
+    #         if total_warnings > 0:
+    #             with open((trim_parent / f'cutadapt_warnings_{run_name}.txt'), 'wt') as fout:
+    #                 fout.write(f'Number of samples with WARNING status from cutadapt: {total_warnings}')
+    #
+    #         # calculate the percent of reads lost across all samples in this bioinformatics run
+    #         total_percent_lost = ((total_reads_in - total_reads_out) / total_reads_in) * 100
+    #
+    #         if total_percent_lost > max_untrimmed:
+    #             msg = (f'ERROR. After primer trimming, {total_percent_lost:.2f}% of the input reads were lost, '
+    #                    f'which is above the user-defined maximum allowable threshold of {max_untrimmed}%.\n')
+    #             exit_process(message=msg)
+    #         else:
+    #             print(f'SUCCESS. {total_percent_lost:.2f}% of input reads were lost to primer trimming. This is below '
+    #                   f'the user-provided maximum allowable threshold of {max_untrimmed}%, so proceeding to '
+    #                   f'next step...\n')
 
     return trim_path
 
@@ -1208,7 +1303,7 @@ def merge_reads(input_files, reference_dir):
     else:
         return input_files
 
-def dereplicate(input_files, derep_step, platform, reference_dir, output_path=None):
+def dereplicate(input_files, output_dir, min_count, derep_step, platform, reference_dir):
 
     # create the file prefix name based on whether it is full-length (1) or region-specific (2) dereplication
     derep_prefix = DEREP_PREFIX + '0' + str(derep_step)
@@ -1221,21 +1316,17 @@ def dereplicate(input_files, derep_step, platform, reference_dir, output_path=No
     # read in settings from the configuration file
     settings = get_settings(reference_dir)
     run_name = settings['run_details']['run_name']
-    # min_unique = settings['dereplicate'][platform]['min_count'][f'derep0{derep_step}']
-    # premerged = settings['quality_filtering']['illumina']['merge_reads']
-    min_unique = settings['dereplicate']['min_count'][derep_prefix][platform]
 
     # create main file paths for dereplicated read output
 
-    # if no alternative output path is provided, use the default
-    if output_path is None:
-        # main directory for dereplication output
-        derep_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output'][out_tag])
-    else:
-        derep_parent = mkdir_exist_ok(new_dir=output_path)
+    # main output directory, provided as the output directory in the pipeline/ script
+    derep_parent = mkdir_exist_ok(new_dir=output_dir)
 
     # subfolder within the main directory for this specific bioinformatics run
-    derep_path = mkdir_exist_ok(new_dir=f'./{derep_prefix}_{run_name}', parent_dir=derep_parent)
+    derep_path = mkdir_exist_ok(
+        new_dir=f'./{out_tag}_{run_name}',
+        parent_dir=derep_parent,
+    )
 
     # for illumina sequences, if reads were not merged, then dereplicate only the forward sequence files (R1 suffix)
     if (platform == 'illumina') or (platform == 'its1') or (platform == '18s'):
@@ -1269,36 +1360,68 @@ def dereplicate(input_files, derep_step, platform, reference_dir, output_path=No
             subregion_files = [f for f in file.glob('*') if re.search(subregion_suffix_re, f.name, re.I)]
 
             # create a main output derep directory for this sample
-            derep_output = add_prefix(file_path=file, prefix=derep_prefix, dest_dir=derep_path, action='mkdir')
+            derep_output = add_prefix(
+                file_path=file,
+                prefix=derep_prefix,
+                dest_dir=derep_path,
+                action='mkdir',
+            )
 
             # go through the list of region / subregion files for this sample and dereplicate
             for region_seqs in subregion_files:
 
                 # create a path for the region / subregion derep sequences within the main sample output dir
-                derep_region_output = add_prefix(file_path=region_seqs, prefix=derep_prefix,
-                                                 dest_dir=derep_output, action=None)
+                derep_region_output = add_prefix(
+                    file_path=region_seqs,
+                    prefix=derep_prefix,
+                    dest_dir=derep_output,
+                    action=None,
+                )
 
                 # compile the vsearch dereplication command for this region's post-itsx sequence file
-                vsearch_derep_cmd = ['vsearch', '--derep_fulllength', region_seqs,
-                                     '--output', derep_region_output, '--minuniquesize', str(min_unique),
-                                     '--sizeout']
+                vsearch_derep_cmd = [
+                    'vsearch',
+                    '--derep_fulllength', region_seqs,
+                    '--output', derep_region_output,
+                    '--minuniquesize', str(min_count),
+                    '--sizeout',
+                ]
 
-                run_subprocess(vsearch_derep_cmd, dest_dir=derep_parent, run_name=run_name,
-                               auto_respond=settings['automate']['auto_respond'])
+                run_subprocess(
+                    vsearch_derep_cmd,
+                    dest_dir=derep_parent,
+                    run_name=run_name,
+                    program=f'vsearch-derep{derep_prefix}',
+                    auto_respond=settings['automate']['auto_respond'],
+                )
 
         # derep01 in all cases will (should) be a list of sequence files, not directories
         else:
 
             # derep always outputs a fasta format, but need to provide file name as fasta format or will appear as fastq
             #   even though it isn't really fastq when you open it up
-            derep_output = add_prefix(file_path=file, prefix=derep_prefix, dest_dir=derep_path, action=None).with_suffix('.fasta')
+            derep_output = add_prefix(
+                file_path=file,
+                prefix=derep_prefix,
+                dest_dir=derep_path,
+                action=None,
+            ).with_suffix('.fasta')
 
-            vsearch_derep_cmd = ['vsearch', '--derep_fulllength', file,
-                                 '--output', derep_output,'--minuniquesize', str(min_unique),
-                                 '--sizeout']
+            vsearch_derep_cmd = [
+                'vsearch',
+                '--derep_fulllength', file,
+                '--output', derep_output,
+                '--minuniquesize', str(min_count),
+                '--sizeout',
+            ]
 
-            run_subprocess(vsearch_derep_cmd, dest_dir=derep_parent, run_name=run_name,
-                           auto_respond=settings['automate']['auto_respond'])
+            run_subprocess(
+                vsearch_derep_cmd,
+                dest_dir=derep_parent,
+                run_name=run_name,
+                program=f'vsearch-derep{derep_prefix}',
+                auto_respond=settings['automate']['auto_respond'],
+            )
 
     return None
 
