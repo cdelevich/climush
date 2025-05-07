@@ -1193,8 +1193,6 @@ def check_for_input(file_dir, config_dict, path_must_exist=True, file_identifier
 
 # get name of previous script
 
-# compress a fastq file to .fastq.gzip format
-# DOES NOT WORK, WILL NOT COMPRESS A .FASTQ FORMAT BECAUSE IT CAN'T DETECT BYTES
 def compress_data(input_path, output_path=None, compress_fmt='gzip', keep_input=False):
     '''
     Compress or decompress .zip or .gz files.
@@ -2467,7 +2465,14 @@ def create_file_list(file_input, file_regex=[SEQ_FILE_RE, GZIP_REGEX]):
 
     # if the input is a Path object, create a (filtered) list of its contents
     if is_pathclass(file_input, exit_if_false=False):
-        output_file_list = [file for file in file_input.glob('*') if re.search(file_filter_regex, file.name, re.I)]
+
+        # if the input file is a single file, just create a list with one item
+        if file_input.is_file():
+            return [file_input]
+
+        # if the input is a directory, create a list of its contents that match the input regex
+        else:
+            output_file_list = [file for file in file_input.glob('*') if re.search(file_filter_regex, file.name, re.I)]
 
     # if the input is not a Path object but a list, ensure it is filtered and return its contents
     else:
