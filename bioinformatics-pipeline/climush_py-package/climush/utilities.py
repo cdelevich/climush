@@ -1216,8 +1216,13 @@ def compress_data(input_path, output_path=None, compress_fmt='gzip', keep_input=
     # if an output path was not provided...
     if output_path is None:
 
-        # use the input path as the output path
-        output_path = input_path
+        # if the input path is to a file, use the parent directory as the output directory
+        if input_path.is_file():
+            output_path = input_path.parent
+
+        # if the input path is a directory, use the input path as the output path
+        else:
+            output_path = input_path
 
     # if any input path was provided...
     else:
