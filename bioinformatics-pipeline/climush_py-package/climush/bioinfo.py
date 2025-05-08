@@ -988,7 +988,7 @@ def confirm_no_primers(input_files, reference_dir, platform):
 
     return None
 
-def remove_primers(input_files, output_dir, reference_dir, platform, keep_log, keep_removed_seqs):
+def remove_primers(input_files, output_dir, reference_dir, platform, paired_end, keep_removed_seqs, max_error=None, max_untrimmed=None, linked_adapters=None, require_adapters=None, keep_log=True):
 
     ## IMPORT CONFIGURATION SETTINGS ##########################################
 
@@ -1009,32 +1009,15 @@ def remove_primers(input_files, output_dir, reference_dir, platform, keep_log, k
         parent_dir=trim_parent,
     )
 
-    # access cutadapt settings from the configuration
-    cutadapt_settings = settings['remove_primers']
-    fwd_max_err = cutadapt_settings['max_error_rate']['fwd']
-    rev_max_err = cutadapt_settings['max_error_rate']['rev']
-    if fwd_max_err == rev_max_err:
-        max_error = fwd_max_err
-    max_untrimmed = cutadapt_settings['max_untrimmed']
+    ## PRIMER SEQUENCES #######################################################
 
     # get the forward and reverse primers
     primer_dict = identify_primers(platform, config_dict=settings)
     fwd_primer = primer_dict['fwd']
     rev_primer = primer_dict['rev']
-    fwd_revcomp_primer = primer_dict['fwd_rc']
-    rev_revcomp_primer = primer_dict['rev_rc']
 
 
-    notrim_path = mkdir_exist_ok(
-        new_dir=f'./{flip_prefix(TRIMMED_PREFIX)}_{run_name}',
-        parent_dir=trim_parent,
-    )
-
-    # if verbose, then print full report
-    if verbose:  # best for troubleshooting
-        report = 'full'
-    else:  # best for large runs
-        report = 'minimal'
+    ## PAIRED-END PRIMER TRIMMING #############################################
 
     # compose and execute the command line command to run cutadapt for paired-end reads
     if paired_end:
@@ -1044,42 +1027,93 @@ def remove_primers(input_files, output_dir, reference_dir, platform, keep_log, k
 
         for fwd_seqs_in, rev_seqs_in in paired_dict.items():
 
-            # forward (R1) read: create an output path for the primer-trimmed sequences
+            # forward (R1) read: create an output path for the primer-trimmed sequences from this sample
             fwd_seqs_out = add_prefix(
                 file_path=fwd_seqs_in,
                 prefix=TRIMMED_PREFIX,
                 dest_dir=trim_path,
                 action=None,
+                f_delim=settings['formatting']['filename_delim'],
+                output_compressed=True,
+                replace_prefix=True,
             )
 
-            # reverse (R2) read: create an output path for the primer-trimmed sequences
+            # reverse (R2) read: create an output path for the primer-trimmed sequences from this sample
             rev_seqs_out = add_prefix(
                 file_path=rev_seqs_in,
                 prefix=TRIMMED_PREFIX,
                 dest_dir=trim_path,
                 action=None,
+                f_delim=settings['formatting']['filename_delim'],
+                output_compressed=True,
+                replace_prefix=True,
             )
-
+            # compose the standard cutadapt command to use, before incorporating additional options
             cutadapt_cmd = [
                 'cutadapt',
-                '-g', fwd_primer,                   # R1 5': forward primer
-                # '-a', rev_revcomp_primer,           # R1 3': reverse primer - reverse complement
-                '-g', rev_primer,                   # R1 5': reverse primer
-                # '-a', fwd_revcomp_primer,           # R1 3': forward primer - reverse complement
-                '-G', rev_primer,                   # R2 5': reverse primer
-                # '-A', fwd_revcomp_primer,           # R2 3': forward primer - reverse complement
-                '-G', fwd_primer,                   # R2 5': forward primer
-                # '-A', rev_revcomp_primer,           # R2 3': reverse primer - reverse complement
-                '--revcomp',                        # for each primer, search for its reverse complement as well
-                '-n', '2',
-                '-e', str(max_error),               # global maximum error rate
+                '-a', fwd_primer,                   # forward primer: search for fwd primer on 3' end of forward (R1) reads
+                '-A', rev_primer,                   # reverse primer: search for rev primer on 3' end of reverse (R2) reads
+                '--revcomp',                        # search each read's reverse complement as well
                 '--cores', str(0),                  # auto-detect the number of available CPUs to use
-                f'--report={report}',               # type of report that cutadapt will return
                 '--output', fwd_seqs_out,           # forward (R1) output sequence file
                 '--paired-output', rev_seqs_out,    # reverse (R2) output sequence file
                 fwd_seqs_in,                        # forward (R1) input sequence file
                 rev_seqs_in,                        # reverse (R2) input sequence file
             ]
+
+            # if the untrimmed / discarded reads are to be retained...
+            if keep_removed_seqs:
+
+                # make an output directory for all untrimmed / discarded reads
+                notrim_path = mkdir_exist_ok(
+                    new_dir=f'./{flip_prefix(TRIMMED_PREFIX)}_{run_name}',
+                    parent_dir=trim_parent,
+                )
+
+                # forward (R1) read: create an output path for the untrimmed / discarded reads from this sample
+                untrim_fwd_seqs_out = add_prefix(
+                    file_path=fwd_seqs_in,
+                    prefix=flip_prefix(TRIMMED_PREFIX),
+                    dest_dir=notrim_path,
+                    action=None,
+                    f_delim=settings['formatting']['filename_delim'],
+                    output_compressed=True,
+                    replace_prefix=True,
+                )
+
+                # reverse (R2) read: create an output path for the untrimmed / discarded reads from this sample
+                untrim_rev_seqs_out = add_prefix(
+                    file_path=rev_seqs_in,
+                    prefix=flip_prefix(TRIMMED_PREFIX),
+                    dest_dir=notrim_path,
+                    action=None,
+                    f_delim=settings['formatting']['filename_delim'],
+                    output_compressed=True,
+                    replace_prefix=True,
+                )
+
+                # add the cutadapt option and output file paths to the standard cutadapt command
+                append_subprocess(
+                    cli_command_list=cutadapt_cmd,
+                    options_to_add=[
+                        '--untrimmed-output', untrim_fwd_seqs_out,          # untrimmed forward (R1) reads
+                        '--untrimmed-paired-output', untrim_rev_seqs_out,   # untrimmed reverse (R2) reads
+                    ],
+                    position=-1,
+                    return_copy=False,
+                )
+
+            # if the discarded / untrimmed reads are to be removed completely...
+            else:
+
+                # you need to specify that they are not wanted, or else will be written to the trimmed output too
+                append_subprocess(
+                    cli_command_list=cutadapt_cmd,
+                    options_to_add=['--discard-untrimmed'],
+                    position=-1,
+                    return_copy=False,
+                )
+
 
             run_subprocess(
                 cutadapt_cmd,
@@ -1089,36 +1123,76 @@ def remove_primers(input_files, output_dir, reference_dir, platform, keep_log, k
                 auto_respond=settings['automate']['auto_respond'],
             )
 
+    ## SINGLE READ PRIMER TRIMMING ############################################
+
     # compose and execute the command line command to run cutadapt for single-end reads
     else:
 
-        for file in input_files:
+        # for unpaired sequences, process one sequence file at a time
+        for seqs_in in input_files:
 
-            trim_out = add_prefix(file_path=file, prefix=TRIMMED_PREFIX, dest_dir=trim_path, action=None)
+            # create an output path for the primer-trimmed sequences
+            seqs_out = add_prefix(
+                file_path=seqs_in,
+                prefix=TRIMMED_PREFIX,
+                dest_dir=trim_path,
+                action=None,
+                f_delim=settings['formatting']['filename_delim'],
+                output_compressed=True,
+                replace_prefix=True,
+            )
 
+            # compose the standard cutadapt command to use, before incorporating additional options
             cutadapt_cmd = [
-                'cutadapt',
-                f'--report={report}',
+                'cutadapt',                                         # call cutadapt
                 '-a', f'^{fwd_primer}...{rev_revcomp_primer}$',     # search 5' end for anchored, linked primers
                 '-a', f'^{rev_primer}...{fwd_revcomp_primer}$',     # search 3' end for anchored, linked primers
+                '--revcomp',                                        # search the reverse complement of each read as well
                 '-n', '2',                                          # do two passes over each read
                 '-e', str(max_err),                                 # maximum expected error
                 '--cores', str(0),                                  # auto-detect the number of available CPUs to use
-                untrim_cmd,
-                '-o', trim_out,
-                file,
+                '-o', seqs_out,                                     # output file path
+                seqs_in,                                            # input file path
             ]
 
-            if cutadapt_settings['keep_untrimmed']:
-                notrim_out = add_prefix(
-                    file_path=file,
+            # if the untrimmed / discarded reads are to be retained...
+            if keep_removed_seqs:
+
+                # make an output directory for all untrimmed / discarded reads
+                notrim_path = mkdir_exist_ok(
+                    new_dir=f'./{flip_prefix(TRIMMED_PREFIX)}_{run_name}',
+                    parent_dir=trim_parent,
+                )
+
+                # create an output path for the untrimmed / discarded reads from this sample
+                untrim_seqs_out = add_prefix(
+                    file_path=seqs_in,
                     prefix=flip_prefix(TRIMMED_PREFIX),
                     dest_dir=notrim_path,
                     action=None,
+                    f_delim=settings['formatting']['filename_delim'],
+                    output_compressed=True,
+                    replace_prefix=True,
                 )
-                untrim_cmd = f'--untrimmed-output={notrim_out}'
+
+                # add the cutadapt option and output file paths to the standard cutadapt command
+                append_subprocess(
+                    cli_command_list=cutadapt_cmd,
+                    options_to_add=['--untrimmed-output', untrim_seqs_out],
+                    position=-1,
+                    return_copy=False,
+                )
+
+            # if the discarded / untrimmed reads are to be removed completely...
             else:
-                untrim_cmd = ''
+
+                # you need to specify that they are not wanted, or else will be written to the trimmed output too
+                append_subprocess(
+                    cli_command_list=cutadapt_cmd,
+                    options_to_add=['--discard-untrimmed'],
+                    position=-1,
+                    return_copy=False,
+                )
 
 
             # create or append to cutadapt stderr/stdout, all output goes to one file (not one per sample)
@@ -1129,52 +1203,6 @@ def remove_primers(input_files, output_dir, reference_dir, platform, keep_log, k
                 run_name=run_name,
                 auto_respond=settings['automate']['auto_respond'],
             )
-
-    # # also helpful to see the command that is run during troubleshooting
-    # if verbose:
-    #     print(f'cutadapt command: {cutadapt_cmd}\n')
-    #     print(f'WARNING. Currently, the max proportion of untrimmed reads cannot be analyzed '
-    #           f'with verbose set to True. To have the max proportion check, turn verbose to False.\n')
-    # else:
-    #     # quantify proportion untrimmed; only works if not verbose
-    #     with open((trim_parent / f'cutadapt_{run_name}.out'), 'rt') as fin:
-    #
-    #         # counters to add values from the summary file to, for running totals per sample
-    #         total_reads_in = 0
-    #         total_reads_out = 0
-    #         total_warnings = 0
-    #
-    #         # read in the lines from the text file, only keeping information for data rows, not headers
-    #         for line in fin.readlines():
-    #             if re.search(r'^OK', line, re.I) or re.search(r'^WARN', line, re.I):
-    #                 # create a list of all the summary info for this sample
-    #                 cutadapt_sample_info = line.split('\t')
-    #
-    #                 # per cutadapt documentation for minimal summary, in_reads is 2nd column (index 1)
-    #                 total_reads_in += int(cutadapt_sample_info[1])
-    #                 # out_reads is 7th column (index 6)
-    #                 total_reads_out += int(cutadapt_sample_info[6])
-    #
-    #                 # also create a warning file if any of these lines had the WARN status in 1st column (index 0)
-    #                 if re.search(r'^WARN', line, re.I):
-    #                     total_warnings += 1
-    #
-    #         # write out the number of warnings, if any (can't get the related sample though...)
-    #         if total_warnings > 0:
-    #             with open((trim_parent / f'cutadapt_warnings_{run_name}.txt'), 'wt') as fout:
-    #                 fout.write(f'Number of samples with WARNING status from cutadapt: {total_warnings}')
-    #
-    #         # calculate the percent of reads lost across all samples in this bioinformatics run
-    #         total_percent_lost = ((total_reads_in - total_reads_out) / total_reads_in) * 100
-    #
-    #         if total_percent_lost > max_untrimmed:
-    #             msg = (f'ERROR. After primer trimming, {total_percent_lost:.2f}% of the input reads were lost, '
-    #                    f'which is above the user-defined maximum allowable threshold of {max_untrimmed}%.\n')
-    #             exit_process(message=msg)
-    #         else:
-    #             print(f'SUCCESS. {total_percent_lost:.2f}% of input reads were lost to primer trimming. This is below '
-    #                   f'the user-provided maximum allowable threshold of {max_untrimmed}%, so proceeding to '
-    #                   f'next step...\n')
 
     return trim_path
 
