@@ -1,62 +1,133 @@
-'''
-FIX IDENTIFICATION OF INPUT READS
-'''
+import argparse, pathlib
+from pathlib import Path
+from climush.bioinfo import remove_primers, confirm_no_primers
+from climush.utilities import get_settings, check_for_input, continue_to_next
 
-from mapping import filepath_map as fpm
+## IMPORT PIPELINE CONFIGURATION #######################################################################################
 
-import argparse, sys, pathlib
-from climush.constants import *
-from climush.bioinfo import identify_primers, remove_primers, confirm_no_primers
-from climush.utilities import *
+# create a reference directory path for file-finding functions
+ref_dir=Path(__file__).parent
 
-settings = get_settings(fpm)
-run_name = settings['run_details']['run_name']
+# import the settings for the bioinformatics configuration
+settings = get_settings(ref_dir)
 
-parser = argparse.ArgumentParser(prog=Path(__file__).stem,
-                                 description='Remove primers using cutadapt.',
-                                 epilog='This script is part of the CliMush bioinformatics pipeline.')
+########################################################################################################################
 
-parser.add_argument('-i', '--input',
-                    default=fpm['pipeline-output']['prefiltered']['prefilt02_no-ambig'] / f'no-ambig_{run_name}',
-                    type=pathlib.PosixPath,
-                    help='The path to the sequencing files. Will default to the location that is '
-                         'expected with the Docker container\'s native file structure.')
+
+## COMMAND LINE ARGUMENTS ##############################################################################################
+
+## INSTANTIATE PARSER ##
+
+parser = argparse.ArgumentParser(
+    prog=Path(__file__).stem,
+    description='Remove primers using cutadapt.',
+    epilog='This script is part of the CliMush bioinformatics pipeline.',
+)
+
+## FILE PATHS ##
+
+# REQUIRED; input file path to the parent directory containing the sequence files to trim primers from
+parser.add_argument(
+    '-i', '--input',
+    required=True,
+    type=pathlib.PosixPath,
+    help='Path to the sequence files that require primer removal; path must be absolute.',
+)
+
+# REQUIRED; output file path to the directory that the trimmed sequence output should be written to
+parser.add_argument(
+    '-o', '--output',
+    required=True,
+    type=pathlib.PosixPath,
+    help='File path to the directory to which the trimmed sequence files and any other summary files '
+         'will be written.',
+)
+
+## ONLY CHECK FOR PRIMERS, NO TRIM ##
 
 # the action is what will occur if the flag is used
 # if check_only flag used, then it will be True; if not used, then False
-parser.add_argument('--check-only', action='store_true',
-                    help='Boolean (True/False). Whether to double check that the primers are removed from the sequences '
-                         'in their forward and reverse complement direction.')
+parser.add_argument(
+    '--check-only',
+    action='store_true',
+    help='Optional flag; if used, the sequences in the input file path will only be checked for the '
+         'presence of primers in the forward and reverse complement orientation in the sequences. No '
+         'primer trimming will occur.',
+)
+
+## STANDARD OUTPUT ##
 
 # if option provided, will print out all warnings
-parser.add_argument('--verbose',
-                    action='store_true',
-                    default=settings['automate']['verbose'],
-                    help='Whether to print out all errors and warnings in the terminal; if True, will print all '
-                         'errors and warnings; if False, will only print out fatal errors.')
+parser.add_argument(
+    '--verbose',
+    action='store_true',
+    default=settings['automate']['verbose'],
+    help='Optional flag; if used, all errors and warnings from cutadapt will be printed to the '
+         'standard output file or Terminal. If not used, then only fatal errors are shown.',
+)
+
+## PARSE OPTIONS INTO DICTIONARY ##
 
 args = vars(parser.parse_args())
+
+########################################################################################################################
+
 
 #####################
 # ILLUMINA ##########
 #####################
 platform = 'illumina'
 
-# check that there are Illumina reads to trim primers from
+# check if there are Illumina reads to trim primers from in the input directory
 is_input, illumina_files = check_for_input(
-    args['input'],
+    file_dir=args['input'],
     config_dict=settings,
-    file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+    file_identifier=platform,
 )
 
+# if illumina files are detected...
 if is_input:
+
+    # determine whether primers should be located and trimmed, or just located
+
+    # primers will just be located and reported on
     if args['check_only']:
-        print(f'Only checking for primers...')
-        confirm_no_primers(args['input'], file_map=fpm, platform=platform)
+
+        # warn that these settings mean that primers are only looked for in the sequences, not removed
+        print(f'Only checking whether primers are still present in the input sequences, without trimming primers...\n')
+
+        # only check if there are primers in the illumina sequences in the input path
+        # confirm_no_primers(
+        #     input_files=illumina_files,
+        #     reference_dir=ref_dir,
+        #     platform=platform,
+        # )
+
+    # primers will be located and trimmed from the sequences
     else:
-        print(f'Running cutadapt...\n')
-        trimmed_path = remove_primers(illumina_files, file_map=fpm, platform=platform, paired_end=True, verbose=args['verbose'])
-        confirm_no_primers(trimmed_path, file_map=fpm, platform=platform)
+
+        # notify that cutadapt is running to find and remove primers from the input illumina sequences
+        print(f'Running cutadapt to find and remove primers...\n')
+
+        # first run cutadapt to locate and remove primers from the input illumina sequences
+        illumina_trimmed_path = remove_primers(
+            input_files=illumina_files,
+            output_dir=args['output'],
+            reference_dir=ref_dir,
+            platform=platform,
+            paired_end=True,
+            keep_removed_seqs=True,
+        )
+
+        # then use the primer check function to confirm that all primers in forward and reverse complement orientation
+        #  are not detected in the trimmed sequence files produced in the previous cutadapt wrapper function
+        # confirm_no_primers(
+        #     input_files=illumina_trimmed_path,
+        #     reference_dir=ref_dir,
+        #     platform=platform,
+        # )
+
+# if no illumina files are detected, do nothing
 else:
     pass
 
@@ -65,15 +136,56 @@ else:
 #####################
 platform = 'pacbio'
 
-# check that there are PacBio reads to trim primers from
+# check if there are pacbio reads to trim primers from in the input directory
 is_input, pacbio_files = check_for_input(
-    args['input'],
+    file_dir=args['input'],
     config_dict=settings,
-    file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+    file_identifier=platform,
 )
 
+# if pacbio files are detected...
 if is_input:
-    remove_primers(input_files=pacbio_files, file_map=fpm, platform=platform, verbose=args['verbose'], paired_end=False)
+
+    # determine whether primers should be located and trimmed, or just located
+
+    # primers will just be located and reported on
+    if args['check_only']:
+
+        # warn that these settings mean that primers are only looked for in the sequences, not removed
+        print(f'Only checking whether primers are still present in the input sequences, without trimming primers...\n')
+
+        # only check if there are primers in the pacbio sequences in the input path
+        # confirm_no_primers(
+        #     input_files=pacbio_files,
+        #     reference_dir=ref_dir,
+        #     platform=platform,
+        # )
+
+    # primers will be located and trimmed from the sequences
+    else:
+
+        # notify that cutadapt is running to find and remove primers from the input pacbio sequences
+        print(f'Running cutadapt to find and remove primers...\n')
+
+        # first run cutadapt to locate and remove primers from the input pacbio sequences
+        pacbio_trimmed_path = remove_primers(
+            input_files=pacbio_files,
+            output_dir=args['output'],
+            reference_dir=ref_dir,
+            platform=platform,
+            paired_end=False,
+            keep_removed_seqs=True,
+        )
+
+        # then use the primer check function to confirm that all primers in forward and reverse complement orientation
+        #  are not detected in the trimmed sequence files produced in the previous cutadapt wrapper function
+        # confirm_no_primers(
+        #     input_files=pacbio_trimmed_path,
+        #     reference_dir=ref_dir,
+        #     platform=platform,
+        # )
+
+# if no pacbio files are detected, do nothing
 else:
     pass
 
@@ -82,17 +194,59 @@ else:
 #####################
 platform = 'sanger'
 
-# check if there are Sanger sequences to trim primers from
-# is_input, sanger_files = check_for_input(
-#     args['input'],
-#     config_dict=settings,
-#     file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
-# )
-#
-# if is_input:
-#     remove_primers(sanger_files, file_map=fpm, platform=platform)
-# else:
-#     pass
+# check if there are pacbio reads to trim primers from in the input directory
+is_input, sanger_files = check_for_input(
+    file_dir=args['input'],
+    config_dict=settings,
+    file_identifier=platform,
+)
+
+# if sanger files are detected...
+if is_input:
+
+    # determine whether primers should be located and trimmed, or just located
+
+    # primers will just be located and reported on
+    if args['check_only']:
+
+        # warn that these settings mean that primers are only looked for in the sequences, not removed
+        print(f'Only checking whether primers are still present in the input sequences, without trimming primers...\n')
+
+        # only check if there are primers in the sanger sequences in the input path
+        # confirm_no_primers(
+        #     input_files=sanger_files,
+        #     reference_dir=ref_dir,
+        #     platform=platform,
+        # )
+
+    # primers will be located and trimmed from the sequences
+    else:
+
+        # notify that cutadapt is running to find and remove primers from the input sanger sequences
+        print(f'Running cutadapt to find and remove primers...\n')
+
+        # first run cutadapt to locate and remove primers from the input sanger sequences
+        sanger_trimmed_path = remove_primers(
+            input_files=sanger_files,
+            output_dir=args['output'],
+            reference_dir=ref_dir,
+            platform=platform,
+            paired_end=False,
+            keep_removed_seqs=True,
+        )
+
+        # then use the primer check function to confirm that all primers in forward and reverse complement orientation
+        #  are not detected in the trimmed sequence files produced in the previous cutadapt wrapper function
+        # confirm_no_primers(
+        #     input_files=sanger_trimmed_path,
+        #     reference_dir=ref_dir,
+        #     platform=platform,
+        # )
+
+# if no sanger files are detected, do nothing
+else:
+    pass
+
 
 # when all are primers trimmed, continue to next
 continue_to_next(__file__, settings)
