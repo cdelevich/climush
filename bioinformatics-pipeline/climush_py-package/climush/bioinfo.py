@@ -1118,7 +1118,7 @@ def remove_primers(input_files, output_dir, reference_dir, platform, paired_end,
             run_subprocess(
                 cutadapt_cmd,
                 dest_dir=trim_parent,
-                separate_sample_output=False,
+                separate_sample_output=True,
                 run_name=run_name,
                 auto_respond=settings['automate']['auto_respond'],
             )
@@ -1199,7 +1199,7 @@ def remove_primers(input_files, output_dir, reference_dir, platform, paired_end,
             run_subprocess(
                 cutadapt_cmd,
                 dest_dir=trim_parent,
-                separate_sample_output=False,
+                separate_sample_output=True,
                 run_name=run_name,
                 auto_respond=settings['automate']['auto_respond'],
             )
