@@ -1396,79 +1396,248 @@ def merge_reads(input_files, output_dir, reference_dir, compress_output, keep_re
         # return just the original list of files
         return merged_output_files
 
-def quality_filter(input_files, platform, reference_dir):
+def quality_filter(input_files, output_dir, platform, reference_dir, max_qscore, min_qscore, min_len, max_len, max_error, merge, keep_removed_seqs, keep_log, compress_output):
 
-    # get filtering settings from the configuration file
+
+    ## LOAD SETTINGS ##
+
+    # load in the configuration settings
     settings = get_settings(reference_dir)
     run_name = settings['run_details']['run_name']
-    qfilt_dict = settings['quality_filtering'][platform]
-    min_len = qfilt_dict['min_len']
-    max_len = qfilt_dict['max_len']
 
-    # if these are Illumina reads, get the max expected error to use
+
+    ## CREATE OUTPUT FILE PATHS ##
+
+    # create a directory to send all quality filtered output files and directories to
+    qfilt_parent = mkdir_exist_ok(
+        new_dir=output_dir,
+    )
+
+    # create a parent directory to sort reads into that pass quality filtering
+    qfilt_path = mkdir_exist_ok(
+        new_dir=f'./{QUALFILT_PREFIX}_{run_name}',
+        parent_dir=qfilt_parent,
+    )
+
+
+    ## CREATE LIST OF INPUT FILES FROM PAIRED-END READS ##
+
     if platform == 'illumina':
-        max_error = qfilt_dict['max_error']
-    else:
-        max_error = ''
 
-    # create a path to the parent directory for quality filtered output
-    qfilt_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['quality-filtered'])
+        # pair togetherthe R1/R2 input files for each sample from the input files
+        paired_dict = pair_reads(input_files)
 
-    # make sudirectories for the results of quality filtering
-    qfilt_path = mkdir_exist_ok(new_dir=f'./{QUALFILT_PREFIX}_{run_name}', parent_dir=qfilt_parent)
-    nofilt_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(QUALFILT_PREFIX)}_{run_name}', parent_dir=qfilt_parent)
+        ## MERGE PAIRED-END READS ##
 
-    # attempt to pair together R1/R2 reads from the input files
-    paired_dict = pair_reads(input_files)
+        if merge:
 
-    # go through each input file, from the paired_dict file dictionary
-    for fwd_path, rev_path in paired_dict.items():
+            # use the merge_reads() function to first merge forward (R1) and reverse (R2) input sequences
+            qfilt_seqs_in = merge_reads(
+                input_files=paired_dict,
+                output_dir=qfilt_parent,
+                reference_dir=reference_dir,
+                compress_output=compress_output,
+                keep_removed_seqs=keep_removed_seqs,
+                keep_log=keep_log,
+            )
 
-        # if the 'fwd' (R1) read file doesn't also have an associated reverse (R2) read file, then...
-        if rev_path == '':
+        ## QUALITY FILTER ONLY FORWARD READS ##
 
-            # ...process this sequence sample file as non-paired
-
-            # create a output file path for the quality filtered and non-quality filtered reads
-            qfilt_out = add_prefix(file_path=fwd_path, prefix=QUALFILT_PREFIX,
-                                   dest_dir=qfilt_path, action=None)
-            nofilt_out = add_prefix(file_path=fwd_path, prefix=flip_prefix(QUALFILT_PREFIX),
-                                    dest_dir=nofilt_path, action=None)
-
-            vsearch_filt_cmd = ['vsearch', '--fastq_filter', fwd_path,
-                                '--fastqout', qfilt_out,
-                                '--fastqout_discarded', nofilt_out,
-                                '-fastq_maxee', str(max_error), '--fastq_maxlen', str(max_len),
-                                '--fastq_minlen', str(min_len), '--sizeout']
-
-            run_subprocess(vsearch_filt_cmd, dest_dir=qfilt_parent, run_name=run_name,
-                           auto_respond=settings['automate']['auto_respond'])
-
-        # if the 'fwd' (R1) read file has an associated reverse (R2) read file, then process as paired-end reads
+        # if these paired-end illumina sequence files are not going to be merged...
         else:
 
-            # create output file paths for the quality filtered and not quality filtered reads for R1 (fwd) files
-            qfilt_fwd_out = add_prefix(file_path=fwd_path, prefix=QUALFILT_PREFIX,
-                                       dest_dir=qfilt_path, action=None)
-            nofilt_fwd_out = add_prefix(file_path=rev_path, prefix=flip_prefix(QUALFILT_PREFIX),
-                                        dest_dir=nofilt_path, action=None)
+            # create a list of input sequence files to process that are only the forward reads
+            qfilt_seqs_in = list(paired_dict.keys())
 
-            # create output file paths for the quality filtered and not quality filtered reads for R2 (rev) files
-            qfilt_rev_out = add_prefix(file_path=rev_path, prefix=QUALFILT_PREFIX,
-                                       dest_dir=qfilt_path, action=None)
-            nofilt_rev_out = add_prefix(file_path=rev_path, prefix=flip_prefix(QUALFILT_PREFIX),
-                                        dest_dir=nofilt_path, action=None)
 
-            vsearch_filt_cmd = ['vsearch', '--fastq_filter', fwd_path, '--reverse', rev_path,
-                                '--fastqout', qfilt_fwd_out, '--fastqout_rev', qfilt_rev_out,
-                                '--fastqout_discarded', nofilt_fwd_out, '--fastqout_discarded_rev', nofilt_rev_out,
-                                '-fastq_maxee', str(max_error), '--fastq_maxlen', str(max_len),
-                                '--fastq_minlen', str(min_len), '--sizeout']
+    ## CREATE LIST OF INPUT FILES FROM SINGLE-END READS ##
 
-            run_subprocess(vsearch_filt_cmd, dest_dir=qfilt_parent, run_name=run_name,
-                           auto_respond=settings['automate']['auto_respond'])
+    # if the platform isn't illumina, then it is sanger or pacbio, both of which are single-end reads
+    else:
 
-    return qfilt_path
+        # just rename the input file list so that it matches the name used for illumina sequences after pre-processing
+        qfilt_seqs_in = input_files
+
+
+    ## QUALITY FILTER INPUT FILES ##
+
+    # keep track of how many input files were .fasta formatted and couldn't be filtered beyond lengths
+    input_is_fasta = 0
+
+    # add all output files paths to a dictionary of output file paths, sorted by quality filtered or unfiltered (if any)
+    output_files = {dest:[] for dest in ['quality_filtered', 'unfiltered']}
+
+    # iterate through each file in the input file list
+    for seq_in in qfilt_seqs_in:
+
+        ## CREATE OUTPUT FILE PATH ##
+
+        # determine the file format of the input sequence files; pull just the difference
+        #    between .fasta and .fastq (i.e., the a or q from the string)
+        input_filefmt = seq_in.suffixes[0][-1]
+
+        # create an output file path for the quality-filtered version of this input file
+        seq_out = add_prefix(
+            file_path=seq_in,
+            prefix=QUALFILT_PREFIX,
+            dest_dir=qfilt_path,
+            action=None,
+            f_delim=settings['formatting']['filename_delim'],
+            output_compressed=False,
+            replace_prefix=True,
+        )
+
+        # add this output file path to the output file dictionary in the quality filtered list of files
+        output_files['quality_filtered'].append(seq_out)
+
+        ## ASSEMBLE STANDARD VSEARCH COMMAND ##
+
+        # assemble a standard vsearch --fastx_filter command without any additional options from params
+        # only add options that are available for both .fastq and .fasta input files
+        vsearch_qfilt_cmd = [
+            'vsearch',                                      # call on vsearch
+            '--fastx_filter', seq_in,                       # where to read the unfiltered input sequeces from
+            f'--fast{input_filefmt}out', seq_out,           # where to write the filtered output sequences to
+            f'--fast{input_filefmt}_maxlen', str(max_len),  # filter out any input reads above this length (bp)
+            f'--fast{input_filefmt}_minlen', str(min_len),  # filter out any input reads below this length (bp)
+        ]
+
+        ## ADD ADDITIONAL VSEARCH OPTIONS IF QUALITY SCORES PRESENT ##
+
+        # add any vsearch options available only if input files are .fastq files
+        if input_filefmt == 'q':
+
+            # .fastq options to append to the standard vsearch filtering command
+            vsearch_qfilt_fastq_opts = [
+                '--fastq_qmax', str(max_qscore),  # filter out any input sequences above this quality score
+                '--fastq_qmin', str(min_qscore),  # filter out any input sequences below this quality score
+                '--fastq_maxee', str(max_error),    # filter out any input sequences with maximum expected errors above this value
+            ]
+
+            # append the additional .fastq options to the standard vsearch filtering command
+            append_subprocess(
+                cli_command_list=vsearch_qfilt_cmd,
+                options_to_add=vsearch_qfilt_fastq_opts,
+                position=-1,
+                return_copy=False,
+            )
+
+
+        # if the input file is a .fasta file, add to a counter keeping track of how many input files lacked quality score info
+        #   and therefore could not be filtered beyond read length
+        else:
+            input_is_fasta += 1
+
+        ## KEEP UNFILTERED READS ##
+
+        if keep_removed_seqs:
+
+            # create an output directory for sample sequence files for reads that don't pass the quality filter
+            unfilt_path = mkdir_exist_ok(
+                new_dir=f'./{flip_prefix(QUALFILT_PREFIX)}_{run_name}',
+                parent_dir=qfilt_parent,
+            )
+
+            # create an output sequence file path for this sample's unfiltered reads
+            seq_unfilt_out = add_prefix(
+                file_path=seq_in,
+                prefix=flip_prefix(QUALFILT_PREFIX),
+                dest_dir=unfilt_path,
+                action=None,
+                f_delim=settings['formatting']['filename_delim'],
+                output_compressed=False,
+                replace_prefix=True,
+            )
+
+            # add this output file path to the output file dictionary in the unfiltered list of files
+            output_files['unfiltered'].append(seq_unfilt_out)
+
+            # add the option to write the discarded reads that don't pass the quality filtering steps to a file
+            append_subprocess(
+                cli_command_list=vsearch_qfilt_cmd,
+                options_to_add=[f'--fast{input_filefmt}out_discarded', seq_unfilt_out],
+                position=3,
+                return_copy=False
+            )
+
+        ## DISCARD UNFILTERED READS ##
+
+        else:
+            pass
+
+        ## EXECUTE FINAL VSEARCH QUALITY FILTER COMMAND FOR THIS SAMPLE ##
+
+        run_subprocess(
+            cli_command_list=vsearch_qfilt_cmd,
+            dest_dir=qfilt_parent,
+            run_name=run_name,
+            program='vsearch-qualfilt',
+            separate_sample_output=True,
+            auto_respond=settings['automate']['auto_respond'],
+        )
+
+    ## REPORT NUMBER OF INPUT .FASTA FILES ##
+
+    # if any of the input files were .fasta files...
+    if input_is_fasta > 0:
+
+        # issue a warning regarding the filtering of input files
+        warnings.warn(
+            f'{input_is_fasta} input files in the file path:\n'
+            f'   {input_files[0].parent}\n'
+            f'are .fasta files. Due to the lack of quality score information, these input files'
+            f'could only be filtered based on the maximum and minimum sequence length parameters.\n'
+        )
+
+    # otherwise, issue no print
+    else:
+        pass
+
+    ## COMPRESS VSEARCH OUTPUT TO GZIP FORMAT ##
+
+    if compress_output:
+
+        # compress the filtered output files
+        seq_filt_compressed = compress_data(
+            input_path=qfilt_path,
+            output_path=None,
+            compress_fmt='gzip',
+            keep_input=False,
+        )
+
+        # if unfiltered sequence files were also created...
+        if keep_removed_seqs:
+
+            # compress the unfiltered output files
+            seq_unfilt_compressed = compress_data(
+                input_path=unfilt_path,
+                output_path=None,
+                compress_fmt='gzip',
+                keep_input=False,
+            )
+
+        # otherwise, create an empty list for an unfiltered sequence file placeholder
+        else:
+            seq_unfilt_compressed = []
+
+        # create a new output file dictionary with these compressed file paths
+        output_files_compressed = {
+            f_type:f_list for f_type, f_list in zip(
+                ['quality_filtered', 'unfiltered'],
+                [seq_filt_compressed, seq_unfilt_compressed]
+            )
+        }
+
+        return output_files_compressed
+
+    ## DO NOT COMPRESS VSEARCH OUTPUT TO GZIP FORMAT ##
+
+    # do not compress any output files, leave a .fastq / .fasta
+    else:
+        pass
+
+    # return a dictionary of the output file paths (filtered and unfiltered separated)
+    return output_files
 
 def dereplicate(input_files, output_dir, min_count, derep_step, platform, reference_dir):
 
