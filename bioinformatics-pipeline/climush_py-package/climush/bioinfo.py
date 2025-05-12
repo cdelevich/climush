@@ -1,4 +1,4 @@
-import json, re, os
+import json, re, os, warnings
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
 from Bio.Seq import Seq
@@ -1206,6 +1206,196 @@ def remove_primers(input_files, output_dir, reference_dir, platform, paired_end,
 
     return trim_path
 
+def merge_reads(input_files, output_dir, reference_dir, compress_output, keep_removed_seqs, keep_log):
+
+    ## LOAD SETTINGS ##
+
+    # load in the configuration settings
+    settings = get_settings(reference_dir)
+    run_name = settings['run_details']['run_name']
+
+    ## CREATE OUTPUT FILE PATHS ##
+
+    # create a directory to send all quality filtered output files and directories to
+    merged_parent = mkdir_exist_ok(
+        new_dir=output_dir,
+    )
+
+    # create a parent directory to sort reads into that pass quality filtering
+    merged_path = mkdir_exist_ok(
+        new_dir=f'./{MERGED_PREFIX}_{run_name}',
+        parent_dir=merged_parent,
+    )
+
+    ## PAIR INPUT FILES ##
+
+    # if the input files is already a paired dictionary
+    if isinstance(input_files, dict):
+
+        # rename the variable to paired_dict
+        paired_dict = input_files
+
+    # if the input files are not paired by forward (R1) and reverse (R2) reads...
+    else:
+
+        # use the paired_reads() function to pair the forward and reverse reads sequence file
+        paired_dict = pair_reads(input_files)
+
+    ## COMPILE MERGED SEQUENCE FILE PATHS ##
+
+    # create an empty list to add merged output sequence file paths to
+    merged_output_files = []
+
+    ## MERGE PAIRED-END SEQUENCES ##
+
+    # for each pair of forward (R1) and reverse (R2) reads
+    for input_fwd, input_rev in paired_dict.items():
+
+        ## CREATE OUTPUT MERGED FILE ##
+
+        # get the basename of the input file (i.e., without R1 / R2 tag)
+        input_basename = input_fwd.parent / re.sub(r'(?<=\d{2})_(R1|R2)(?=\.)', r'', input_fwd.name)
+
+        # create an output file for this sample's merged reads
+        output_merged = add_prefix(
+            file_path=input_basename,
+            prefix=MERGED_PREFIX,
+            dest_dir=merged_path,
+            action=None,
+            f_delim=settings['formatting']['filename_delim'],
+            output_compressed=False,
+            replace_prefix=True,
+        )
+
+        # add the output file path to the list of output file paths for all samples
+        merged_output_files.append(output_merged)
+
+        ## BASIC VSEARCH MERGE COMMAND ##
+
+        # assemble to basic vsearch merging command list
+        vsearch_merge_cmd = [
+            'vsearch',                          # call the vsearch program
+            '--fastq_mergepairs', input_fwd,    # the input forward (R1) read sequence file
+            '--reverse', input_rev,             # the input reverse (R2) read sequence file corresponding to input fwd (R1)
+            '--fastqout', output_merged,        # the output file path of the merged forward (R1) and reverse (R2) reads
+        ]
+
+        ## KEEP UNMERGED READS? ##
+
+        # assess whether the reads that could not be merged should be retained
+        if keep_removed_seqs:
+
+            # create an output directory for unmerged sequence file output across all samples
+            unmerged_path = mkdir_exist_ok(
+                new_dir=f'./{flip_prefix(MERGED_PREFIX)}_{run_name}',
+                parent_dir=merged_parent,
+            )
+
+            # create an output file path for unmerge forward (R1) reads
+            output_unmerged_fwd = add_prefix(
+                file_path=input_fwd,
+                prefix=flip_prefix(MERGED_PREFIX),
+                dest_dir=unmerged_path,
+                action=None,
+                f_delim=settings['formatting']['filename_delim'],
+                output_compressed=False,
+                replace_prefix=True,
+            )
+
+            # create an output file path for unmerge forward (R1) reads
+            output_unmerged_rev = add_prefix(
+                file_path=input_rev,
+                prefix=flip_prefix(MERGED_PREFIX),
+                dest_dir=unmerged_path,
+                action=None,
+                f_delim=settings['formatting']['filename_delim'],
+                output_compressed=False,
+                replace_prefix=True,
+            )
+
+            append_subprocess(
+                cli_command_list=vsearch_merge_cmd,
+                options_to_add=[
+                    '--fastqout_notmerged_fwd', output_unmerged_fwd,  # output file for forward (R1) unmerged reads
+                    '--fastqout_notmerged_rev', output_unmerged_rev,  # output file for reverse (R2) unmerged reads
+                ],
+                position=-1,
+                return_copy=False,
+            )
+
+        # do not add any additional vsearch merge options at this time
+        else:
+            pass
+
+        ## WRITE VSEARCH LOG OUT TO FILE? ##
+
+        # if a log file should be written...
+        if keep_log:
+
+            # create an output file path for the vsearch merge log file
+            vsearch_log_file = merged_parent / f'vsearch_merge_{run_name}.log'
+
+            # append the vsearch log option to the output file
+            append_subprocess(
+                cli_command_list=vsearch_merge_cmd,
+                options_to_add=['--eetabbedout', vsearch_log_file],
+                position=-1,
+                return_copy=False,
+            )
+
+        # if a log file should not be written, do nothing
+        else:
+            pass
+
+        ## EXECUTE FINAL VSEARCH MERGE COMMAND ##
+
+        # run the final vsearch merge command
+        run_subprocess(
+            cli_command_list=vsearch_merge_cmd,
+            dest_dir=merged_parent,
+            run_name=run_name,
+            program='vsearch-merged',
+            separate_sample_output=True,
+            auto_respond=settings['automate']['auto_respond'],
+        )
+
+    ## COMPRESS OUTPUT FILES? ##
+
+    # if the output files should be compressed...
+    if compress_output:
+
+        # compress the uncompressed output files and return the list of compressed file paths
+        output_compressed = compress_data(
+            input_path=merged_path,
+            output_path=None,
+            compress_fmt='gzip',
+            keep_input=False,
+        )
+
+        # if discarded sequences were also written out to the file system...
+        if keep_removed_seqs:
+
+            # compress these sequences as well
+            output_unmerged_compressed = compress_data(
+                input_path=unmerged_path,
+                output_path=None,
+                compress_fmt='gzip',
+                keep_input=False,
+            )
+
+        # if there are no discarded sequences, no additional compression needed
+        else:
+            pass
+
+        # return only the compressed output file paths
+        return output_compressed
+
+    # if the output files are not to be compressed...
+    else:
+
+        # return just the original list of files
+        return merged_output_files
+
 def quality_filter(input_files, platform, reference_dir):
 
     # get filtering settings from the configuration file
@@ -1279,57 +1469,6 @@ def quality_filter(input_files, platform, reference_dir):
                            auto_respond=settings['automate']['auto_respond'])
 
     return qfilt_path
-
-def merge_reads(input_files, reference_dir):
-
-    # import settings from the configuration file
-    settings = get_settings(reference_dir)
-    run_name = settings['run_details']['run_name']
-
-    if settings['quality_filtering']['illumina']['merge_reads']:
-
-        qfilt_parent = mkdir_exist_ok(new_dir=file_map['pipeline-output']['quality-filtered'])
-        merge_path = mkdir_exist_ok(new_dir=f'./{MERGED_PREFIX}_{run_name}', parent_dir=qfilt_parent)
-        nomerge_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(MERGED_PREFIX)}_{run_name}', parent_dir=qfilt_parent)
-
-        merge_summary = qfilt_parent / f'vsearch_merged_{run_name}.log'
-
-        # add descriptive header to the merge log file; NOT SURE HOW TO DO SO WITHOUT BEING OVERWRITTEN
-        # with open(merge_summary, 'w') as fout:
-        #     merge_header = '#fwd_ee_exp\trev_ee_exp\tfwd_ee_obs\trev_ee_obs\n'
-        #     with_header = merge_output.insert(0, merge_header)
-        #     fout.write(with_header)
-
-        paired_dict = pair_reads(input_files)
-
-        output_list = []
-        for fwd_file, rev_file in paired_dict.items():
-
-            # create a file path for the non-merged reads for fwd and rev read files
-            nomerge_fwd_out = add_prefix(file_path=fwd_file, prefix=flip_prefix(MERGED_PREFIX),
-                                         dest_dir=nomerge_path, action=None)
-            nomerge_rev_out = add_prefix(file_path=rev_file, prefix=flip_prefix(MERGED_PREFIX),
-                                         dest_dir=nomerge_path, action=None)
-
-            merge_out_base = add_prefix(file_path=fwd_file, prefix=MERGED_PREFIX, dest_dir=merge_path, action=None)
-            sample_id = re.search(r'.+?(?=_R1)', merge_out_base.stem).group(0)
-            merge_output = (merge_out_base.parent / sample_id).with_suffix('.fastq')
-            output_list.append(merge_output)
-
-            vsearch_merge_cmd = ['vsearch', '--fastq_mergepairs', fwd_file, '--reverse', rev_file,
-                                 '--fastqout', merge_output,
-                                 '--fastqout_notmerged_fwd', nomerge_fwd_out,
-                                 '--fastqout_notmerged_rev', nomerge_rev_out,
-                                 '--eetabbedout', merge_summary]
-
-            run_subprocess(vsearch_merge_cmd, dest_dir=qfilt_parent, run_name=run_name,
-                           auto_respond=settings['automate']['auto_respond'])
-
-        return output_list
-
-    # if the configuration file does not want fwd and rev reads to be merged, then just return the input files unchanged
-    else:
-        return input_files
 
 def dereplicate(input_files, output_dir, min_count, derep_step, platform, reference_dir):
 
