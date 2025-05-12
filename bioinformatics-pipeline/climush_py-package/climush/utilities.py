@@ -1205,7 +1205,7 @@ def compress_data(input_path, output_path=None, compress_fmt='gzip', keep_input=
     files or the desired output compressed files / directories
     :param keep_input: True/False; if False (default), the input files are removed and only
     the output files are retained
-    :return: None
+    :return: a list of the output file paths
     '''
 
     ## CHECK FILE PATHS ##
@@ -1261,6 +1261,9 @@ def compress_data(input_path, output_path=None, compress_fmt='gzip', keep_input=
 
     # create an empty list to add the input names to and make updates in cases where a name conflict w/ output file occurs
     input_files_corrected = []
+
+    # keep track of the output file names, to return a list of the output file paths
+    output_file_list = []
 
     # iterate through each file in the input directory (or if input is a file, just that file)
     for input_file in input_file_list:
@@ -1318,6 +1321,9 @@ def compress_data(input_path, output_path=None, compress_fmt='gzip', keep_input=
 
         # create a file path by including the output file extension and path
         output_file = (output_path / output_basename).with_suffix(output_fmt)
+
+        # add the output file to the output file list
+        output_file_list.append(output_file)
 
 
         ## DECOMPRESS INPUT FILE IF IT IS COMPRESSED ##
@@ -1389,7 +1395,7 @@ def compress_data(input_path, output_path=None, compress_fmt='gzip', keep_input=
                 # delete each input file
                 input_file.unlink()
 
-    return None
+    return output_file_list
 
 #######################
 # TEXT MANIPULATION ###
