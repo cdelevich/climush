@@ -1051,8 +1051,8 @@ def remove_primers(input_files, output_dir, reference_dir, platform, paired_end,
             # compose the standard cutadapt command to use, before incorporating additional options
             cutadapt_cmd = [
                 'cutadapt',
-                '-a', fwd_primer,                   # forward primer: search for fwd primer on 3' end of forward (R1) reads
-                '-A', rev_primer,                   # reverse primer: search for rev primer on 3' end of reverse (R2) reads
+                '-g', fwd_primer,                   # forward primer: search for fwd primer on 5' end of forward (R1) reads
+                '-G', rev_primer,                   # reverse primer: search for rev primer on 5' end of reverse (R2) reads
                 '--revcomp',                        # search each read's reverse complement as well
                 '--cores', str(0),                  # auto-detect the number of available CPUs to use
                 '--output', fwd_seqs_out,           # forward (R1) output sequence file
@@ -1396,7 +1396,7 @@ def merge_reads(input_files, output_dir, reference_dir, compress_output, keep_re
         # return just the original list of files
         return merged_output_files
 
-def quality_filter(input_files, output_dir, platform, reference_dir, max_qscore, min_qscore, min_len, max_len, max_error, merge, keep_removed_seqs, keep_log, compress_output):
+def quality_filter(input_files, output_dir, platform, reference_dir, min_qscore, max_qscore, min_len, max_len, max_error, merge, keep_removed_seqs, keep_log, compress_output):
 
 
     ## LOAD SETTINGS ##
