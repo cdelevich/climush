@@ -769,7 +769,7 @@ def prefilter_fastx(input_files, output_dir, reference_dir, maxn, qmax, keep_log
             append_subprocess(
                 cli_command_list=vsearch_filter_cmd,
                 options_to_add=vsearch_filter_keepseqs,
-                position=9,  # just after the output paths for the fwd/rev reads that pass the filter
+                position=-1,
                 return_copy=False,
             )
 
