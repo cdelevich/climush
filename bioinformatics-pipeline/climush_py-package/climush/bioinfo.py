@@ -1639,7 +1639,7 @@ def quality_filter(input_files, output_dir, platform, reference_dir, min_qscore,
     # return a dictionary of the output file paths (filtered and unfiltered separated)
     return output_files
 
-def dereplicate(input_files, output_dir, min_count, derep_step, platform, reference_dir):
+def dereplicate(input_files, output_dir, reference_dir, min_count, derep_step, keep_log):
 
     # create the file prefix name based on whether it is full-length (1) or region-specific (2) dereplication
     derep_prefix = DEREP_PREFIX + '0' + str(derep_step)
@@ -1664,25 +1664,6 @@ def dereplicate(input_files, output_dir, min_count, derep_step, platform, refere
         parent_dir=derep_parent,
     )
 
-    # for illumina sequences, if reads were not merged, then dereplicate only the forward sequence files (R1 suffix)
-    if (platform == 'illumina') or (platform == 'its1') or (platform == '18s'):
-
-        # check if the sequences were merged previously
-        premerged = settings['quality_filtering']['merge_reads'][platform]
-
-        # if the sequences weren't merged, then the input files need to be filtered to only use the R1 (fwd) seqs
-        if not premerged:
-            input_files = [f for f in input_files if re.search(r'R1', f, re.I)]
-            # rename files to be just sample ID or keep R1 to be clear they're forward reads only?
-
-        # if already merged, then can just continue with the pool of merged seq files
-        else:
-            pass
-
-    # if not illumina sequences, then no reason to check if merged
-    else:
-        pass
-
     # for each of the files (typically derep01) or directories (typically derep02)...
     for file in input_files:
 
@@ -1696,7 +1677,7 @@ def dereplicate(input_files, output_dir, min_count, derep_step, platform, refere
             subregion_files = [f for f in file.glob('*') if re.search(subregion_suffix_re, f.name, re.I)]
 
             # create a main output derep directory for this sample
-            derep_output = add_prefix(
+            derep_sample_output = add_prefix(
                 file_path=file,
                 prefix=derep_prefix,
                 dest_dir=derep_path,
@@ -1706,56 +1687,107 @@ def dereplicate(input_files, output_dir, min_count, derep_step, platform, refere
             # go through the list of region / subregion files for this sample and dereplicate
             for region_seqs in subregion_files:
 
+                # pull the file format from the input file, to determine whether to use fasta or fastq commands
+                input_filefmt = region_seqs.suffixes[0][-1]
+
                 # create a path for the region / subregion derep sequences within the main sample output dir
                 derep_region_output = add_prefix(
                     file_path=region_seqs,
                     prefix=derep_prefix,
-                    dest_dir=derep_output,
+                    dest_dir=derep_sample_output,
                     action=None,
+                    f_delim=settings['formatting']['filename_delim'],
+                    output_compressed=False,
+                    replace_prefix=True,
                 )
 
                 # compile the vsearch dereplication command for this region's post-itsx sequence file
                 vsearch_derep_cmd = [
                     'vsearch',
-                    '--derep_fulllength', region_seqs,
-                    '--output', derep_region_output,
+                    '--fastx_uniques', region_seqs,
+                    f'--fast{input_filefmt}out', derep_region_output,
                     '--minuniquesize', str(min_count),
                     '--sizeout',
                 ]
 
+                # add a log file output if keep_log=True
+                if keep_log:
+
+                    # create an output file path for the vsearch derep log file
+                    vsearch_derep_log = derep_parent / f'vsearch_{derep_prefix}.log'
+
+                    # add the logging command to the standard vsearch derep command
+                    append_subprocess(
+                        cli_command_list=vsearch_derep_cmd,
+                        options_to_add=['--tabbedout', vsearch_derep_log],
+                        position=-1,
+                        return_copy=False,
+                    )
+
+                # otherwise, do not add anything to the standard command
+                else:
+                    pass
+
+                # execute the final vsearch dereplication command
                 run_subprocess(
-                    vsearch_derep_cmd,
+                    cli_command_list=vsearch_derep_cmd,
                     dest_dir=derep_parent,
                     run_name=run_name,
-                    program=f'vsearch-derep{derep_prefix}',
+                    program=f'vsearch-{derep_prefix}',
+                    separate_sample_output=True,
                     auto_respond=settings['automate']['auto_respond'],
                 )
 
         # derep01 in all cases will (should) be a list of sequence files, not directories
         else:
 
-            # derep always outputs a fasta format, but need to provide file name as fasta format or will appear as fastq
-            #   even though it isn't really fastq when you open it up
+            # pull the file format from the input file, to determine whether to use fasta or fastq commands
+            input_filefmt = file.suffixes[0][-1]
+
+            # create the output file path for the dereplicated reads
             derep_output = add_prefix(
                 file_path=file,
                 prefix=derep_prefix,
                 dest_dir=derep_path,
                 action=None,
-            ).with_suffix('.fasta')
+                f_delim=settings['formatting']['filename_delim'],
+                output_compressed=False,
+                replace_prefix=True,
+            )
 
             vsearch_derep_cmd = [
                 'vsearch',
-                '--derep_fulllength', file,
-                '--output', derep_output,
+                '--fastx_uniques', file,
+                f'--fast{input_filefmt}out', derep_output,
                 '--minuniquesize', str(min_count),
                 '--sizeout',
             ]
 
+            # add a log file output if keep_log=True
+            if keep_log:
+
+                # create an output file path for the vsearch derep log file
+                vsearch_derep_log = derep_parent / f'vsearch_{derep_prefix}.log'
+
+                # add the logging command to the standard vsearch derep command
+                append_subprocess(
+                    cli_command_list=vsearch_derep_cmd,
+                    options_to_add=['--tabbedout', vsearch_derep_log],
+                    position=-1,
+                    return_copy=False,
+                )
+
+            # otherwise, do not add anything to the standard command
+            else:
+                pass
+
+            # execute the final vsearch dereplication command
             run_subprocess(
-                vsearch_derep_cmd,
+                cli_command_list=vsearch_derep_cmd,
                 dest_dir=derep_parent,
                 run_name=run_name,
-                program=f'vsearch-derep{derep_prefix}',
+                program=f'vsearch-{derep_prefix}',
+                separate_sample_output=True,
                 auto_respond=settings['automate']['auto_respond'],
             )
 
