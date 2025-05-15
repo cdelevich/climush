@@ -1,75 +1,100 @@
-from mapping import filepath_map as fpm
-
-import argparse, sys, subprocess, pathlib
+import argparse, pathlib
 from pathlib import Path
-from climush.constants import *
 from climush.bioinfo import dereplicate
-from climush.utilities import *
+from climush.utilities import get_settings, check_for_input, continue_to_next
 
-settings = get_settings(fpm)
-run_name = settings['run_details']['run_name']
+## IMPORT PIPELINE CONFIGURATION #######################################################################################
 
-parser = argparse.ArgumentParser(prog=Path(__file__).stem,
-                                 description='Dereplicate full-length reads.',
-                                 epilog='This script is part of the CliMush bioinformatics pipeline.')
+# create a reference directory path for file-finding functions
+ref_dir=Path(__file__).parent
+
+# import the settings for the bioinformatics configuration
+settings = get_settings(ref_dir)
+
+########################################################################################################################
+
+
+## COMMAND LINE ARGUMENTS ##############################################################################################
+
+## INSTANTIATE PARSER ##
+
+parser = argparse.ArgumentParser(
+    prog=Path(__file__).stem,
+    description='Dereplicate full-length reads.',
+    epilog='This script is part of the CliMush bioinformatics pipeline.',
+)
+
+
+## FILE PATHS ##
 
 # input directory containing the files to dereplicate
-parser.add_argument('-i', '--input',
-                    default=None,  # depends on previous pipeline steps, settings
-                    type=pathlib.PosixPath,
-                    help='The path to a directory containing sequencing files to dereplicate. If nothing provided, '
-                         'will default to the location that is expected in the Docker container\'s native file '
-                         'structure, detailed in pipeline/mapping.py.')
+parser.add_argument(
+    '-i', '--input',
+    required=True,
+    type=pathlib.PosixPath,
+    help='The path to a directory containing sequencing files to dereplicate. If nothing provided, '
+         'will default to the location that is expected in the Docker container\'s native file '
+         'structure, detailed in pipeline/mapping.py.',
+)
 
 # output directory for the dereplicated files
-parser.add_argument('-o', '--output',
-                    default=None,
-                    type=pathlib.PosixPath,
-                    help='The main output directory in which to create the bioinformatics run subfolder for '
-                         'dereplicated sequences.')
+parser.add_argument(
+    '-o', '--output',
+    required=True,
+    type=pathlib.PosixPath,
+    help='The main output directory in which to create the bioinformatics run subfolder for '
+         'dereplicated sequences.')
+
+## DEREPLICATION SETTINGS ##
+
+# minimum number of identical reads needed to pass derepliations
+parser.add_argument(
+    '--min-count',
+    type=int,
+    default=settings['dereplicate']['min_count']['derep01'],
+    help='The minimum number of identical reads that is required to be written to the dereplicated output file.',
+)
+
+## OUTPUT FILE OPTIONS ##
+
+parser.add_argument(
+    '--log',
+    action='store_true',
+    help='Flag that, when used, will write any optional output from vsearch dereplication to a .log file.',
+)
+
+## PARSE OPTIONS INTO DICTIONARY ##
 
 args = vars(parser.parse_args())
 
-## REMOVE AFTER TESTING
-# args = {'input': None}
+########################################################################################################################
+
 
 #####################
 # ILLUMINA ##########
 #####################
 platform = 'illumina'
 
-# where should the input be located for Illumina reads?
-if args['input'] is None:
-
-    # which folder from quality-filtered should be used (i.e., merged or unmerged)
-    if settings['quality_filtering'][platform]['merge_reads']:  # if reads were merged
-        dir_name = f'{MERGED_PREFIX}_{run_name}'
-    else:
-        dir_name = f'{QUALFILT_PREFIX}'
-
-    # make full path with dir
-    input_path = fpm['pipeline-output']['quality-filtered'] / dir_name
-
-else:
-
-    input_path = args['input']
-
-
 # check that there are Illumina reads to dereplicate
 is_input, illumina_files = check_for_input(
-    args['input'],
+    file_dir=args['input'],
     config_dict=settings,
-    file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+    file_identifier=platform,
 )
 
 if is_input:
+
     print(f'Dereplicating {len(illumina_files)} {platform} reads...\n')
 
-    dereplicate(input_files=illumina_files,
-                derep_step=1,
-                platform='illumina',
-                file_map=fpm,
-                output_path=args['output'])
+    dereplicate(
+        input_files=illumina_files,
+        output_dir=args['output'],
+        reference_dir=ref_dir,
+        min_count=args['min_count'][platform],
+        derep_step=1,
+        keep_log=args['log'],
+    )
+
 else:
     pass
 
@@ -78,24 +103,26 @@ else:
 #####################
 platform = 'pacbio'
 
-# where should the input be located for PacBio reads?
-if args['input'] is None:
-    input_path = fpm['pipeline-output']['primers-trimmed'] / f'trim_{run_name}'
-else:
-    input_path = Path(args['input'])
-
+# check that there are Illumina reads to dereplicate
 is_input, pacbio_files = check_for_input(
-    input_path,
+    file_dir=args['input'],
     config_dict=settings,
-    file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+    file_identifier=platform,
 )
 
 if is_input:
-    dereplicate(input_files=pacbio_files,
-                derep_step=1,
-                platform=platform,
-                file_map=fpm,
-                output_path=args['output'])
+
+    print(f'Dereplicating {len(pacbio_files)} {platform} reads...\n')
+
+    dereplicate(
+        input_files=pacbio_files,
+        output_dir=args['output'],
+        reference_dir=ref_dir,
+        min_count=args['min_count'][platform],
+        derep_step=1,
+        keep_log=args['log'],
+    )
+
 else:
     pass
 
@@ -103,6 +130,30 @@ else:
 # SANGER ############
 #####################
 platform = 'sanger'
+
+# check that there are Illumina reads to dereplicate
+is_input, sanger_files = check_for_input(
+    file_dir=args['input'],
+    config_dict=settings,
+    file_identifier=platform,
+)
+
+if is_input:
+
+    print(f'Dereplicating {len(sanger_files)} {platform} reads...\n')
+
+    dereplicate(
+        input_files=sanger_files,
+        output_dir=args['output'],
+        reference_dir=ref_dir,
+        min_count=args['min_count'][platform],
+        derep_step=1,
+        keep_log=args['log'],
+    )
+
+else:
+    pass
+
 
 # when all are seqs are dereplicated, continue to next
 continue_to_next(__file__, settings)
