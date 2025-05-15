@@ -464,10 +464,10 @@ def pair_reads(input_files):
 
     for file in input_files:
         # if the file is an R1 read file...
-        if re.search(r'R1', file.stem, re.I):
+        if re.search(r'_R1', file.stem, re.I):
             pairs_dict.update({file:''})  # add to dict, with empty str as value
         # if the file is an R2 read file...
-        elif re.search(r'R2', file.stem, re.I):
+        elif re.search(r'_R2', file.stem, re.I):
             rev_reads.append(file)  # add to a list, will sort to match its R1 file next
         # if an R1/R2 tag is not detected
         else:
