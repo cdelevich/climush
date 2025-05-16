@@ -2,27 +2,29 @@ import argparse, pathlib
 from pathlib import Path
 
 from climush.bioinfo import check_chimeras
-from climush.constants import *
 from climush.utilities import get_settings, check_for_input, continue_to_next
 
-from mapping import filepath_map as fpm
+# set a location to start looking for pipeline configuration file
+ref_dir = Path(__file__).parent.parent
 
-# import settings from the configuration file
-settings = get_settings(fpm)
+settings = get_settings(ref_dir)
 run_name = settings['run_details']['run_name']
 
 # set up command line options
 parser = argparse.ArgumentParser(prog=Path(__file__).stem,
                                  description='Detect and remove chimeras.',
-                                 epilog='This script is part of the CliMush bioinformatics pipeline.')
+                                 epilog='This script is part of the SPUN bioinformatics pipeline.')
 
 # input directory containing the files to check for chimeras; no default, since depends on platform
 parser.add_argument('-i', '--input',
                     default=None,
                     type=pathlib.PosixPath,
-                    help='The path to a directory containing sequencing files to chimera check. If nothing provided, '
-                         'will default to the location that is expected in the Docker container\'s native file '
-                         'structure, detailed in pipeline/mapping.py. This depends on the sequencing platform.')
+                    help='The path to a directory containing sequencing files to chimera check.')
+
+parser.add_argument('-o', '--output',
+                    default=None,
+                    type=pathlib.PosixPath,
+                    help='The file path that chimera-checked sequences will be written out to.')
 
 # method to use for chimera detection
 parser.add_argument('--method',
@@ -63,80 +65,76 @@ if args['alpha'] is None:
 #####################
 platform = 'illumina'
 
-# the default input path for Illumina sequences must be from the denoised sequence output
-if args['input'] is None:
-    args.update({'input': fpm['pipeline-output']['denoised'] / f'{DENOISE_PREFIX}_{run_name}'})
-else:
-    pass
-
-# check if there are Illumina reads to check for chimeras
+# check if there are ITS1 sequences in the input directory
 is_input, illumina_files = check_for_input(
-    args['input'],
+    file_dir=args['input'],
     config_dict=settings,
-    file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform],
-    file_prefix=DENOISE_PREFIX
+    file_identifier=platform,
     )
 
 if is_input:
-    check_chimeras(input_files=illumina_files, file_map=fpm,
-                   method=args['method'],
-                   alpha=args['alpha'],
-                   keep_chimeras=args['keep_chimeras'])
-else:
-    pass
-
-#####################
-# PACBIO ############
-#####################
-platform = 'pacbio'
-
-# the default input path for pacbio sequences will be in the per-region dereplicated folder (dereplicate 02)
-if args['input'] is None:
-    args.update({'input': fpm['pipeline-output']['derep-subregions'] / f'{DEREP_PREFIX}02_{run_name}'})
-else:
-    pass
-
-# check if there are PacBio reads to check for chimeras
-is_input, pacbio_dirs = check_for_input(
-    args['input'],
-    config_dict=settings,
-    file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform],
-    file_ext=None
+    check_chimeras(
+        input_files=illumina_files,
+        reference_dir=ref_dir,
+        output_dir=args['output'],
+        method=args['method'],
+        alpha=args['alpha'],
+        keep_chimeras=args['keep_chimeras'],
     )
-
-if is_input:
-    check_chimeras(input_files=pacbio_dirs, file_map=fpm,
-                   method=args['method'],
-                   alpha=args['alpha'],
-                   keep_chimeras=args['keep_chimeras'])
 else:
     pass
+
 
 #####################
 # SANGER ############
 #####################
 platform = 'sanger'
 
-# the default input path for Sanger sequences must be from the denoised sequence output (?)
-# if args['input'] is None:
-#     args.update({'input': fpm['pipeline-output']['denoised'] / f'{DENOISE_PREFIX}_{run_name}'})
-# else:
-#     pass
-
-# check if there are Sanger reads to check for chimeras
+# check if there are 18S sequences in the input directory
 is_input, sanger_files = check_for_input(
-        args['input'],
-        config_dict=settings,
-        file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+    file_dir=args['input'],
+    config_dict=settings,
+    file_identifier=platform,
     )
 
 if is_input:
-    check_chimeras(input_files=sanger_files, file_map=fpm,
-                   method=args['method'],
-                   alpha=args['alpha'],
-                   keep_chimeras=args['keep_chimeras'])
+    check_chimeras(
+        input_files=sanger_files,
+        reference_dir=ref_dir,
+        output_dir=args['output'],
+        method=args['method'],
+        alpha=args['alpha'],
+        keep_chimeras=args['keep_chimeras'],
+    )
 else:
     pass
+
+
+#####################
+# PACBIO ############
+#####################
+platform = 'pacbio'
+
+# check if there are ITS-LSU sequences in the input directory
+is_input, pacbio_files = check_for_input(
+    file_dir=args['input'],
+    config_dict=settings,
+    file_identifier=platform,
+    file_ext=None,
+    )
+
+if is_input:
+    check_chimeras(
+        input_files=pacbio_files,
+        reference_dir=ref_dir,
+        output_dir=args['output'],
+        method=args['method'],
+        alpha=args['alpha'],
+        keep_chimeras=args['keep_chimeras'],
+    )
+else:
+    pass
+
 
 # continue to next
 continue_to_next(__file__, settings)
