@@ -2459,7 +2459,7 @@ def check_chimeras(input_files, reference_dir, output_dir, method, alpha, keep_c
                 append_subprocess(
                     cli_command_list=vsearch_denovo_cmd,
                     options_to_add=['--chimeras', chim_out],
-                    position=-2,
+                    position=-1,
                     return_copy=False,
                 )
 
@@ -2486,14 +2486,18 @@ def check_chimeras(input_files, reference_dir, output_dir, method, alpha, keep_c
             if keep_chimeras:
 
                 # if configured to keep chimeras, create an output file path for chimeric reads
-                chim_out = add_prefix(file_path=undenoised_file, prefix=flip_prefix(NOCHIM_PREFIX),
-                                      dest_dir=chim_path, action=None)
+                chim_out = add_prefix(
+                    file_path=undenoised_file,
+                    prefix=flip_prefix(NOCHIM_PREFIX),
+                    dest_dir=chim_path,
+                    action=None,
+                )
 
                 # insert the command to keep chimeras into the uchime command
                 append_subprocess(
                     cli_command_list=vsearch_denovo_cmd,
                     options_to_add=['--chimeras', chim_out],
-                    position=-2,
+                    position=-1,
                     return_copy=False,
                 )
 
@@ -2688,7 +2692,7 @@ def check_chimeras(input_files, reference_dir, output_dir, method, alpha, keep_c
                         append_subprocess(
                             cli_command_list=vsearch_ref_cmd,
                             options_to_add=['--chimeras', chim_out],
-                            position=5,
+                            position=-1,
                             return_copy=False,
                         )
 
