@@ -775,12 +775,6 @@ def continue_to_next(current_script, config_dict):
         print(f'Running next step, {next_script.name}...\n')
         return subprocess.run(['python3', next_script])
 
-
-
-#######################
-# FILE PATHS ##########
-#######################
-
 def file_finder(reference_dir, search_glob, multiple_matches=False, max_depth=5000):
     '''
     Locate a file using a glob string via a directory walk.
@@ -1190,9 +1184,7 @@ def check_for_input(file_dir, config_dict, path_must_exist=True, file_identifier
     file_list = []
     return False, file_list
 
-
 # get name of previous script
-
 def compress_data(input_path, output_path=None, compress_fmt='gzip', keep_input=False):
     '''
     Compress or decompress .zip or .gz files.
@@ -1396,10 +1388,6 @@ def compress_data(input_path, output_path=None, compress_fmt='gzip', keep_input=
                 input_file.unlink()
 
     return output_file_list
-
-#######################
-# TEXT MANIPULATION ###
-#######################
 
 # add prefix to file name
 def add_prefix(file_path, prefix, dest_dir, action='rename', f_delim='_', output_compressed=False, replace_prefix=True):
@@ -1794,7 +1782,6 @@ def copy_original_files(directory, copy_directory='original_files', compress=Tru
                      f'were not copied to the destination directory:\n'
                      f'\t{copy_path}')
 
-
 def rename_read_header(input_dir, run_name, file_format='.fasta', unique_headers=False, no_copy=True, append_sample_str=False):
 
     ## CHECK INPUT FILES ARE FASTA FORMAT FILES
@@ -1989,14 +1976,6 @@ def rename_read_header(input_dir, run_name, file_format='.fasta', unique_headers
         json.dump(conversion_dict, json_out)
 
     return None
-
-
-
-
-
-#######################
-# CONFIGURATION #######
-#######################
 
 # define function to simplify import of configuration files
 def get_settings(reference_dir, default_only=True):
@@ -2230,7 +2209,6 @@ def rescale_percent_identity(input_df, column='percent_match'):
 
     return output_df
 
-
 def sort_taxonomy_info(input_df, drop_col=True):
     '''
     Split and format taxonomic information from one column to several.
@@ -2449,6 +2427,87 @@ def strip_file_ext(file_path, common_suffixes=KNOWN_FILE_SUFFIXES, verbose=False
 
         # return the file name with the valid file suffixes removed
         return file_without_suffixes
+
+def replace_file_ext(file_path, output_ext, create_file=False, replace_file=False, output_dir=None):
+    '''
+    Replace the file's file extension with a different file extension. Does not
+    reformat the file, it will only change its suffix.
+
+    :param file_path: path to the file that should have its file extension
+    replaced with the value provided to output_ext
+    :param output_ext: the file extension to use to replace the file
+    extension of the input file provided to file_path
+    :param create_file: True / False; if False (default), will return a file path
+    object with the output path and file extension, but will not create or alter
+    any existing files
+    :param replace_file: True / False; if False (default) the input file provided to
+    the file_path parameter will not be replaced by the output file path with the
+    output_ext file extension; option is only valid if create_file=True
+    :param output_dir: the output directory to which to write the output file
+    with the output_ext file extension; if None, the output file will be written
+    to the same location as the input file
+    :return: output file path with the output_ext file extension
+    '''
+
+    ## DEFINE INPUT / OUTPUT FILE PATHS ##
+
+    assert is_pathclass(file_path, exit_if_false=True)
+
+    if output_dir is None:
+        output_dir = file_path.parent
+    else:
+        assert is_pathclass(output_dir, exit_if_false=True)
+
+    ## CHECK FOR LEADING . IN FILE EXTENSION ##
+
+    # if the output_ext arg already has a leading ., pass
+    if output_ext.startswith('.'):
+        pass
+
+    # if the output_ext arg doesn't have a leading ., add one
+    else:
+        # must be formatted this way to use with pathlib's .with_suffix()
+        output_ext = '.' + output_ext
+
+    ## STRIP INPUT FILE NAME'S FILE EXTENSION ##
+
+    # use utilities.py function strip_file_ext() to remove file extension, even
+    #   if the input file has multiple suffixes (e.g., fastq.gz)
+    input_file_basename = strip_file_ext(file_path=file_path)
+
+    ## CREATE OUTPUT FILE PATH WITH OUTPUT_EXT AS SUFFIX ##
+
+    output_path = (output_dir / input_file_basename).with_suffix(output_ext)
+
+    ## IF A FILE SHOULD BE CREATED USING THE OUTPUT PATH W/ OUTPUT FILE EXTENSION ##
+
+    if create_file:
+
+        # REPLACE INPUT FILE #
+
+        # if the output file should replace the input file...
+        if replace_file:
+
+            # rename the input file with the output file path
+            file_path.replace(output_path)
+
+        # CREATE COPY OF INPUT FILE WITH OUTPUT FILE NAME #
+
+        # if the output file shouldn't replace the input file...
+        else:
+
+            # copy the content from the input file to this new file path
+            with open(file_path, 'rt') as f_in:
+                with open(output_path, 'wt') as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+
+    ## OTHERWISE, DO NOTHING HERE ##
+    else:
+        pass
+
+    ## RETURN NEW FILE PATH ##
+    return output_path
+
 
 def create_file_list(file_input, file_regex=[SEQ_FILE_RE, GZIP_REGEX]):
     '''
