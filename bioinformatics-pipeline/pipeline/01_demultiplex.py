@@ -1,35 +1,43 @@
-from mapping import filepath_map as fpm
-
-import argparse, sys, re, json, pathlib
+import argparse, pathlib
 from pathlib import Path
-import pandas as pd
-from climush.constants import *
-from climush.utilities import *
+from climush.utilities import get_settings, check_for_input, continue_to_next, mkdir_exist_ok
 from climush.bioinfo import demultiplex
 
-settings = get_settings(fpm)
-run_name = settings['run_details']['run_name']
+## IMPORT PIPELINE CONFIGURATION #######################################################################################
+
+# create a reference directory path for file-finding functions
+ref_dir=Path(__file__).parent
+
+# import the settings for the bioinformatics configuration
+settings = get_settings(ref_dir)
+
+########################################################################################################################
+
+
+## COMMAND LINE ARGUMENTS ##############################################################################################
+
+## INSTANTIATE PARSER ##
 
 parser = argparse.ArgumentParser(prog=Path(__file__).stem,
                                  description='Demultiplex PacBio reads using PacBio\'s Lima demultiplexing '
                                              'tool.',
                                  epilog='This script is part of the CliMush bioinformatics pipeline.')
 
+## FILE PATHS ##
+
 # input directory containing the files to demultiplex
 parser.add_argument('-i', '--input',
-                    default=fpm['sequences']['demux'],
                     type=pathlib.PosixPath,
-                    help='The path to a directory containing sequencing files to demultiplex. If nothing provided, '
-                         'will default to the location that is expected in the Docker container\'s native file '
-                         'structure, detailed in pipeline/mapping.py.')
+                    help='The path to a directory containing the sequencing files to demultiplex; '
+                         'must be an absolute path.')
 
 # output directory to send the demultiplexed reads to
 parser.add_argument('-o', '--output',
-                    default=fpm['pipeline-output']['demultiplexed'],
                     type=pathlib.PosixPath,
-                    help='The path to a directory containing sequencing files to demultiplex. If nothing provided, '
-                         'will default to the location that is expected in the Docker container\'s native file '
-                         'structure, detailed in pipeline/mapping.py.')
+                    help='The path to write out the demultiplexed sequence files to; must be an absolute path.')
+
+
+## BARCODE MATCH SETTINGS ##
 
 # if option provided, will use this minimum score instead of configuration settings
 parser.add_argument('--min-score', nargs='?',
@@ -39,6 +47,8 @@ parser.add_argument('--min-score', nargs='?',
                          'contaminant, but this will also lead to a lower post-demultiplexing read yield. The '
                          'default minimum precision score is 93, as recommended by Tedersoo et al. 2021.')
 
+## STANDARD OUTPUT ##
+
 # if option provided, will print out all warnings
 parser.add_argument('--verbose',
                     action='store_true',
@@ -46,9 +56,11 @@ parser.add_argument('--verbose',
                     help='Whether to print out all errors and warnings in the terminal; if True, will print all '
                          'errors and warnings; if False, will only print out fatal errors.')
 
+## PARSE OPTIONS INTO DICTIONARY ##
+
 args = vars(parser.parse_args())
 
-# parse default or CL arguments
+########################################################################################################################
 
 # I don't have a way to accept a non-default minimum precision score yet (--min-score) so print warning if provided one
 if not isinstance(args['min_score'], dict):
@@ -87,10 +99,19 @@ files_demuxed = False
 platform = 'pacbio'
 
 # check if there are PacBio reads that need to be demultiplexed
+
+
+# check for multiplexed sequence files in the input path using info from the config file
+
+# create a regex that will search for any of the 4-digit GC3F sequence run codes
+gc3f_codes = '|'.join([ ('^' + num_code) for num_code in settings['demultiplex']['multiplex'].keys()])
+
+# use this combined regex to search of the 4-digit GC3F sequence run code at the start of a file name when
+#  searching for input in the input directory
 is_input, pacbio_files = check_for_input(
     args['input'],
     config_dict=settings,
-    file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+    file_identifier=gc3f_codes,
 )
 
 if is_input:
@@ -101,7 +122,13 @@ if is_input:
     mkdir_exist_ok(new_dir = args['output'])
 
     # demultiplex input files
-    demultiplex(output_dir=args['output'], file_map=fpm, verbose=args['verbose'], multiplexed_files=pacbio_files)
+    demultiplex(
+        output_dir=args['output'],
+        reference_dir=Path(__file__),
+        verbose=args['verbose'],
+        multiplexed_files=pacbio_files,
+    )
+
 else:
     pass
 
