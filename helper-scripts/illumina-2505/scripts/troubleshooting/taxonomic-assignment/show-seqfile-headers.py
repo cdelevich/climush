@@ -76,38 +76,48 @@ if input_fmt in seqfile_fmts:
 # otherwise, check if something can be converted to be an expected file format...
 else:
 
-    # if the input format is not an expected sequence file format...
+    # if the input format is .udb format...
     if input_fmt == '.udb':
 
-        # switch the Boolean flag to True
-        db_converted = True
+        # first check if an .extracted.fa version of this database exists
+        if args['input'].with_suffix('.extracted.fa').is_file():
 
-        # assign a new input file format
-        input_fmt = '.fasta'
+            # if this exists, then use this version of the database as the input, no need to convert separately
+            input_fmt = '.fasta'
+            input_seqfile = args['input'].with_suffix('.extracted.fa')
 
-        # create an output .fasta format file name
-        fasta_out = args['input'].with_suffix(input_fmt)
+        # if an .extracted.fa version of this database does not exist, convert to .fasta
+        else:
 
-        # compile the list of commands to run to convert udb to .fasta format
-        udb_convert_cmd = [
-            'vsearch',        # call vsearch
-            '--udb2fasta',    # use its udb2fasta conversion function
-            args['input'],    # input sequence file in the .udb file format
-            '--output',       # designate the output file
-            fasta_out,        # name of the output .fasta file format
-        ]
+            # switch the Boolean flag to True
+            db_converted = True
 
-        # use the run_subprocess() function from utilities.py to execute
-        run_subprocess(
-            cli_command_list=udb_convert_cmd,
-            dest_dir=args['input'].parent,
-            run_name='',
-            program='vsearch-ubd2fasta',
-            separate_sample_output=True,
-        )
+            # assign a new input file format
+            input_fmt = '.fasta'
 
-        # rename the .fasta path variable to input_seqfile, which is input for next section
-        input_seqfile = fasta_out
+            # create an output .fasta format file name
+            fasta_out = args['input'].with_suffix(input_fmt)
+
+            # compile the list of commands to run to convert udb to .fasta format
+            udb_convert_cmd = [
+                'vsearch',        # call vsearch
+                '--udb2fasta',    # use its udb2fasta conversion function
+                args['input'],    # input sequence file in the .udb file format
+                '--output',       # designate the output file
+                fasta_out,        # name of the output .fasta file format
+            ]
+
+            # use the run_subprocess() function from utilities.py to execute
+            run_subprocess(
+                cli_command_list=udb_convert_cmd,
+                dest_dir=args['input'].parent,
+                run_name='',
+                program='vsearch-ubd2fasta',
+                separate_sample_output=True,
+            )
+
+            # rename the .fasta path variable to input_seqfile, which is input for next section
+            input_seqfile = fasta_out
 
     # if not one of the expected input sequence file formats or .udb to convert, print err and exit
     else:
