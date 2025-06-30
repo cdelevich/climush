@@ -2170,46 +2170,65 @@ def sort_input_files(filepath_dict, to_sort='main'):
 #     return mapping_file_names
 
 
-def rescale_percent_identity(input_df, column='percent_match'):
-    '''
-    Standardize how percent identity is scaled.
+# def rescale_percent_identity(input_df, confidence_column, method_column, in_place=False):
+#     '''
+#     Standardize how percent identity is scaled.
+#
+#     Percent identity scores from taxonomic assignments can be scaled from 0-100 or 0-1, depending on
+#     the algorithm used. This function will look for a column named 'percent_match' (default) in the
+#     input table, and scale any values between (and including) 0 and 1 and convert them to a percentage
+#     scale between 0 and 100. If the values are already between 1 and 100, they will not be altered.
+#     :param input_df: dataframe containing percent identity values to be scaled
+#     :param confidence_column: the name of the column in the input dataframe that contains the
+#     confidence ranking, typically the confidence from bootstrapping (?),
+#     :param in_place: True / False; if False (default), a copy of the dataframe will be created before
+#     making any changes, and this altered dataframe is returned; if True, no copy of the dataframe is
+#     created and the dataframe is edited in place and not returned
+#     :return: a copy of the dataframe, with the scaled percent match values replacing the input
+#     percent match values
+#     '''
+#
+#     ## CHECK INPUT ##
+#
+#     def col_name_err(dataframe, error_column):
+#         df_columns = '\n   '.join(dataframe.columns)
+#         err_msg = (f'The column name {error_column} is not in the input dataframe, which has the following columns:\n'
+#                    f'  {df_columns}')
+#         raise ValueError(err_msg)
+#
+#     # check that the column name for the confidence_column is in the table
+#     if confidence_column in input_df.columns:
+#
+#         # check the the column name for method_column is in the table
+#         if method_column in input_df.columns:
+#             pass
+#
+#         # if the method_column is not in table, raise error
+#         else:
+#             col_name_err(input_df, method_columns)
+#
+#     # if the column name for confidence_column is not in the table
+#     else:
+#
+#         # raise an error
+#         col_name_err(input_df, confidence_column)
+#
+#
+#
+#     # make sure that the column dtype is float, tends to be imported as a string
+#     input_df = input_df.astype({confidence_column:'float'}, copy=None)
+#
+#     # create a function that can be used with .map that will convert fractions to percents
+#     def frac_to_percent(confidence_value):
+#
+#
+#
+#     if in_place:
+#         input_df[confidence_column].map(frac_to_percent, na_action='ignore')
+#
+#     return output_df
 
-    Percent identity scores from taxonomic assignments can be scaled from 0-100 or 0-1, depending on
-    the algorithm used. This function will look for a column named 'percent_match' (default) in the
-    input table, and scale any values between (and including) 0 and 1 and convert them to a percentage
-    scale between 0 and 100. If the values are already between 1 and 100, they will not be altered.
-    :param input_df: dataframe containing percent identity values to be scaled
-    :param column: the name of the column in the input dataframe that contains the percent identity values.
-    :return: a copy of the dataframe, with the scaled percent match values replacing the input
-    percent mach values
-    '''
-
-    # make sure that the column dtype is float, tends to be imported as a string
-    output_df = input_df.astype({column:'float'}, copy=True)
-
-    # create a list of values where the percent_match values are all percents and not decimals
-    percent_vals = []
-    for val in output_df[column]:
-
-        # if the percent match value is less than or equal to 1, it is likely a decimal form, so convert to percent
-        if val <= 1.0:
-            percent_vals.append(val*100)
-
-        # if the percent match value is greater than 1 but less than 100, it should already be a percent
-        #  I don't think you would get 1%, so it seems more likely to say a value of 1.0 is 100% decimal, not 1% percent
-        elif 1.0 < val <= 100.0:
-            percent_vals.append(val)
-
-        else:
-            raise KeyboardInterrupt(f'The value {val} is outside of the range of values that are evaluated in this '
-                                    f'loop. Add another contingency before continuing.')
-
-    # with this list of percent values, replace the mixed decimal/percent column with this list of percent only
-    output_df['percent_match'] = percent_vals
-
-    return output_df
-
-def sort_taxonomy_info(input_df, drop_col=True):
+def sort_taxonomy_info(input_df, tax_column='Taxonomy', drop_col=True):
     '''
     Split and format taxonomic information from one column to several.
 
@@ -2238,13 +2257,13 @@ def sort_taxonomy_info(input_df, drop_col=True):
     tax_key = {k: v for k, v in zip(tax_codes, tax_cols)}
 
     # new column names for the reference match info
-    info_cols = ['amptk_method', 'percent_match', 'genbank_ref', 'unite_ref']
+    info_cols = ['tax_method', 'confidence', 'udb_ref', 'sh_ref']
 
     # create a dictionary to store values for each of the new columns
     new_tax_cols = {col: [] for col in (info_cols + tax_cols)}
 
     # go through each ASV and sort out the taxonomy
-    for tax_str in dataframe['Taxonomy']:
+    for tax_str in dataframe[tax_column]:
 
         # make a asv-level dict, so it is clearer which of the new columns needs an empty string before adding to megadict
         # fill all values with empty string; will either be replaced with a value, or left an empty str if info missing
@@ -2253,7 +2272,10 @@ def sort_taxonomy_info(input_df, drop_col=True):
         ## SORT TAXONOMIC LEVELS ##
 
         # split string into the taxonomic levels
-        tax_info = tax_str.split(';')[1].split(',')
+        try:
+            tax_info = tax_str.split(';')[1].split(',')
+        except IndexError:
+            print(tax_str)
 
         # keep track of which taxonomic levels had values that were handled; otherwise, will add empty strings
         tax_lvl_sorted = set()
@@ -2287,9 +2309,9 @@ def sort_taxonomy_info(input_df, drop_col=True):
         # sort the reference db match info into the new columns
 
         # create a regular expression for three of four pieces of info in the ref db match info
-        ref_regex = {r'^[A-Z]{2,3}$': 'amptk_method',
-                     r'^([0-9]{1,3}\.[0-9]{1})|(0\.\d{4})$': 'percent_match',
-                     r'^SH': 'unite_ref'}
+        ref_regex = {r'^[A-Z]{2,3}$': 'tax_method',
+                     r'^([0-9]{1,3}\.[0-9]{1})|(0\.\d{4})$': 'confidence',
+                     r'^SH': 'sh_ref'}
 
         # genbank ref number is more variable, so anything not matching a regex in the ref_regex dict will be the genbank ref
 
@@ -2320,7 +2342,7 @@ def sort_taxonomy_info(input_df, drop_col=True):
         # after using the regex to sort the values, confirm there is one more unsorted value, which should
         #  be the genbank ref number
         if len(ref_match_info) == 1:
-            asv_tax_info.update({'genbank_ref': ref_match_info[0]})
+            asv_tax_info.update({'udb_ref': ref_match_info[0]})
         elif len(ref_match_info) == 0:
             raise KeyboardInterrupt('There are no remaining reference db info strings for the GenBank reference '
                                     'number; confirm that no reference number exists before continuing.')
@@ -2337,11 +2359,11 @@ def sort_taxonomy_info(input_df, drop_col=True):
         dataframe.insert(loc=(c + 1), column=col, value=new_tax_cols[col])
 
     # rescale the percent identity column, so all values are on the scale of 0-100, not a mix of 0-1/0-100
-    dataframe = rescale_percent_identity(input_df=dataframe)
+    # dataframe = rescale_percent_identity(input_df=dataframe)
 
     # if drop_col=True, return the dataframe without the Taxonomy column
     if drop_col:
-        return dataframe.drop('Taxonomy', axis=1)
+        return dataframe.drop(tax_column, axis=1)
 
     # if drop_col=False, return the dataframe with the Taxonomy column included
     else:
@@ -2634,3 +2656,77 @@ def get_available_memory(memory_units='GB'):
 
     return bbduk_fmt_unit, math.floor(avail_sys_mem)
     return bbduk_fmt_unit, math.floor(avail_sys_mem)
+
+
+def convert_udb_format(input_file, seqfile_fmts = ['.fastq', '.fasta', '.fa']):
+
+    assert is_pathclass(input_file, exit_if_false=False)
+
+    ## DETERMINE FILE FORMAT ##
+
+    # if the input format has multiple suffixes, this means it is likely a compressed .fastq.gz file
+    if len(input_file.suffixes) > 1:
+
+        # not expecting this right now, so I will not handle gzip
+        err_msg = f'Input file is compressed and I have not written a solution to this.'
+        return exit_process(err_msg)
+
+    # if the input format has a single suffix, then continue on to check the format type
+    else:
+        input_fmt = input_file.suffix
+
+    ## CHECK IF FILE FORMAT VALID ##
+
+    # if the input file format is in the list of expected file formats...
+    if input_fmt in seqfile_fmts:
+
+        # do nothing else here, return input_file unchanged and False to denote no conversion happened
+        return input_file, False
+
+    # otherwise, check if something can be converted to be an expected file format...
+    else:
+
+        # if the input format is .udb format...
+        if input_fmt == '.udb':
+
+            # first check if an .extracted.fa version of this database exists
+            if input_file.with_suffix('.extracted.fa').is_file():
+
+                # if this exists, then use this version of the database as the input, no need to convert separately
+                input_extracted = input_file.with_suffix('.extracted.fa')
+
+                # return this version of the sequence file as the output, and False for no conversion
+                return input_extracted, False
+
+            # if an .extracted.fa version of this database does not exist, convert to .fasta
+            else:
+
+
+                # create an output .fasta format file name
+                fasta_out = input_file.with_suffix('.fasta')
+
+                # compile the list of commands to run to convert udb to .fasta format
+                udb_convert_cmd = [
+                    'vsearch',        # call vsearch
+                    '--udb2fasta',    # use its udb2fasta conversion function
+                    input_file,    # input sequence file in the .udb file format
+                    '--output',       # designate the output file
+                    fasta_out,        # name of the output .fasta file format
+                ]
+
+                # use the run_subprocess() function from utilities.py to execute
+                run_subprocess(
+                    cli_command_list=udb_convert_cmd,
+                    dest_dir=input_file.parent,
+                    run_name='',
+                    program='vsearch-ubd2fasta',
+                    separate_sample_output=True,
+                )
+
+                # return the new converted sequence file path, and True that conversion happened
+                return fasta_out, True
+
+        # if not one of the expected input sequence file formats or .udb to convert, print err and exit
+        else:
+            err_msg = f'Unrecognized / invalid input sequence file format: {input_fmt}'
+            return exit_process(err_msg)
