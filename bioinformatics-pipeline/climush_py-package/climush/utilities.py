@@ -2010,8 +2010,11 @@ def get_settings(reference_dir, default_only=True):
 
         # read in the default configuration file as a dictionary
         with open(config_path, 'rt') as config_in:
+
+            # use tomlkit to parse the .toml config file into a dictionary-like object
             compiled_config = tomlkit.parse(config_in.read())
 
+        # return the .toml file as a dict-like object
         return compiled_config
 
     else:
@@ -2019,6 +2022,57 @@ def get_settings(reference_dir, default_only=True):
                   f'still under construction. If you see message, ensure that default_only=True for the function '\
                   f'get_settings().\n'
         return exit_process(err_msg)
+
+def export_bioinfo_config(output_dir: Path, bioinfo_config: dict) -> None:
+    '''
+    Export bioinformatics configuration to a .json record of settings.
+
+    :param output_dir: parent directory of the output file
+    :param bioinfo_config: the bioinformatics configuration dictionary,
+    as returned by the utilities.py (climush) function get_settings()
+    :return: None; writes file
+    '''
+
+    ## CREATE OUTPUT FILE PATH ######################################
+
+    # standard prefix
+    config_out_prefix = 'bioinfo-config'
+
+    # date of bioinfo run
+    config_out_date = datetime.today().strftime('%Y-%m-%d')
+
+    # bioinfo run name
+    config_out_runname = bioinfo_config['run_details']['run_name']
+
+    # output file format
+    output_fmt = 'txt'
+
+    # put the pieces of the output file together into a single filename
+    config_out_filename = f'{config_out_prefix}_{config_out_runname}_{config_out_date}.{output_fmt}'
+
+    # full file path with the output directory given to the function
+    config_out_path = output_dir / config_out_filename
+
+
+    ## WRITE CONFIG DICT TO JSON FILE ###############################
+
+    # write out settings to a .json file
+    with open(config_out_path, 'w') as config_out:
+        tomlkit.dump(bioinfo_config, config_out)
+
+    # confirm output file was created
+    if config_out_path.is_file():
+        print(f'The bioinformatics configuration settings used on the \n'
+              f'bioinformatics run {config_out_runname} was successfully \n'
+              f'written to:\n'
+              f'   {config_out_path}\n')
+    # if it was not created, print error
+    else:
+        raise OSError(f'The bioinformatics configuration settings used \n'
+                      f'on the bioinformatics run {config_out_runname} \n'
+                      f'could not be written to the file system.\n')
+
+    return None
 
 # sort the sequences provided in the 'sequences' input directory
 def sort_input_files(filepath_dict, to_sort='main'):
