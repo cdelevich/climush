@@ -1,7 +1,7 @@
 import argparse, pathlib
 from pathlib import Path
 from climush.bioinfo import remove_primers, confirm_no_primers
-from climush.utilities import get_settings, check_for_input, continue_to_next
+from climush.utilities import get_settings, check_for_input, export_bioinfo_config, continue_to_next
 
 ## IMPORT PIPELINE CONFIGURATION #######################################################################################
 
@@ -246,6 +246,13 @@ if is_input:
 # if no sanger files are detected, do nothing
 else:
     pass
+
+
+# export .toml configuration file as a .txt file
+export_bioinfo_config(
+    output_dir=args['output'],
+    bioinfo_config=settings,
+)
 
 
 # when all are primers trimmed, continue to next
