@@ -1,5 +1,33 @@
-# SEQUENCE FILE SORTING
-NEEDS_ACTION_REGEX = r'needs_(?!demux)'
+from pickle import load as pload
+from pathlib import Path
+
+# path to the directory that this module script is in
+constants_module_parent = Path(__file__).parent
+
+## CONVERSIONS #########################################################################################################
+
+# SEQUENCING FILE PREFIX CONVERSION DICT
+SEQ_FILE_PREFIX_DICT = {
+    'illumina': ['its1', '18s'],
+    'pacbio': ['itslsu'],
+}
+
+# POST-ITSX REGION/SUBREGION FILE TAGS
+POST_ITSX_SUFFIXES = {'ITS1': 'ITS1',
+                      '5.8S': '5_8S',
+                      'ITS2': 'ITS2',
+                      'LSU': 'LSU',
+                      'full sequence': 'ITS-LSU',
+                      'full ITS': 'full-ITS'}
+
+# BASE DEGENENERACY CODES USED BY IDP ###
+with open((constants_module_parent / 'degeneracy_codes.pickle'), 'rb') as pickle_in:
+    DEGENERACY_CODES = pload(pickle_in)
+
+########################################################################################################################
+
+
+## FILE NAMES ##########################################################################################################
 
 # PIPELINE FILE PREFIXES
 DEMUX_PREFIX = 'demux'
@@ -21,9 +49,6 @@ LOG_SUFFIX = '.log'  # CHANGE LOG_SUFFIX TO LOG_EXT? NOT DONE YET ANYWHERE
 CLUSTER_EXT = '.uc'
 OTU_TABLE_EXT = '.txt'
 
-# PLATFORM LIST
-SEQ_PLATFORM_OPTS = ['pacbio', 'illumina', 'sanger']  # no longer used in get_seq_platform()
-
 # CONFIGURATION FILE HANDLES
 CONFIG_FILETYPE = '.toml'
 DEFAULT_SETTINGS_HANDLE = 'default-settings'
@@ -34,6 +59,36 @@ NAME_CONFIG_HANDLE = 'filename-components'
 
 # CONFIGURATION FILE SECTIONS
 PIPELINE_CONFIG_MPID = 'pacbio-multiplex-ids'
+
+# a second file extention almost always relates to compression
+COMPRESSION_SUFFIXES = ['.gz', '.genozip', '.dmg', '.jar', '.tar', '.zip', '.zipx', '.bz2', '.Z', '.xz']
+
+# seems like tarball formats come in a lot of possible formats; which is why I created a different list here
+TARBALL_SUFFIXES = ['.tar.gz', '.tgz', '.tar.Z', '.tar.bz2', '.tbz2', '.tar.lz',
+                    '.tlz', '.tar.xz', '.txz', '.tar.zst']
+
+# now I'll join the tarball ones with the rest of the compression suffixes
+COMPRESSION_SUFFIXES += TARBALL_SUFFIXES
+
+# I will also need to have a list of file extensions that might be compressed; only checks these if there are multiple suffixes
+# NOT A COMPLETE LIST BY ANY MEANS, BUT BEST I COULD MUSTER AT THE TIME
+COMMON_FILE_SUFFIXES = ['.fasta', '.fastq', '.bam', '.txt', '.json', '.log', '.fa', '.phy']
+
+# now join them all together to input possible file extensions that are paired
+KNOWN_FILE_SUFFIXES = tuple(COMPRESSION_SUFFIXES + COMMON_FILE_SUFFIXES)  # make tuple so not mutable
+
+# SEQUENCE REGION PREFIXES + REGEX
+ITS1_PREFIX      = 'its1_'
+SSU_PREFIX       = '18s_'
+ITSLSU_PREFIX    = 'itslsu_'
+
+#######################################################################################################################
+
+
+## REGULAR EXPRESSIONS #################################################################################################
+
+# SEQUENCE FILE SORTING
+NEEDS_ACTION_REGEX = r'needs_(?!demux)'
 
 # SEQUENCE FILE NAMES
 MOCK_COMM_RE = r'^mock'
@@ -66,37 +121,9 @@ GZIP_GLOB = '*.fastq.gz'
 SEQ_FILE_GLOB = '*.fast*'
 SEQ_FILE_RE = r'\.fast.$'
 
-# a second file extention almost always relates to compression
-COMPRESSION_SUFFIXES = ['.gz', '.genozip', '.dmg', '.jar', '.tar', '.zip', '.zipx', '.bz2', '.Z', '.xz']
-
-# seems like tarball formats come in a lot of possible formats; which is why I created a different list here
-TARBALL_SUFFIXES = ['.tar.gz', '.tgz', '.tar.Z', '.tar.bz2', '.tbz2', '.tar.lz',
-                    '.tlz', '.tar.xz', '.txz', '.tar.zst']
-
-# now I'll join the tarball ones with the rest of the compression suffixes
-COMPRESSION_SUFFIXES += TARBALL_SUFFIXES
-
-# I will also need to have a list of file extensions that might be compressed; only checks these if there are multiple suffixes
-# NOT A COMPLETE LIST BY ANY MEANS, BUT BEST I COULD MUSTER AT THE TIME
-COMMON_FILE_SUFFIXES = ['.fasta', '.fastq', '.bam', '.txt', '.json', '.log', '.fa', '.phy']
-
-# now join them all together to input possible file extensions that are paired
-KNOWN_FILE_SUFFIXES = tuple(COMPRESSION_SUFFIXES + COMMON_FILE_SUFFIXES)  # make tuple so not mutable
-
 # SEQUENCING PLATFORM REGEX
 ANY_PLATFORM_REGEX = r'^illumina|^pacbio|^sanger'
 PLATFORM_ANYWHERE_RE = r'illumina|pacbio|sanger'
-
-# SEQUENCE REGION PREFIXES + REGEX
-ITS1_PREFIX      = 'its1_'
-SSU_PREFIX       = '18s_'
-ITSLSU_PREFIX    = 'itslsu_'
-
-# SEQUENCING FILE PREFIX CONVERSION DICT
-SEQ_FILE_PREFIX_DICT = {
-    'illumina': ['its1', '18s'],
-    'pacbio': ['itslsu'],
-}
 
 # SAMPLE ID FROM FILE NAME
 # to use as default in get_sample_id() if platform not found
@@ -113,7 +140,6 @@ FWD_COL_RE = r'(fwd)|(forward)'  # find columns with forward barcodes
 REV_COL_RE = r'(rev)|(reverse)'  # find columns with reverse barcodes
 SAMPLE_COL_RE = r'^sample'  # find columns that contain the sample ID
 
-#######################################################################################################################
 # FOR FASTA HEADERS THAT **HAVE NOT** BEEN RENAMED BY RENAMED_READ_HEADER() FROM UTILITIES.PY #########################
 # these regex only apply if the read headers have not been renamed
 # currently, these regex also only apply if the reads have been run through ITSx and have the ITSx headers
@@ -142,7 +168,6 @@ ILLUMINA_SEQ_OG_RE = r'(?<=:)\d{3,}((?=;)|(?=$))'
 # get the full Illumina sequencer read ID
 ILLUMINA_READ_ID_OG = '^.+?((?=;)|(?=$))'
 
-#######################################################################################################################
 # FOR FASTA HEADERS THAT **HAVE** BEEN RENAMED BY RENAMED_READ_HEADER() FROM UTILITIES.PY #############################
 # these regex can only be used after the function rename_read_header() from utilities.py has renamed the read header
 
@@ -162,11 +187,15 @@ READ_LEN_RENAMED_RE = r'(?<=\()[0-9]{1,}(?= bp\))'  # used in concat_regions() i
 # get the read count of a read after the header has been reformatted by rename_read_header() from utilities.py
 READ_COUNT_RENAMED_RE = r'(?<=;size=)[0-9]{1,}(?=\|)'  # used in concat_regions() in bioinfo.py
 
+########################################################################################################################
 
-# POST-ITSX REGION/SUBREGION FILE TAGS
-POST_ITSX_SUFFIXES = {'ITS1': 'ITS1',
-                      '5.8S': '5_8S',
-                      'ITS2': 'ITS2',
-                      'LSU': 'LSU',
-                      'full sequence': 'ITS-LSU',
-                      'full ITS': 'full-ITS'}
+
+## SEQUENCING DETAILS ##################################################################################################
+
+# PLATFORM LIST
+SEQ_PLATFORM_OPTS = ['pacbio', 'illumina', 'sanger']  # no longer used in get_seq_platform()
+
+########################################################################################################################
+
+
+
