@@ -1,0 +1,12 @@
+﻿Mixed bases required,Mixed-base code for DNA,Mixed-base code for RNA
+"A, G",R,rR
+"C, T/U",Y,rY
+"A, C",M,rM
+"G, T/U",K,rK
+"G, C",S,rS
+"A, T",W,rW
+"A, C, T/U",H,rH
+"G, C, T (or U)",B,rB
+"A, C, G",V,rV
+"A, G, T/U",D,rD
+"A, C, G, T/U",N,rN
