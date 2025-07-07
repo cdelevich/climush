@@ -791,20 +791,6 @@ def prefilter_fastx(input_files, output_dir, reference_dir, maxn, qmax, keep_log
                 return_copy=False,
             )
 
-            # if the input files are .fastq, write out additional stats only available for .fastq files
-            if input_filefmt == 'q':
-
-                append_subprocess(
-                    cli_command_list=vsearch_filter_cmd,
-                    options_to_add=['--fastq_stats', vsearch_filter_log],
-                    position=-1,
-                    return_copy=False,
-                )
-
-            # do not add any additional flags if input files are .fasta
-            else:
-                pass
-
         # if no log is to be written out, do nothing
         else:
             pass
