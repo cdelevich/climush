@@ -2440,20 +2440,53 @@ def check_chimeras(input_files, reference_dir, output_dir, method, alpha, keep_c
         for denoised_file in input_sorted[DENOISE_PREFIX]:
 
             # create an output file path for the non-chimeric read output
-            nochim_out = add_prefix(file_path=denoised_file, prefix=NOCHIM_PREFIX,
-                                    dest_dir=nochim_path, action=None)
+            nochim_out = add_prefix(
+                file_path=denoised_file,
+                prefix=NOCHIM_PREFIX,
+                dest_dir=nochim_path,
+                action=None,
+                f_delim=settings['formatting']['filename_delim'],
+                output_compressed=False,
+                replace_prefix=True,
+            )
+
+            # UCHIME will only write out .fasta-formatted files, so ensure output filename is .fasta formatted
+            nochim_out = replace_file_ext(
+                file_path=nochim_out,
+                output_ext='.fasta',
+                create_file=False,
+                replace_file=False,
+                output_dir=None,
+            )
 
             # assemble the vsearch UCHIME3 command for the command line
-            vsearch_denovo_cmd = ['vsearch', '--uchime3_denovo', denoised_file,
-                                  '--abskew', str(alpha),
+            vsearch_denovo_cmd = ['vsearch',
+                                  '--uchime3_denovo', denoised_file,
+                                  '--abskew', str(alpha[method]['denoised']),
                                   '--nonchimeras', nochim_out,
                                   '--uchimeout', uchime_log]
 
             if keep_chimeras:
 
                 # if configured to keep chimeras, create an output file path for chimeric reads
-                chim_out = add_prefix(file_path=denoised_file, prefix=flip_prefix(NOCHIM_PREFIX),
-                                      dest_dir=chim_path, action=None)
+                chim_out = add_prefix(
+                    file_path=denoised_file,
+                    prefix=flip_prefix(NOCHIM_PREFIX),
+                    dest_dir=chim_path,
+                    action=None,
+                    f_delim=settings['formatting']['filename_delim'],
+                    output_compressed=False,
+                    replace_prefix=True,
+                )
+
+                # UCHIME will only write out .fasta-formatted files, so ensure output filename is .fasta formatted
+                chim_out = replace_file_ext(
+                    file_path=chim_out,
+                    output_ext='.fasta',
+                    create_file=False,
+                    replace_file=False,
+                    output_dir=None,
+                )
 
                 # insert the command to keep chimeras into the uchime command
                 append_subprocess(
@@ -2474,12 +2507,28 @@ def check_chimeras(input_files, reference_dir, output_dir, method, alpha, keep_c
         for undenoised_file in input_sorted[flip_prefix(DENOISE_PREFIX)]:
 
             # create an output file path for the non-chimeric read output
-            nochim_out = add_prefix(file_path=undenoised_file, prefix=NOCHIM_PREFIX,
-                                    dest_dir=nochim_path, action=None)
+            nochim_out = add_prefix(
+                file_path=undenoised_file,
+                prefix=NOCHIM_PREFIX,
+                dest_dir=nochim_path,
+                action=None,
+                f_delim=settings['formatting']['filename_delim'],
+                output_compressed=False,
+                replace_prefix=True,
+            )
+
+            # UCHIME will only write out .fasta-formatted files, so ensure output filename is .fasta formatted
+            nochim_out = replace_file_ext(
+                file_path=nochim_out,
+                output_ext='.fasta',
+                create_file=False,
+                replace_file=False,
+                output_dir=None,
+            )
 
             # assemble the vsearch UCHIME3 command for the command line
             vsearch_denovo_cmd = ['vsearch', '--uchime_denovo', undenoised_file,
-                                  '--abskew', str(alpha),
+                                  '--abskew', str(alpha[method]['undenoised']),
                                   '--nonchimeras', nochim_out,
                                   '--uchimeout', uchime_log]
 
@@ -2491,6 +2540,18 @@ def check_chimeras(input_files, reference_dir, output_dir, method, alpha, keep_c
                     prefix=flip_prefix(NOCHIM_PREFIX),
                     dest_dir=chim_path,
                     action=None,
+                    f_delim=settings['formatting']['filename_delim'],
+                    output_compressed=False,
+                    replace_prefix=True,
+                )
+
+                # UCHIME will only write out .fasta-formatted files, so ensure output filename is .fasta formatted
+                chim_out = replace_file_ext(
+                    file_path=chim_out,
+                    output_ext='.fasta',
+                    create_file=False,
+                    replace_file=False,
+                    output_dir=None,
                 )
 
                 # insert the command to keep chimeras into the uchime command
@@ -2664,10 +2725,27 @@ def check_chimeras(input_files, reference_dir, output_dir, method, alpha, keep_c
                 for input_file in region_file_list:
 
                     # file name of the non-chimeric sequences for this sample
-                    nochim_out = add_prefix(file_path=input_file, prefix=NOCHIM_PREFIX,
-                                            dest_dir=region_nonchim_out, action=None)
+                    nochim_out = add_prefix(
+                        file_path=input_file,
+                        prefix=NOCHIM_PREFIX,
+                        dest_dir=region_nonchim_out,
+                        action=None,
+                        f_delim=settings['formatting']['filename_delim'],
+                        output_compressed=False,
+                        replace_prefix=True,
+                    )
+
+                    # UCHIME will only write out .fasta-formatted files, so ensure output filename is .fasta formatted
+                    nochim_out = replace_file_ext(
+                        file_path=nochim_out,
+                        output_ext='.fasta',
+                        create_file=False,
+                        replace_file=False,
+                        output_dir=None,
+                    )
 
                     vsearch_ref_cmd = ['vsearch', '--uchime_ref', input_file,
+                                       '--abskew', str(alpha[method]),
                                        '--nonchimeras', nochim_out,
                                        '--uchimeout', uchime_log,
                                        '--db', chim_ref_file]
@@ -2685,8 +2763,24 @@ def check_chimeras(input_files, reference_dir, output_dir, method, alpha, keep_c
                             region_chim_out = chim_path
 
                         # file name of the chimeric sequences for this sample (if keep_chimeras=True)
-                        chim_out = add_prefix(file_path=input_file, prefix=flip_prefix(NOCHIM_PREFIX),
-                                              dest_dir=region_chim_out, action=None)
+                        chim_out = add_prefix(
+                            file_path=input_file,
+                            prefix=flip_prefix(NOCHIM_PREFIX),
+                            dest_dir=region_chim_out,
+                            action=None,
+                            f_delim=settings['formatting']['filename_delim'],
+                            output_compressed=False,
+                            replace_prefix=True,
+                        )
+
+                        # UCHIME will only write out .fasta-formatted files, so ensure output filename is .fasta formatted
+                        chim_out = replace_file_ext(
+                            file_path=chim_out,
+                            output_ext='.fasta',
+                            create_file=False,
+                            replace_file=False,
+                            output_dir=None,
+                        )
 
                         # insert the command to keep chimeras into the uchime command
                         append_subprocess(
@@ -2700,8 +2794,13 @@ def check_chimeras(input_files, reference_dir, output_dir, method, alpha, keep_c
                         pass
 
                     # execute the chimera detection vsearch command for this sample sequence file
-                    run_subprocess(vsearch_ref_cmd, dest_dir=chim_parent, run_name=run_name, program='uchime-ref',
-                                   auto_respond=settings['automate']['auto_respond'])
+                    run_subprocess(
+                        vsearch_ref_cmd,
+                        dest_dir=chim_parent,
+                        run_name=run_name,
+                        program='uchime-ref',
+                        auto_respond=settings['automate']['auto_respond'],
+                    )
 
     else:
         pass
@@ -2710,6 +2809,9 @@ def check_chimeras(input_files, reference_dir, output_dir, method, alpha, keep_c
 
     # create an empty dictionary to add sample IDs and read counts of empty files only (no sequences)
     empty_nonchim = {}
+
+    # create a Boolean that will switch to True if there are samples added to empty_nonchim dict
+    samples_with_only_chimeras = False
 
     # go through each non-chimeric file that was just created
     for nonchim_file in nochim_path.glob(f'{NOCHIM_PREFIX}*fasta'):
@@ -2729,12 +2831,24 @@ def check_chimeras(input_files, reference_dir, output_dir, method, alpha, keep_c
             # append the sample ID and read count to the empty non-chim dictionary
             empty_nonchim.update({sample_id: read_count})
 
-    # after going through each non-chimeric file, write out the empty non-chimeric samples to a summary file
-    empty_nonchim_out = chim_parent / f'{run_name}_no-nonchim-reads.txt'
-    with open(empty_nonchim_out, 'wt') as fout:
-        fout.write(f'read count\tsample id\n')
-        for sample_id, read_count in empty_nonchim.items():
-            fout.write(f'{read_count}\t{sample_id}\n')
+            # switch to True
+            samples_with_only_chimeras = True
+
+    # after going through each non-chimeric file...
+
+    # if samples without any non-chimera reads were detected...
+    if samples_with_only_chimeras:
+
+        # write out the empty non-chimeric samples to a summary file
+        empty_nonchim_out = chim_parent / f'{run_name}_no-nonchim-reads.txt'
+        with open(empty_nonchim_out, 'wt') as fout:
+            fout.write(f'read count\tsample id\n')
+            for sample_id, read_count in empty_nonchim.items():
+                fout.write(f'{read_count}\t{sample_id}\n')
+
+    # otherwise, do nothing
+    else:
+        pass
 
     return None
 
@@ -3711,8 +3825,6 @@ def denoise(input_files, reference_dir, alpha, minsize, clust_threshold, pool_sa
 
     return None
 
-
-
 def create_otu_fasta(query_fasta, reference_dir, otu_label='OTU', keep_abund=True, clust_threshold=None):
 
     # confirm that the input directory is a Path object
@@ -3770,9 +3882,6 @@ def create_otu_fasta(query_fasta, reference_dir, otu_label='OTU', keep_abund=Tru
 
     return query_fasta.parent
 
-
-
-
 def choose_representative(input_files, file_map):
     '''
     Decide which PacBio read to use as the representative read.
@@ -3784,72 +3893,6 @@ def choose_representative(input_files, file_map):
 
     # create a BioSeq object to store the representative reads into
     # combine all representative reads into a single file
-
-# def create_blast_db(config_dict, file_map, taxa_list=None):
-#     '''
-#     Create a reference dataset for BLAST+ search.
-#
-#     :param config_dict: configuration file dictionary; required to get the list
-#     of reference databases to use, as defined by user in the configuration file.
-#     :param file_map: file mapping, from mapping.py
-#     :param taxa_list: option; list of taxa to include if wanting to limit search
-#     to a specific taxonomic group
-#     :return: returns path to the newly created db for blastn search; creates a custom
-#     database using BLAST+ makeblastdb from the command line
-#     '''
-#     tax_settings = config_dict['taxonomy']
-#     db_dir = file_map['config']['reference-db']
-#
-#     include_genbank = tax_settings['refdb']['genbank']['include']
-#     include_unite = tax_settings['refdb']['unite']['include']
-#     include_custom = tax_settings['refdb']['custom']['include']
-#     include_maarjam = tax_settings['refdb']['maarjam']['include']
-#
-#     included_tag = ''
-#     db_include_list = []
-#     if include_genbank:
-#         genbank_fasta = db_dir.glob('*genbank*')
-#         db_include_list.append(genbank_fasta)
-#         included_tag += 'G'
-#
-#     if include_unite:
-#         unite_fasta = db_dir.glob('*unite*')
-#         db_include_list.append(unite_fasta)
-#         included_tag += 'U'
-#
-#     if include_custom:
-#         custom_fasta = db_dir.glob('*custom*')
-#         db_include_list.append(custom_fasta)
-#         included_tag += 'C'
-#
-#     if include_maarjam:
-#         maarjam_fasta = db_dir.glob('*maarjam*')
-#         db_include_list.append(maarjam_fasta)
-#         included_tag += 'M'
-#
-#     custom_search_records = []
-#     for db in db_include_list:
-#         for record in SeqIO.parse(db, 'fasta'):
-#             if taxa_list is None:
-#                 custom_search_records.append(record)
-#             else:
-#                 pass  # NEED TO SEE HOW TO GET ONLY SPECIFIC TAXONOMY, NOT SURE HOW FORMATTED
-#
-#     tax_out_dir = file_map['pipeline-output']['taxonomy']
-#
-#     search_date = datetime.today.strftime('%Y-%M-%d')
-#     output_basename = f'custom-ref-{included_tag}_{search_date}'
-#     output_path = (tax_out_dir / output_basename).with_suffix('.fasta')
-#
-#     SeqIO.write(custom_search_records, output_path, 'fasta')
-#
-#     output_db = tax_out_dir / f'{output_basename}_blast'
-#     blast_cmd = ['makeblastdb', '-in', output_path, '-title', output_db, '-dbtype', 'nucl',
-#                  output_db]
-#
-#     run_subprocess(blast_cmd, dest_dir = output_db)
-#
-#     return output_db
 
 def assign_taxonomy(otu_fasta, query_fasta, reference_dir, method=None):
 
@@ -3919,7 +3962,10 @@ def cluster_reads(input_files, output_dir, reference_dir, clust_threshold, clust
     clust_parent = mkdir_exist_ok(new_dir=output_dir)
 
     # create a directory within the main clustering output for this particular pipeline run
-    clust_output = mkdir_exist_ok(new_dir=f'./{CLUSTER_PREFIX}_{run_name}', parent_dir=clust_parent)
+    clust_output = mkdir_exist_ok(
+        new_dir=f'./{CLUSTER_PREFIX}_{run_name}',
+        parent_dir=clust_parent,
+    )
 
 
     ## FLATTEN INPUT FILE LIST ########################
@@ -4044,3 +4090,104 @@ def cluster_reads(input_files, output_dir, reference_dir, clust_threshold, clust
 
     # return the output path for clustered sequences from this bioinformatics run
     return clust_output
+
+def combine_reads(input_dir, output_dir, platform, reference_dir, rename_headers):
+
+    # create list of files from input dir if not already list of files
+    if isinstance(input_dir, list):
+        input_files=input_dir
+    else:
+        input_files=create_file_list(file_input=input_dir)
+
+    # import the settings for the bioinformatics configuration
+    settings = get_settings(reference_dir)
+    run_name = settings['run_details']['run_name']
+
+    # create a list to add new sequence records to (need new seq record to change headers)
+    combined_seq_records = []
+
+    ## CREATE OUTPUT .FASTA FILE FOR COMBINED SEQUENCES ##
+
+    mkdir_exist_ok(output_dir)
+    combined_seqs_out = (output_dir / f'{run_name}_combined-reads').with_suffix('.fasta')
+
+    ## GO THROUGH EACH SAMPLE'S SEQUENCE FILE ##
+
+    for seq_file_in in input_files:
+
+        ## GET THIS SAMPLE'S ID ##
+
+        sample_id = get_sample_id(file_path=seq_file_in).replace('_R1', '')
+        sample_header = f'sample={sample_id}'
+
+        ## GO THROUGH EACH OF THIS SAMPLE'S READS ##
+
+        with open(seq_file_in, 'rt') as seq_in:
+            for record in SeqIO.parse(seq_in, format='fasta'):
+
+                # only do this if you want to rename the read headers:
+                if rename_headers:
+                    ## GET THIS READ'S COPY NUMBER ##
+
+                    # search for the read copy number in this read's header
+                    try:
+                        size_header = re.search(r'size=\d{1,}', record.description).group(0)
+                    except AttributeError:
+                        size_header = 'size=NA'
+
+                    ## CREATE THIS READ'S UNIQUE IDENTIFIER ##
+
+                    # create a unique read identifier using the sample Id and the sequencer's header identifier
+                    if platform == 'illumina':
+
+                        # try to get a unique combination of values from the sequencer's read identifier
+                        try:
+                            read_id = re.search(r'(?<=:)\d{1,}:\d{1,}:\d{1,}(?=;)', record.description).group(0)
+                        except AttributeError:
+                            read_id = ''
+
+                        # tag the read ID to the end of this sample's ID and assign to the otu= identifier in the header
+                        read_id_header = f'otu={sample_id}_{read_id}'
+
+                    else:
+                        error_msg = f'This function is not yet formatted to work with any platform other than illumina'
+                        return exit_process(err_msg)
+
+                    ## COMBINE HEADER ELEMENTS INTO SINGLE HEADER ##
+
+                    # combine the sample ID, otu/read ID, and size into the new read header
+                    updated_read_header = ';'.join([sample_header, read_id_header, size_header])
+
+                    ## CREATE A NEW SEQUENCE RECORD WITH THE NEW READ HEADER ##
+
+                    # create a new SeqRecord with this updated read header
+                    new_seq_record = SeqRecord(
+                        id=updated_read_header,
+                        name=updated_read_header,
+                        description=updated_read_header,
+                        seq=record.seq
+                    )
+
+                    ## ADD UPDATED SEQUENCE RECORD TO LIST OF UPDATED RECORDS FOR THIS SAMPLE ##
+
+                    # add this sequence record with the updated read header to the list of records to update
+                    combined_seq_records.append(new_seq_record)
+
+                # otherwise, if only gathering reads into single file, add original record to list
+                else:
+                    combined_seq_records.append(record)
+
+    ## WRITE ALL RENAMED READS TO SINGLE FILE FOR ALL SAMPLES IN THIS SEQUENCE GROUP ##
+
+    # once new sequence records have been created for all samples for this DNA region, write out .fasta
+    SeqIO.write(combined_seq_records, combined_seqs_out, 'fasta')
+
+    # confirm file was created
+    if combined_seqs_out.is_file:
+
+        print(f'{len(combined_seq_records)} sequences were combined across {len(input_files)} samples '
+              f'in the {run_name} bioinformatics group.\n')
+
+
+    # return the output path
+    return combined_seqs_out
