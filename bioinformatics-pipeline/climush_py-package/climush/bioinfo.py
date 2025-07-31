@@ -553,7 +553,7 @@ def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_lo
             dest_dir=nophix_path,
             f_delim=settings['formatting']['filename_delim'],
             output_compressed=True,
-            replace_prefix=True,
+            replace_prefix=False,
         )
         # rev (R2)
         nophix_rev_out = add_prefix(
@@ -563,7 +563,7 @@ def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_lo
             dest_dir=nophix_path,
             f_delim=settings['formatting']['filename_delim'],
             output_compressed=True,
-            replace_prefix=True,
+            replace_prefix=False,
         )
 
         # create a standard bbduk command list, without any extra options like log files or keeping discarded reads
@@ -596,7 +596,7 @@ def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_lo
                 dest_dir=phix_path,
                 f_delim=settings['formatting']['filename_delim'],
                 output_compressed=True,
-                replace_prefix=True,
+                replace_prefix=False,
             )
             # rev (R2)
             phix_rev_out = add_prefix(
@@ -606,7 +606,7 @@ def filter_out_phix(input_files, output_dir, reference_dir, kmer, hdist, keep_lo
                 dest_dir=phix_path,
                 f_delim=settings['formatting']['filename_delim'],
                 output_compressed=True,
-                replace_prefix=True,
+                replace_prefix=False,
             )
 
             # create a list of values that need to be added to the original bbduk command in order for the
