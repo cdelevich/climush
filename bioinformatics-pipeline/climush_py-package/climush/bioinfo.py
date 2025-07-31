@@ -10,7 +10,7 @@ from datetime import datetime
 from climush.constants import *
 from climush.utilities import *
 
-def demultiplex(output_dir, reference_dir, multiplexed_files, verbose):
+def demultiplex(output_dir, reference_dir, multiplexed_files, min_score, verbose):
 
     # DEFINE RELEVANT FILE PATHS ####################################################################
     # get the paths needed for demux
@@ -303,7 +303,7 @@ def demultiplex(output_dir, reference_dir, multiplexed_files, verbose):
             out_prefix = (seq_run_output / f'lima-demux_{seq_run}_pool{pool_num}').with_suffix('.fasta')
 
             # assemble list of commands required to run lima demultiplexing
-            lima_cmd = ['lima', pool, barcode_fasta, out_prefix, '--min-score', '93', '--hifi-preset', 'ASYMMETRIC']
+            lima_cmd = ['lima', pool, barcode_fasta, out_prefix, '--min-score', min_score, '--hifi-preset', 'ASYMMETRIC']
 
             run_subprocess(cli_command_list=lima_cmd, dest_dir=lima_output, run_name=run_name,
                            auto_respond=settings['automate']['auto_respond'])
