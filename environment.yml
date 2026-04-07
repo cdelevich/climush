@@ -1,0 +1,10 @@
+name: climush_env
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python==3.12
+  - vsearch
+  - scikit-bio
+prefix: /Users/carolyndelevich/miniconda3/envs/climush_env

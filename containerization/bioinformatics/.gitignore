@@ -1,0 +1,6 @@
+older-versions/
+docker_make.sh
+app/bash_aliases
+app/climush_py-package
+app/config
+app/pipeline

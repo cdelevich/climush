@@ -1,0 +1,19 @@
+name: climush
+
+services:
+  climush-bioinformatics:
+    platform: linux/amd64
+    image: cdelevich/climush-bioinfo:latest
+    pull_policy: always
+    stdin_open: true
+    tty: true
+    volumes:
+      - type: bind
+        source: /home/mycophile/config
+        target: ${PWD}
+      - type: bind
+        source: /home/$USER/sequences
+        target: ${PWD}
+      - type: bind
+        source: /home/$USER/pipeline-output
+        target: ${PWD}  # try without quotes to see if it works; try without braces

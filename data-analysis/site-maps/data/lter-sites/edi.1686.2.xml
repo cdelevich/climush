@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<eml:eml packageId="edi.1686.2" system="https://pasta.edirepository.org"
+  xmlns:eml="https://eml.ecoinformatics.org/eml-2.2.0"
+  xmlns:stmml="http://www.xml-cml.org/schema/stmml-1.2"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="https://eml.ecoinformatics.org/eml-2.2.0 https://eml.ecoinformatics.org/eml-2.2.0/eml.xsd">
+   <access
+    authSystem="https://pasta.edirepository.org/authentication"
+    order="allowFirst" scope="document"
+      system="https://pasta.edirepository.org">
+      <allow>
+         <principal>uid=EDI,o=EDI,dc=edirepository,dc=org</principal>
+         <permission>all</permission>
+      </allow>
+      <allow>
+         <principal>https://orcid.org/0000-0003-3905-1078</principal>
+         <permission>all</permission>
+      </allow>
+      <allow>
+         <principal>public</principal>
+         <permission>read</permission>
+      </allow>
+   </access>
+   <dataset>
+      <alternateIdentifier
+        system="https://doi.org">doi:10.6073/pasta/58b38431cffe6f235d46fee4475dae5c</alternateIdentifier><title>Long Term Ecological Research (LTER) Network Site Boundaries</title>
+      <creator>
+         <individualName>
+            <givenName>Martha</givenName>
+            <givenName>R</givenName>
+            <surName>Downs</surName>
+         </individualName>
+         <organizationName>Long Term Ecological Research Network Office</organizationName>
+         <positionName>Director</positionName>
+         <address>
+            <city>Santa Barbara</city>
+            <administrativeArea>CA</administrativeArea>
+         </address>
+         <electronicMailAddress>downs@nceas.ucsb.edu</electronicMailAddress>
+         <onlineUrl>https://orcid.org/0000-0003-2833-956X</onlineUrl>
+         <userId
+        directory="https://orcid.org">0000-0003-2833-956X</userId>
+      </creator>
+      <creator>
+         <individualName>
+            <givenName>Nicholas</givenName>
+            <givenName>J</givenName>
+            <surName>Lyon</surName>
+         </individualName>
+         <organizationName>Long Term Ecological Research Network Office</organizationName>
+         <positionName>Data Scientist</positionName>
+         <electronicMailAddress>lyon@nceas.ucsb.edu</electronicMailAddress>
+         <onlineUrl>https://njlyon0.github.io/</onlineUrl>
+         <userId
+      directory="https://orcid.org">0000-0003-3905-1078</userId>
+      </creator>
+      <pubDate>2024-09-13</pubDate>
+      <abstract>
+         <para>This is a set of Long Term Ecological Research (LTER) site boundaries preserved as a shapefile. Note that for some sites “real” boundaries are included while others–particularly marine sites–use a simpler bounding box method. Each site is listed both with its three-letter abbreviation and its unabbreviated name. World Geodetic System 1984 (WGS84) is the coordinate reference system used (EPSG:4326). More information about any of the sites can be found on the LTER Site Profiles page on the LTER Network website (https://lternet.edu/site).</para>
+         <para>This data product was made possible by the contributions of the Information Managers for the LTER sites, each of whom contributed their sites' boundaries.</para>
+         <para>This version of the data includes the following changes from the prior version:</para>
+         <para>- Arctic (ARC) updated</para>
+         <para>- Cedar Creek (CDR) updated</para>
+         <para>- Florida Coastal Everglades (FCE) updated</para>
+         <para>- Harvard Forest (HFR) updated</para>
+         <para>- Konza Prairie (KNZ) updated</para>
+         <para>- McMurdo Dry Valleys (MCM) updated</para>
+         <para>- Moorea Coral Reef (MCR) updated</para>
+      </abstract>
+      <keywordSet>
+         <keyword>LTER</keyword>
+         <keyword>spatial vector</keyword>
+         <keyword>site boundaries</keyword>
+         <keyword>shapefile</keyword>
+      </keywordSet>
+      <keywordSet>
+         <keyword>geographic information system</keyword>
+         <keywordThesaurus>GIS</keywordThesaurus>
+      </keywordSet>
+      <intellectualRights>
+         <para>This information is released under the Creative Commons license - Attribution - CC BY (https://creativecommons.org/licenses/by/4.0/). The consumer of these data ("Data User" herein) is required to cite it appropriately in any publication that results from its use. The Data User should realize that these data may be actively used by others for ongoing research and that coordination may be necessary to prevent duplicate publication. The Data User is urged to contact the authors of these data if any questions about methodology or results occur. Where appropriate, the Data User is encouraged to consider collaboration or co-authorship with the authors. The Data User should realize that misinterpretation of data may occur if used out of context of the original study. While substantial efforts are made to ensure the accuracy of data and associated documentation, complete accuracy of data sets cannot be guaranteed. All data are made available "as is." The Data User should be aware, however, that data are updated periodically and it is the responsibility of the Data User to check for new versions of the data. The data authors and the repository where these data were obtained shall not be liable for damages resulting from any use or misinterpretation of the data. Thank you.</para>
+      </intellectualRights>
+      <distribution
+      id="10.6073/pasta/58b38431cffe6f235d46fee4475dae5c" scope="system"
+          system="https://pasta.edirepository.org"><online><url
+        function="information">https://doi.org/10.6073/pasta/58b38431cffe6f235d46fee4475dae5c</url></online></distribution><coverage>
+         <geographicCoverage>
+            <geographicDescription>This shapefile contains separate polygons for each LTER site's boundary. The bounding coordinates for each site differ from those listed below but all sites fall within the bounding coordinates identified below.</geographicDescription>
+            <boundingCoordinates>
+               <westBoundingCoordinate>-157.0</westBoundingCoordinate>
+               <eastBoundingCoordinate>165.5</eastBoundingCoordinate>
+               <northBoundingCoordinate>71.5</northBoundingCoordinate>
+               <southBoundingCoordinate>-78.0</southBoundingCoordinate>
+            </boundingCoordinates>
+         </geographicCoverage>
+         <temporalCoverage>
+            <singleDateTime>
+               <calendarDate>2024</calendarDate>
+            </singleDateTime>
+         </temporalCoverage>
+      </coverage>
+      <maintenance>
+         <description>
+            <para>Site boundaries tend to be fairly static over time but this resource will be updated if any substantial changes are made to one or more sites' extents.</para>
+         </description>
+         <maintenanceUpdateFrequency>asNeeded</maintenanceUpdateFrequency>
+      </maintenance>
+      <contact>
+         <individualName>
+            <givenName>Martha</givenName>
+            <givenName>R</givenName>
+            <surName>Downs</surName>
+         </individualName>
+         <organizationName>Long Term Ecological Research Network Office</organizationName>
+         <positionName>Director</positionName>
+         <address>
+            <city>Santa Barbara</city>
+            <administrativeArea>CA</administrativeArea>
+         </address>
+         <electronicMailAddress>downs@nceas.ucsb.edu</electronicMailAddress>
+         <onlineUrl>https://orcid.org/0000-0003-2833-956X</onlineUrl>
+         <userId
+        directory="https://orcid.org">0000-0003-2833-956X</userId>
+      </contact>
+      <publisher>
+         <organizationName>Environmental Data Initiative</organizationName>
+         <electronicMailAddress>info@edirepository.org</electronicMailAddress>
+         <onlineUrl>https://edirepository.org</onlineUrl>
+         <userId
+          directory="https://ror.org">0330j0z60</userId>
+      </publisher>
+      <pubPlace>Environmental Data Initiative</pubPlace>
+      <methods>
+         <methodStep>
+            <description>
+               <para>The polygons for each site were created by the Information Manager (IM) of that site and thus vary somewhat among polygons. Some sites' boundaries are a simple rectangular bounding box while others are more precise. If more specific provenance is needed for a particular site or sites, please use the LTER Network directory (https://lternet.edu/directory/) to identify the IM of the relevant site(s).</para>
+            </description>
+         </methodStep>
+      </methods>
+      <project>
+         <title>Long Term Ecological Research (LTER) Network Site Boundaries</title>
+         <personnel>
+            <individualName>
+               <givenName>Martha</givenName>
+               <givenName>R</givenName>
+               <surName>Downs</surName>
+            </individualName>
+            <organizationName>Long Term Ecological Research Network Office</organizationName>
+            <positionName>Director</positionName>
+            <address>
+               <city>Santa Barbara</city>
+               <administrativeArea>CA</administrativeArea>
+            </address>
+            <electronicMailAddress>downs@nceas.ucsb.edu</electronicMailAddress>
+            <onlineUrl>https://orcid.org/0000-0003-2833-956X</onlineUrl>
+            <userId
+      directory="https://orcid.org">0000-0003-2833-956X</userId>
+            <role>Director</role>
+         </personnel>
+      </project>
+      <dataTable
+      id="d37ef160635f4ffe34a78e2635a81650" scope="document"
+          system="https://pasta.edirepository.org">
+         <entityName>lter_site-names</entityName>
+         <entityDescription>Table of LTER site names and three-letter abbreviations</entityDescription>
+         <physical>
+            <objectName>lter_site-names.csv</objectName>
+            <size
+          unit="byte">809</size>
+            <authentication
+              method="MD5">12aa0aa79d44f76164e98283d6a76329</authentication>
+            <dataFormat>
+               <textFormat>
+                  <numHeaderLines>1</numHeaderLines>
+                  <recordDelimiter>\n</recordDelimiter>
+                  <attributeOrientation>column</attributeOrientation>
+                  <simpleDelimited>
+                     <fieldDelimiter>,</fieldDelimiter>
+                     <quoteCharacter>"</quoteCharacter>
+                  </simpleDelimited>
+               </textFormat>
+            </dataFormat>
+            <distribution>
+               <online>
+                  <url
+            function="download">https://pasta.lternet.edu/package/data/eml/edi/1686/2/d37ef160635f4ffe34a78e2635a81650</url>
+               </online>
+            </distribution>
+         </physical>
+         <attributeList>
+            <attribute>
+               <attributeName>SITE</attributeName>
+               <attributeLabel>SITE</attributeLabel>
+               <attributeDefinition>Three-letter LTER site abbreviations</attributeDefinition>
+               <storageType
+            typeSystem="XML Schema Datatypes">string</storageType>
+               <measurementScale>
+                  <nominal>
+                     <nonNumericDomain>
+                        <textDomain>
+                           <definition>text</definition>
+                        </textDomain>
+                     </nonNumericDomain>
+                  </nominal>
+               </measurementScale>
+            </attribute>
+            <attribute>
+               <attributeName>NAME</attributeName>
+               <attributeLabel>NAME</attributeLabel>
+               <attributeDefinition>Full LTER site name (excluding "LTER" that would be repeated across all sites).</attributeDefinition>
+               <storageType
+      typeSystem="XML Schema Datatypes">string</storageType>
+               <measurementScale>
+                  <nominal>
+                     <nonNumericDomain>
+                        <textDomain>
+                           <definition>text</definition>
+                        </textDomain>
+                     </nonNumericDomain>
+                  </nominal>
+               </measurementScale>
+            </attribute>
+         </attributeList>
+         <caseSensitive>no</caseSensitive>
+         <numberOfRecords>30</numberOfRecords>
+      </dataTable>
+      <otherEntity
+      id="37f05bc8f287abc3c530bedc69ff538b" scope="document"
+          system="https://pasta.edirepository.org">
+         <entityName>lter_site-boundaries</entityName>
+         <entityDescription>A compressed file (.zip) containing the component parts of a shapefile (i.e., shp, shx, prj, and dbf)</entityDescription>
+         <physical>
+            <objectName>lter_site-boundaries.zip</objectName>
+            <size
+          unit="byte">1775450</size>
+            <authentication
+              method="MD5">887abc6479ca347b6bdde714204817fd</authentication>
+            <dataFormat>
+               <externallyDefinedFormat>
+                  <formatName>application/zip</formatName>
+               </externallyDefinedFormat>
+            </dataFormat>
+            <distribution>
+               <online>
+                  <url
+        function="download">https://pasta.lternet.edu/package/data/eml/edi/1686/2/37f05bc8f287abc3c530bedc69ff538b</url>
+               </online>
+            </distribution>
+         </physical>
+         <entityType>application/zip</entityType>
+      </otherEntity>
+   </dataset>
+   <additionalMetadata>
+      <metadata>
+         <emlEditor
+        app="ezEML" release="2024.09.11"/>
+      </metadata>
+   </additionalMetadata>
+</eml:eml>
