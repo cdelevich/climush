@@ -43,6 +43,15 @@ parser.add_argument(
          'will be written.',
 )
 
+## ERROR RATE ##
+
+# parser.add_argument(
+#     '-e', '--max-error',
+#     required=False,
+#     default=settings['remove_primers']['max_error_rate'],
+# )
+
+
 ## ONLY CHECK FOR PRIMERS, NO TRIM ##
 
 # the action is what will occur if the flag is used

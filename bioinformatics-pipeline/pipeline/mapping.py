@@ -92,3 +92,5 @@ filepath_map = {'root': ROOT,
                                     'otu-table': OTU_TAB,
                                     'summary': SUMMARY}
                 }
+
+fpm = filepath_map

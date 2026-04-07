@@ -42,7 +42,7 @@ subplot.format   = ""                   # string; TBD whether glob/regex
 
 [NIWOT]
 
-compartment.source.position  = ""       # integer; either positive or negative indexing allowed
+compartment.source.position  = -2       # integer; either positive or negative indexing allowed
 compartment.source.format    = { }      # dictionary
 compartment.species.position = ""       # integer; either positive or negative indexing allowed
 compartment.species.format   = { }      # dictionary

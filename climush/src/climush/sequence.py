@@ -1,916 +1,932 @@
+from pathlib import Path
+from typing import get_args, Literal
+from functools import wraps
+
+from Bio import SeqIO
+
+class SeqFileError(Exception):
+    """
+    Exception raised when file type of sequence file is not valid.
+    """
+
+    def __init__(self, message):
+
+        self.message = message
+        super().__init__(self.message)
+
+    def __str__(self):
+        return f'{self.message}'
+
+def require_seqfile(func):
+    """
+    Require function's file input to be a sequence file
+    with either a .fasta or .fastq file format
+    :param func:
+    :return:
+    """
+    @wraps(func)
+    def check_seqfile_ext(*args):
+        search_seqfile = re.compile(r'(?<=\.)fa(st(a|q))?$')
+        for arg in args:
+            if get_args(arg)
+        return func(*args)
+    return check_seqfile_ext
 
 
 class Sequence:
 
 
+
     def __init__(self, filepath: Path):
-        print('Sequence')
+        print(f'Sequence.')
+
+    @require_seqfile
+    def import_reads(self, filepath: Path):
+        """
+        Import reads from a .fasta- or .fastq-formatted
+        sequence file.
+        :return:
+        """
+
+        # get file type of input sequence file
+        seq_ftype = [
+            ftype for ftype in self.filepath.suffixes
+        ]
+
+        # if single match, use this as file extension
+        if len(seq_ftype) == 1:
+            return SeqIO.parse(self.filepath, seq_ftype[0])
+
+
+    def to_fastq(self, filepath: Path):
+        ...
+
+    def to_fasta(self, filepath: Path):
+        ...
+
+    def to_fastx(self, filepath: Path):
+        ...
+
+    def to_genbank(self, filepath: Path):
+        """
+        Write sequences out with annotations to the GenBank
+        file format (.gb), a rich format that stores sequences
+        and sequence annotations.
+        :param filepath:
+        :return:
+        """
 
 
 
+def prefilter_fastx(input_files, output_dir, reference_dir, maxn, qmax, keep_log, keep_removed_seqs):
 
-    def prefilter_fastx(input_files, output_dir, reference_dir, maxn, qmax, keep_log, keep_removed_seqs):
+    ## LOAD SETTINGS ##
 
-        ## LOAD SETTINGS ##
+    # load in the configuration settings
+    settings = get_settings(reference_dir)
+    run_name = settings['run_details']['run_name']
 
-        # load in the configuration settings
-        settings = get_settings(reference_dir)
-        run_name = settings['run_details']['run_name']
+    ## CREATE OUTPUT FILE PATHS ##
 
-        ## CREATE OUTPUT FILE PATHS ##
+    # create a directory to send all output files and directories to
+    noambig_parent = mkdir_exist_ok(new_dir=output_dir)
 
-        # create a directory to send all output files and directories to
-        noambig_parent = mkdir_exist_ok(new_dir=output_dir)
+    # create a parent directory to sort reads w/o ambiguous base calls into
+    noambig_path = mkdir_exist_ok(
+        new_dir=f'./{NOAMBIG_PREFIX}_{run_name}',
+        parent_dir=noambig_parent,
+    )
 
-        # create a parent directory to sort reads w/o ambiguous base calls into
-        noambig_path = mkdir_exist_ok(
-            new_dir=f'./{NOAMBIG_PREFIX}_{run_name}',
-            parent_dir=noambig_parent,
+    ## FILTER INPUT SEQUENCES IN PAIRS ##
+
+    # create pairs of R1/R2 reads in order to process reads in paired files (required)
+    pairs_dict = pair_reads(input_files)
+
+    for input_fwd, input_rev in pairs_dict.items():
+
+        # determine the file format of the input sequence files; pull just the difference
+        #    between .fasta and .fastq (i.e., the a or q from the string)
+        input_filefmt = input_fwd.suffixes[0][-1]
+
+        # create an output file name for sequences without ambiguous base call counts exceeding maxn
+        # fwd (R1)
+        noambig_fwd_out = add_prefix(
+            file_path=input_fwd,
+            prefix=NOAMBIG_PREFIX,
+            action=None,
+            dest_dir=noambig_path,
+            f_delim=settings['formatting']['filename_delim'],
+            output_compressed=False,
+            replace_prefix=True,
+        )
+        # rev (R2)
+        noambig_rev_out = add_prefix(
+            file_path=input_rev,
+            prefix=NOAMBIG_PREFIX,
+            action=None,
+            dest_dir=noambig_path,
+            f_delim=settings['formatting']['filename_delim'],
+            output_compressed=False,
+            replace_prefix=True,
         )
 
-        ## FILTER INPUT SEQUENCES IN PAIRS ##
+        # compile the standard VSEARCH filtering function and options
+        vsearch_filter_cmd = [
+            'vsearch',  # call vsearch
+            '--fastx_filter', input_fwd,  # filter command - fwd reads
+            '--reverse', input_rev,  # filter command - rev reads
+            f'--fast{input_filefmt}out', noambig_fwd_out,  # output file - fwd reads
+            f'--fast{input_filefmt}out_rev', noambig_rev_out,  # output file - rev reads
+            f'--fast{input_filefmt}_maxns', str(maxn),  # maximum number of ambiguous base calls allowed
+        ]
 
-        # create pairs of R1/R2 reads in order to process reads in paired files (required)
-        pairs_dict = pair_reads(input_files)
+        # if the input files are .fastq files, will need to increase the maximum quality score allowed for input
+        #  files in order to avoid an error with the default maximum quality score of 41
+        if input_filefmt == 'q':
+            append_subprocess(
+                cli_command_list=vsearch_filter_cmd,
+                options_to_add=['--fastq_qmax', str(qmax)],
+                position=-1,  # add to the end of the standard vsearch filter command, just after --fastx_maxns
+                return_copy=False,
+            )
+        # if the input files are .fasta files, then no need to worry about the quality scores
+        else:
+            pass
 
-        for input_fwd, input_rev in pairs_dict.items():
+        # check whether reads that don't pass the filter should be retained in a separate directory
+        if keep_removed_seqs:
 
-            # determine the file format of the input sequence files; pull just the difference
-            #    between .fasta and .fastq (i.e., the a or q from the string)
-            input_filefmt = input_fwd.suffixes[0][-1]
+            # create an output directory for sequences with ambiguous base calls
+            ambig_path = mkdir_exist_ok(
+                new_dir=f'./{flip_prefix(NOAMBIG_PREFIX)}_{run_name}',
+                parent_dir=noambig_parent,
+            )
 
-            # create an output file name for sequences without ambiguous base call counts exceeding maxn
+            # create an output file name for sequences *with* ambiguous base call counts exceeding maxn
             # fwd (R1)
-            noambig_fwd_out = add_prefix(
+            ambig_fwd_out = add_prefix(
                 file_path=input_fwd,
-                prefix=NOAMBIG_PREFIX,
+                prefix=flip_prefix(NOAMBIG_PREFIX),
                 action=None,
-                dest_dir=noambig_path,
+                dest_dir=ambig_path,
                 f_delim=settings['formatting']['filename_delim'],
                 output_compressed=False,
                 replace_prefix=True,
             )
             # rev (R2)
-            noambig_rev_out = add_prefix(
+            ambig_rev_out = add_prefix(
                 file_path=input_rev,
-                prefix=NOAMBIG_PREFIX,
+                prefix=flip_prefix(NOAMBIG_PREFIX),
                 action=None,
-                dest_dir=noambig_path,
+                dest_dir=ambig_path,
                 f_delim=settings['formatting']['filename_delim'],
                 output_compressed=False,
                 replace_prefix=True,
             )
 
-            # compile the standard VSEARCH filtering function and options
-            vsearch_filter_cmd = [
-                'vsearch',  # call vsearch
-                '--fastx_filter', input_fwd,  # filter command - fwd reads
-                '--reverse', input_rev,  # filter command - rev reads
-                f'--fast{input_filefmt}out', noambig_fwd_out,  # output file - fwd reads
-                f'--fast{input_filefmt}out_rev', noambig_rev_out,  # output file - rev reads
-                f'--fast{input_filefmt}_maxns', str(maxn),  # maximum number of ambiguous base calls allowed
+            # compile the list of commands to append to the filtering command so that discarded reads are saved
+            vsearch_filter_keepseqs = [
+                f'--fast{input_filefmt}out_discarded', ambig_fwd_out,  # output file - discarded fwd reads
+                f'--fast{input_filefmt}out_discarded_rev', ambig_rev_out,  # output file - discarded rev reads
             ]
 
-            # if the input files are .fastq files, will need to increase the maximum quality score allowed for input
-            #  files in order to avoid an error with the default maximum quality score of 41
-            if input_filefmt == 'q':
-                append_subprocess(
-                    cli_command_list=vsearch_filter_cmd,
-                    options_to_add=['--fastq_qmax', str(qmax)],
-                    position=-1,  # add to the end of the standard vsearch filter command, just after --fastx_maxns
-                    return_copy=False,
-                )
-            # if the input files are .fasta files, then no need to worry about the quality scores
-            else:
-                pass
-
-            # check whether reads that don't pass the filter should be retained in a separate directory
-            if keep_removed_seqs:
-
-                # create an output directory for sequences with ambiguous base calls
-                ambig_path = mkdir_exist_ok(
-                    new_dir=f'./{flip_prefix(NOAMBIG_PREFIX)}_{run_name}',
-                    parent_dir=noambig_parent,
-                )
-
-                # create an output file name for sequences *with* ambiguous base call counts exceeding maxn
-                # fwd (R1)
-                ambig_fwd_out = add_prefix(
-                    file_path=input_fwd,
-                    prefix=flip_prefix(NOAMBIG_PREFIX),
-                    action=None,
-                    dest_dir=ambig_path,
-                    f_delim=settings['formatting']['filename_delim'],
-                    output_compressed=False,
-                    replace_prefix=True,
-                )
-                # rev (R2)
-                ambig_rev_out = add_prefix(
-                    file_path=input_rev,
-                    prefix=flip_prefix(NOAMBIG_PREFIX),
-                    action=None,
-                    dest_dir=ambig_path,
-                    f_delim=settings['formatting']['filename_delim'],
-                    output_compressed=False,
-                    replace_prefix=True,
-                )
-
-                # compile the list of commands to append to the filtering command so that discarded reads are saved
-                vsearch_filter_keepseqs = [
-                    f'--fast{input_filefmt}out_discarded', ambig_fwd_out,  # output file - discarded fwd reads
-                    f'--fast{input_filefmt}out_discarded_rev', ambig_rev_out,  # output file - discarded rev reads
-                ]
-
-                # add these additional parameters and arguments to the basic vsearch filtering command
-                append_subprocess(
-                    cli_command_list=vsearch_filter_cmd,
-                    options_to_add=vsearch_filter_keepseqs,
-                    position=-1,
-                    return_copy=False,
-                )
-
-            # make no additional changes to the vsearch filtering function if keep_removed_seqs=False
-            else:
-                pass
-
-            # check whether a log file should be written out, which will include quality scores and read counts
-            if keep_log:
-
-                # create an output log file path
-                vsearch_filter_log = noambig_parent / f'vsearch_prefilter_{run_name}.log'
-
-                # regardless of input file format, add the --log option to the vsearch prefilter command list
-                append_subprocess(
-                    cli_command_list=vsearch_filter_cmd,
-                    options_to_add=['--log', vsearch_filter_log],
-                    position=-1,
-                    return_copy=False,
-                )
-
-            # if no log is to be written out, do nothing
-            else:
-                pass
-
-            # execute the vsearch filtering command that has been compiled
-            run_subprocess(
-                vsearch_filter_cmd,
-                dest_dir=noambig_parent,
-                run_name=run_name,
-                program='vsearch-prefilter',
-                separate_sample_output=True,
-                auto_respond=settings['automate']['auto_respond'],
+            # add these additional parameters and arguments to the basic vsearch filtering command
+            append_subprocess(
+                cli_command_list=vsearch_filter_cmd,
+                options_to_add=vsearch_filter_keepseqs,
+                position=-1,
+                return_copy=False,
             )
 
-        ## COMPRESS OUTPUT SEQUENCE FILES ##
+        # make no additional changes to the vsearch filtering function if keep_removed_seqs=False
+        else:
+            pass
 
-        # compress the output written by vsearch, removing the uncompressed copies
+        # check whether a log file should be written out, which will include quality scores and read counts
+        if keep_log:
+
+            # create an output log file path
+            vsearch_filter_log = noambig_parent / f'vsearch_prefilter_{run_name}.log'
+
+            # regardless of input file format, add the --log option to the vsearch prefilter command list
+            append_subprocess(
+                cli_command_list=vsearch_filter_cmd,
+                options_to_add=['--log', vsearch_filter_log],
+                position=-1,
+                return_copy=False,
+            )
+
+        # if no log is to be written out, do nothing
+        else:
+            pass
+
+        # execute the vsearch filtering command that has been compiled
+        run_subprocess(
+            vsearch_filter_cmd,
+            dest_dir=noambig_parent,
+            run_name=run_name,
+            program='vsearch-prefilter',
+            separate_sample_output=True,
+            auto_respond=settings['automate']['auto_respond'],
+        )
+
+    ## COMPRESS OUTPUT SEQUENCE FILES ##
+
+    # compress the output written by vsearch, removing the uncompressed copies
+    compress_data(
+        input_path=noambig_path,  # reads without ambiguous base calls
+        output_path=None,  # write to the same directory as noambig_path
+        compress_fmt='gzip',  # compress using the gzip algorithm
+        keep_input=False,  # remove the uncompressed input files, retaining only the .gz compressed versions
+    )
+
+    # also compress the ambiguous base call sequence files, if written to the file system
+    if keep_removed_seqs:
         compress_data(
-            input_path=noambig_path,  # reads without ambiguous base calls
-            output_path=None,  # write to the same directory as noambig_path
-            compress_fmt='gzip',  # compress using the gzip algorithm
+            input_path=ambig_path,  # reads with ambiguous base calls, if keep_removed_seqs=True
+            output_path=None,  # write to the same directory as ambig_path
+            compress_fmt='gzip',  # comrpess using the gzip algorithm
             keep_input=False,  # remove the uncompressed input files, retaining only the .gz compressed versions
         )
+    else:
+        pass
 
-        # also compress the ambiguous base call sequence files, if written to the file system
-        if keep_removed_seqs:
-            compress_data(
-                input_path=ambig_path,  # reads with ambiguous base calls, if keep_removed_seqs=True
-                output_path=None,  # write to the same directory as ambig_path
-                compress_fmt='gzip',  # comrpess using the gzip algorithm
-                keep_input=False,  # remove the uncompressed input files, retaining only the .gz compressed versions
-            )
-        else:
-            pass
+    return noambig_path
 
-        return noambig_path
+def identify_primers(platform, config_dict, verbose=True):
+    primer_dict = config_dict['primers']
 
-    def identify_primers(platform, config_dict, verbose=True):
-        primer_dict = config_dict['primers']
+    target_primers = {}
+    primer_names = []
+    # for d in primer_dict.keys():
+    #     target_primers[d] = primer_dict[d]['sequence'][platform]
+    #     primer_names.append(primer_dict[d]['name'][platform])
+    for orient in ['fwd', 'rev']:
+        for name, seq in primer_dict[orient][platform].items():
+            primer_names.append(name)
+            target_primers.update({orient:seq})
 
-        target_primers = {}
-        primer_names = []
-        # for d in primer_dict.keys():
-        #     target_primers[d] = primer_dict[d]['sequence'][platform]
-        #     primer_names.append(primer_dict[d]['name'][platform])
-        for orient in ['fwd', 'rev']:
-            for name, seq in primer_dict[orient][platform].items():
-                primer_names.append(name)
-                target_primers.update({orient:seq})
+    # add the reverse complement of each primer to this dict
+    target_primers['fwd_rc'] = str(Seq(target_primers['fwd']).reverse_complement())
+    target_primers['rev_rc'] = str(Seq(target_primers['rev']).reverse_complement())
 
-        # add the reverse complement of each primer to this dict
-        target_primers['fwd_rc'] = str(Seq(target_primers['fwd']).reverse_complement())
-        target_primers['rev_rc'] = str(Seq(target_primers['rev']).reverse_complement())
+    if verbose:
+        print(f'Searching for {primer_names[0]} and {primer_names[1]} in {platform.title()} reads...\n')
 
-        if verbose:
-            print(f'Searching for {primer_names[0]} and {primer_names[1]} in {platform.title()} reads...\n')
+    return target_primers
 
-        return target_primers
+def confirm_no_primers(input_files, reference_dir, platform):
 
-    def confirm_no_primers(input_files, reference_dir, platform):
+    # if directory path provided, create generator of file paths
+    if input_files.is_dir():
+        input_files = input_files.glob(SEQ_FILE_GLOB)
 
-        # if directory path provided, create generator of file paths
-        if input_files.is_dir():
-            input_files = input_files.glob(SEQ_FILE_GLOB)
+    # read in settings from the configuration file
+    settings = get_settings(reference_dir)
+    run_name = settings['run_details']['run_name']
 
-        # read in settings from the configuration file
-        settings = get_settings(reference_dir)
-        run_name = settings['run_details']['run_name']
+    # create a regex from fwd, rev, fwd_rc, and rev_rc primer sequences, to confirm no primer remains
+    primer_dict = identify_primers(platform, config_dict=settings, verbose=False)  # read in primer dict for this platform
+    # join the primer seq strings together with the 'or' pipe for regex search
+    primer_re = '|'.join(list(primer_dict.values()))  # will search for any of these primers/orients
 
-        # create a regex from fwd, rev, fwd_rc, and rev_rc primer sequences, to confirm no primer remains
-        primer_dict = identify_primers(platform, config_dict=settings, verbose=False)  # read in primer dict for this platform
-        # join the primer seq strings together with the 'or' pipe for regex search
-        primer_re = '|'.join(list(primer_dict.values()))  # will search for any of these primers/orients
+    # record read lengths to an output .json file
+    read_info_json = (file_map['pipeline-output']['primers-trimmed'] / f'{run_name}_read-info').with_suffix('.json')
 
-        # record read lengths to an output .json file
-        read_info_json = (file_map['pipeline-output']['primers-trimmed'] / f'{run_name}_read-info').with_suffix('.json')
+    # record primer detections to a .json log file
+    primer_detected_json = (file_map['pipeline-output']['primers-trimmed'] / f'{run_name}_detected-primers').with_suffix('.json')
 
-        # record primer detections to a .json log file
-        primer_detected_json = (file_map['pipeline-output']['primers-trimmed'] / f'{run_name}_detected-primers').with_suffix('.json')
+    # create an empty dictionary, whose contents will later be writen out to .json log
+    read_info_dict = {}  # for recording read count and read lengths per sample
+    p_detect_dict = {}  # for recording detection of primers in seqs
+    primers_detected = 0  # keep track of how many reads had primers detected
+    err_samples = set()  # keep track of how many samples had primers detected
+    total_samples = 0  # counter for total number of samples, since input_files is a generator, can't get len later
+    # go through each input file
+    for file in input_files:
+        total_samples += 1
 
-        # create an empty dictionary, whose contents will later be writen out to .json log
-        read_info_dict = {}  # for recording read count and read lengths per sample
-        p_detect_dict = {}  # for recording detection of primers in seqs
-        primers_detected = 0  # keep track of how many reads had primers detected
-        err_samples = set()  # keep track of how many samples had primers detected
-        total_samples = 0  # counter for total number of samples, since input_files is a generator, can't get len later
-        # go through each input file
-        for file in input_files:
-            total_samples += 1
+        # get the sample ID and add it to the .json dict as key, with empty values for read count + len
+        sample_id = get_sample_id(file, platform=platform)
 
-            # get the sample ID and add it to the .json dict as key, with empty values for read count + len
-            sample_id = get_sample_id(file, platform=platform)
+        # get the read orientation, i.e., R1 is fwd and R2 is rev
+        orient = get_read_orient(file)
 
-            # get the read orientation, i.e., R1 is fwd and R2 is rev
-            orient = get_read_orient(file)
+        # check if there are entries yet for these values; if not, add
+        if sample_id in read_info_dict.keys():  # if the sample_id is already in dict...
+            if orient in read_info_dict[sample_id]:  # and the orientation is too...
+                update = True  # set update var to True to inform how to add info for each read
+            else:  # if the sample_id is in dict, but the orient is not...
+                # add a nested dict for that orient
+                read_info_dict[sample_id].update({orient: {}})
+        else:  # if the sample_id is NOT in dict...
+            # add it to the dict, with the subdict for the orientation
+            read_info_dict[sample_id] = {orient: {}}
 
-            # check if there are entries yet for these values; if not, add
-            if sample_id in read_info_dict.keys():  # if the sample_id is already in dict...
-                if orient in read_info_dict[sample_id]:  # and the orientation is too...
-                    update = True  # set update var to True to inform how to add info for each read
-                else:  # if the sample_id is in dict, but the orient is not...
-                    # add a nested dict for that orient
-                    read_info_dict[sample_id].update({orient: {}})
-            else:  # if the sample_id is NOT in dict...
-                # add it to the dict, with the subdict for the orientation
-                read_info_dict[sample_id] = {orient: {}}
+        # create an empty list to append read lengths to for this sample
+        # easier to append vals to an empty list than an empty array
+        read_lens = []
 
-            # create an empty list to append read lengths to for this sample
-            # easier to append vals to an empty list than an empty array
-            read_lens = []
+        # go through each read in this sample...
+        for seq in SeqIO.parse(file, 'fastq'):
 
-            # go through each read in this sample...
-            for seq in SeqIO.parse(file, 'fastq'):
+            # append the sequence length to the .json output
+            read_lens.append(len(seq))
 
-                # append the sequence length to the .json output
-                read_lens.append(len(seq))
+            # confirm that the primers in all orientations are not detected in the read
+            found = re.search(primer_re, str(seq), re.I)
 
-                # confirm that the primers in all orientations are not detected in the read
-                found = re.search(primer_re, str(seq), re.I)
+            if found:  # if a primer is detected..
 
-                if found:  # if a primer is detected..
+                primers_detected += 1  # add to error reads counter
+                err_samples.add(sample_id)  # add error sample id to err sample set
 
-                    primers_detected += 1  # add to error reads counter
-                    err_samples.add(sample_id)  # add error sample id to err sample set
+                # first, create dict for just this read
+                err_read_dict = {seq.id.split(':')[-1]:{'seq_id': seq.id,  # full read ID
+                                                        'primer_id': [v[0] for v in primer_dict.items() if v[1] == found.group()][0],  # whether fwd/rev/fwd_rc/rev_rc primer
+                                                        'primer_seq': found.group(),  # sequence of detected primer
+                                                        'pos_start': found.span()[0],  # pos of primer start in seq
+                                                        'pos_end': found.span()[1],  # pos of primer end in seq
+                                                        'read_len': len(seq)}  # total len of read
+                                 }
 
-                    # first, create dict for just this read
-                    err_read_dict = {seq.id.split(':')[-1]:{'seq_id': seq.id,  # full read ID
-                                                            'primer_id': [v[0] for v in primer_dict.items() if v[1] == found.group()][0],  # whether fwd/rev/fwd_rc/rev_rc primer
-                                                            'primer_seq': found.group(),  # sequence of detected primer
-                                                            'pos_start': found.span()[0],  # pos of primer start in seq
-                                                            'pos_end': found.span()[1],  # pos of primer end in seq
-                                                            'read_len': len(seq)}  # total len of read
-                                     }
-
-                    # then check whether to create new entry, or update existing one
-                    # if this sample already has an entry in the primer detect dict...
-                    if sample_id in p_detect_dict.keys():
-                        # check if this read orientation (R1/R2) is already in primer detect dict...
-                        if orient in p_detect_dict[sample_id]:
-                            # if it is, update with the error info for this read
-                            p_detect_dict[sample_id][orient].update(err_read_dict)
-                        else:
-                            # if not, then add as new entry
-                            p_detect_dict[sample_id][orient] = err_read_dict
-                    # if sample not yet in dict, add sample_id and orient together
+                # then check whether to create new entry, or update existing one
+                # if this sample already has an entry in the primer detect dict...
+                if sample_id in p_detect_dict.keys():
+                    # check if this read orientation (R1/R2) is already in primer detect dict...
+                    if orient in p_detect_dict[sample_id]:
+                        # if it is, update with the error info for this read
+                        p_detect_dict[sample_id][orient].update(err_read_dict)
                     else:
-                        p_detect_dict[sample_id] = {orient: err_read_dict}
+                        # if not, then add as new entry
+                        p_detect_dict[sample_id][orient] = err_read_dict
+                # if sample not yet in dict, add sample_id and orient together
+                else:
+                    p_detect_dict[sample_id] = {orient: err_read_dict}
 
-            # calculate summary information for each sample based on the lengths of each read
-            read_len_arr = np.array(read_lens)
+        # calculate summary information for each sample based on the lengths of each read
+        read_len_arr = np.array(read_lens)
 
-            # calculate all read metrics for this sample based on this array
-            # cannot have np values written to JSON, so convert to regular non-numpy int/float
-            sample_read_summary = {'read_count': int(read_len_arr.shape[0]),
-                                   'read_len_mean': float(np.mean(read_len_arr).round(2)),
-                                   'read_len_std': float(np.std(read_len_arr).round(2)),
-                                   'read_len_min': int(np.min(read_len_arr)),
-                                   'read_len_max': int(np.max(read_len_arr)),
-                                   'read_len_q25': float(np.quantile(read_len_arr, 0.25).round(2)),
-                                   'read_len_q50': float(np.quantile(read_len_arr, 0.50).round(2)),
-                                   'read_len_q75': float(np.quantile(read_len_arr, 0.75).round(2)),
-                                   'read_len_q100': float(np.quantile(read_len_arr, 1).round(2))
-                                   }
+        # calculate all read metrics for this sample based on this array
+        # cannot have np values written to JSON, so convert to regular non-numpy int/float
+        sample_read_summary = {'read_count': int(read_len_arr.shape[0]),
+                               'read_len_mean': float(np.mean(read_len_arr).round(2)),
+                               'read_len_std': float(np.std(read_len_arr).round(2)),
+                               'read_len_min': int(np.min(read_len_arr)),
+                               'read_len_max': int(np.max(read_len_arr)),
+                               'read_len_q25': float(np.quantile(read_len_arr, 0.25).round(2)),
+                               'read_len_q50': float(np.quantile(read_len_arr, 0.50).round(2)),
+                               'read_len_q75': float(np.quantile(read_len_arr, 0.75).round(2)),
+                               'read_len_q100': float(np.quantile(read_len_arr, 1).round(2))
+                               }
 
-            # add this to the overall read dictionary
-            read_info_dict[sample_id][orient] = sample_read_summary
+        # add this to the overall read dictionary
+        read_info_dict[sample_id][orient] = sample_read_summary
 
-        # dump the contents of both dictionaries to their output files
-        # always write out the sequence length
-        with open(read_info_json, 'w+') as info_out:
-            json.dump(read_info_dict, info_out)
+    # dump the contents of both dictionaries to their output files
+    # always write out the sequence length
+    with open(read_info_json, 'w+') as info_out:
+        json.dump(read_info_dict, info_out)
 
-        # check whether there are errors to write out, then write out and print summary
-        if len(p_detect_dict) > 0:
-            perc_samples = (len(err_samples) / (total_samples/2))*100  # divide by 2 to account for R1/R2
-            print(f'WARNING. {primers_detected} reads from {len(err_samples)} samples ({perc_samples:.1}% of all samples) '
-                  f'contained a primer sequence after trimming primers with cutadapt. Please consult the '
-                  f'details in the summary file {primer_detected_json} for details.\n')
-            with open(primer_detected_json, 'w+') as err_out:
-                json.dump(p_detect_dict, err_out)
+    # check whether there are errors to write out, then write out and print summary
+    if len(p_detect_dict) > 0:
+        perc_samples = (len(err_samples) / (total_samples/2))*100  # divide by 2 to account for R1/R2
+        print(f'WARNING. {primers_detected} reads from {len(err_samples)} samples ({perc_samples:.1}% of all samples) '
+              f'contained a primer sequence after trimming primers with cutadapt. Please consult the '
+              f'details in the summary file {primer_detected_json} for details.\n')
+        with open(primer_detected_json, 'w+') as err_out:
+            json.dump(p_detect_dict, err_out)
 
-        return None
+    return None
 
-    def remove_primers(input_files, output_dir, reference_dir, platform, paired_end, keep_removed_seqs, max_error=0.2,
-                       max_untrimmed=None, linked_adapters=None, require_adapters=None, keep_log=True):
+def remove_primers(input_files, output_dir, reference_dir, platform, paired_end, keep_removed_seqs, max_error=0.2,
+                   max_untrimmed=None, linked_adapters=None, require_adapters=None, keep_log=True):
 
-        ## IMPORT CONFIGURATION SETTINGS ##########################################
+    ## IMPORT CONFIGURATION SETTINGS ##########################################
 
-        # read in settings from the configuration file
-        settings = get_settings(reference_dir)
+    # read in settings from the configuration file
+    settings = get_settings(reference_dir)
 
-        # get the bioinformatics run name for tagging output directories and files
-        run_name = settings['run_details']['run_name']
+    # get the bioinformatics run name for tagging output directories and files
+    run_name = settings['run_details']['run_name']
 
-        ## INPUT / OUTPUT DIRECTORIES #############################################
+    ## INPUT / OUTPUT DIRECTORIES #############################################
 
-        # make the main directory for output for primer trimming
-        trim_parent = mkdir_exist_ok(new_dir=output_dir)
+    # make the main directory for output for primer trimming
+    trim_parent = mkdir_exist_ok(new_dir=output_dir)
 
-        # create a subdirectory for the primer-trimmed sequence output
-        trim_path = mkdir_exist_ok(
-            new_dir=f'./{TRIMMED_PREFIX}_{run_name}',
-            parent_dir=trim_parent,
-        )
+    # create a subdirectory for the primer-trimmed sequence output
+    trim_path = mkdir_exist_ok(
+        new_dir=f'./{TRIMMED_PREFIX}_{run_name}',
+        parent_dir=trim_parent,
+    )
 
-        ## PRIMER SEQUENCES #######################################################
+    ## PRIMER SEQUENCES #######################################################
 
-        # get the forward and reverse primers
-        primer_dict = identify_primers(platform, config_dict=settings)
-        fwd_primer = primer_dict['fwd']
-        rev_primer = primer_dict['rev']
+    # get the forward and reverse primers
+    primer_dict = identify_primers(platform, config_dict=settings)
+    fwd_primer = primer_dict['fwd']
+    rev_primer = primer_dict['rev']
 
-        ## PAIRED-END PRIMER TRIMMING #############################################
+    ## PAIRED-END PRIMER TRIMMING #############################################
 
-        # compose and execute the command line command to run cutadapt for paired-end reads
-        if paired_end:
+    # compose and execute the command line command to run cutadapt for paired-end reads
+    if paired_end:
 
-            # create a dictionary that will link the forward (R1) and reverse (R2) sequence files for each given sample
-            paired_dict = pair_reads(input_files)
+        # create a dictionary that will link the forward (R1) and reverse (R2) sequence files for each given sample
+        paired_dict = pair_reads(input_files)
 
-            for fwd_seqs_in, rev_seqs_in in paired_dict.items():
+        for fwd_seqs_in, rev_seqs_in in paired_dict.items():
 
-                # forward (R1) read: create an output path for the primer-trimmed sequences from this sample
-                fwd_seqs_out = add_prefix(
+            # forward (R1) read: create an output path for the primer-trimmed sequences from this sample
+            fwd_seqs_out = add_prefix(
+                file_path=fwd_seqs_in,
+                prefix=TRIMMED_PREFIX,
+                dest_dir=trim_path,
+                action=None,
+                f_delim=settings['formatting']['filename_delim'],
+                output_compressed=True,
+                replace_prefix=True,
+            )
+
+            # reverse (R2) read: create an output path for the primer-trimmed sequences from this sample
+            rev_seqs_out = add_prefix(
+                file_path=rev_seqs_in,
+                prefix=TRIMMED_PREFIX,
+                dest_dir=trim_path,
+                action=None,
+                f_delim=settings['formatting']['filename_delim'],
+                output_compressed=True,
+                replace_prefix=True,
+            )
+            # compose the standard cutadapt command to use, before incorporating additional options
+            cutadapt_cmd = [
+                'cutadapt',
+                '-g', fwd_primer,  # forward primer: search for fwd primer on 5' end of forward (R1) reads
+                '-G', rev_primer,  # reverse primer: search for rev primer on 5' end of reverse (R2) reads
+                '--revcomp',  # search each read's reverse complement as well
+                '--cores', str(0),  # auto-detect the number of available CPUs to use
+                '--output', fwd_seqs_out,  # forward (R1) output sequence file
+                '--paired-output', rev_seqs_out,  # reverse (R2) output sequence file
+                fwd_seqs_in,  # forward (R1) input sequence file
+                rev_seqs_in,  # reverse (R2) input sequence file
+            ]
+
+            # if the untrimmed / discarded reads are to be retained...
+            if keep_removed_seqs:
+
+                # make an output directory for all untrimmed / discarded reads
+                notrim_path = mkdir_exist_ok(
+                    new_dir=f'./{flip_prefix(TRIMMED_PREFIX)}_{run_name}',
+                    parent_dir=trim_parent,
+                )
+
+                # forward (R1) read: create an output path for the untrimmed / discarded reads from this sample
+                untrim_fwd_seqs_out = add_prefix(
                     file_path=fwd_seqs_in,
-                    prefix=TRIMMED_PREFIX,
-                    dest_dir=trim_path,
+                    prefix=flip_prefix(TRIMMED_PREFIX),
+                    dest_dir=notrim_path,
                     action=None,
                     f_delim=settings['formatting']['filename_delim'],
                     output_compressed=True,
                     replace_prefix=True,
                 )
 
-                # reverse (R2) read: create an output path for the primer-trimmed sequences from this sample
-                rev_seqs_out = add_prefix(
+                # reverse (R2) read: create an output path for the untrimmed / discarded reads from this sample
+                untrim_rev_seqs_out = add_prefix(
                     file_path=rev_seqs_in,
-                    prefix=TRIMMED_PREFIX,
-                    dest_dir=trim_path,
-                    action=None,
-                    f_delim=settings['formatting']['filename_delim'],
-                    output_compressed=True,
-                    replace_prefix=True,
-                )
-                # compose the standard cutadapt command to use, before incorporating additional options
-                cutadapt_cmd = [
-                    'cutadapt',
-                    '-g', fwd_primer,  # forward primer: search for fwd primer on 5' end of forward (R1) reads
-                    '-G', rev_primer,  # reverse primer: search for rev primer on 5' end of reverse (R2) reads
-                    '--revcomp',  # search each read's reverse complement as well
-                    '--cores', str(0),  # auto-detect the number of available CPUs to use
-                    '--output', fwd_seqs_out,  # forward (R1) output sequence file
-                    '--paired-output', rev_seqs_out,  # reverse (R2) output sequence file
-                    fwd_seqs_in,  # forward (R1) input sequence file
-                    rev_seqs_in,  # reverse (R2) input sequence file
-                ]
-
-                # if the untrimmed / discarded reads are to be retained...
-                if keep_removed_seqs:
-
-                    # make an output directory for all untrimmed / discarded reads
-                    notrim_path = mkdir_exist_ok(
-                        new_dir=f'./{flip_prefix(TRIMMED_PREFIX)}_{run_name}',
-                        parent_dir=trim_parent,
-                    )
-
-                    # forward (R1) read: create an output path for the untrimmed / discarded reads from this sample
-                    untrim_fwd_seqs_out = add_prefix(
-                        file_path=fwd_seqs_in,
-                        prefix=flip_prefix(TRIMMED_PREFIX),
-                        dest_dir=notrim_path,
-                        action=None,
-                        f_delim=settings['formatting']['filename_delim'],
-                        output_compressed=True,
-                        replace_prefix=True,
-                    )
-
-                    # reverse (R2) read: create an output path for the untrimmed / discarded reads from this sample
-                    untrim_rev_seqs_out = add_prefix(
-                        file_path=rev_seqs_in,
-                        prefix=flip_prefix(TRIMMED_PREFIX),
-                        dest_dir=notrim_path,
-                        action=None,
-                        f_delim=settings['formatting']['filename_delim'],
-                        output_compressed=True,
-                        replace_prefix=True,
-                    )
-
-                    # add the cutadapt option and output file paths to the standard cutadapt command
-                    append_subprocess(
-                        cli_command_list=cutadapt_cmd,
-                        options_to_add=[
-                            '--untrimmed-output', untrim_fwd_seqs_out,  # untrimmed forward (R1) reads
-                            '--untrimmed-paired-output', untrim_rev_seqs_out,  # untrimmed reverse (R2) reads
-                        ],
-                        position=-1,
-                        return_copy=False,
-                    )
-
-                # if the discarded / untrimmed reads are to be removed completely...
-                else:
-
-                    # you need to specify that they are not wanted, or else will be written to the trimmed output too
-                    append_subprocess(
-                        cli_command_list=cutadapt_cmd,
-                        options_to_add=['--discard-untrimmed'],
-                        position=-1,
-                        return_copy=False,
-                    )
-
-                run_subprocess(
-                    cutadapt_cmd,
-                    dest_dir=trim_parent,
-                    separate_sample_output=True,
-                    run_name=run_name,
-                    auto_respond=settings['automate']['auto_respond'],
-                )
-
-        ## SINGLE READ PRIMER TRIMMING ############################################
-
-        # compose and execute the command line command to run cutadapt for single-end reads
-        else:
-
-            # get the reverse complements of the forward and reverse primers
-            fwd_revcomp_primer = primer_dict['fwd_rc']
-            rev_revcomp_primer = primer_dict['rev_rc']
-
-            # for unpaired sequences, process one sequence file at a time
-            for seqs_in in input_files:
-
-                # create an output path for the primer-trimmed sequences
-                seqs_out = add_prefix(
-                    file_path=seqs_in,
-                    prefix=TRIMMED_PREFIX,
-                    dest_dir=trim_path,
+                    prefix=flip_prefix(TRIMMED_PREFIX),
+                    dest_dir=notrim_path,
                     action=None,
                     f_delim=settings['formatting']['filename_delim'],
                     output_compressed=True,
                     replace_prefix=True,
                 )
 
-                # compose the standard cutadapt command to use, before incorporating additional options
-                cutadapt_cmd = [
-                    'cutadapt',  # call cutadapt
-                    '-a', f'^{fwd_primer}...{rev_revcomp_primer}$',  # search 5' end for anchored, linked primers
-                    '-a', f'^{rev_primer}...{fwd_revcomp_primer}$',  # search 3' end for anchored, linked primers
-                    '--revcomp',  # search the reverse complement of each read as well
-                    '-n', '2',  # do two passes over each read
-                    '-e', str(max_error),  # maximum expected error
-                    '--cores', str(0),  # auto-detect the number of available CPUs to use
-                    '-o', seqs_out,  # output file path
-                    seqs_in,  # input file path
-                ]
-
-                # if the untrimmed / discarded reads are to be retained...
-                if keep_removed_seqs:
-
-                    # make an output directory for all untrimmed / discarded reads
-                    notrim_path = mkdir_exist_ok(
-                        new_dir=f'./{flip_prefix(TRIMMED_PREFIX)}_{run_name}',
-                        parent_dir=trim_parent,
-                    )
-
-                    # create an output path for the untrimmed / discarded reads from this sample
-                    untrim_seqs_out = add_prefix(
-                        file_path=seqs_in,
-                        prefix=flip_prefix(TRIMMED_PREFIX),
-                        dest_dir=notrim_path,
-                        action=None,
-                        f_delim=settings['formatting']['filename_delim'],
-                        output_compressed=True,
-                        replace_prefix=True,
-                    )
-
-                    # add the cutadapt option and output file paths to the standard cutadapt command
-                    append_subprocess(
-                        cli_command_list=cutadapt_cmd,
-                        options_to_add=['--untrimmed-output', untrim_seqs_out],
-                        position=-1,
-                        return_copy=False,
-                    )
-
-                # if the discarded / untrimmed reads are to be removed completely...
-                else:
-
-                    # you need to specify that they are not wanted, or else will be written to the trimmed output too
-                    append_subprocess(
-                        cli_command_list=cutadapt_cmd,
-                        options_to_add=['--discard-untrimmed'],
-                        position=-1,
-                        return_copy=False,
-                    )
-
-                # create or append to cutadapt stderr/stdout, all output goes to one file (not one per sample)
-                run_subprocess(
-                    cutadapt_cmd,
-                    dest_dir=trim_parent,
-                    separate_sample_output=True,
-                    run_name=run_name,
-                    auto_respond=settings['automate']['auto_respond'],
+                # add the cutadapt option and output file paths to the standard cutadapt command
+                append_subprocess(
+                    cli_command_list=cutadapt_cmd,
+                    options_to_add=[
+                        '--untrimmed-output', untrim_fwd_seqs_out,  # untrimmed forward (R1) reads
+                        '--untrimmed-paired-output', untrim_rev_seqs_out,  # untrimmed reverse (R2) reads
+                    ],
+                    position=-1,
+                    return_copy=False,
                 )
 
-        return trim_path
-
-    def quality_filter(input_files, output_dir, platform, reference_dir, min_qscore, max_qscore, min_len, max_len,
-                       max_error, merge, keep_removed_seqs, keep_log, compress_output):
-
-        ## LOAD SETTINGS ##
-
-        # load in the configuration settings
-        settings = get_settings(reference_dir)
-        run_name = settings['run_details']['run_name']
-
-        ## CREATE OUTPUT FILE PATHS ##
-
-        # create a directory to send all quality filtered output files and directories to
-        qfilt_parent = mkdir_exist_ok(
-            new_dir=output_dir,
-        )
-
-        # create a parent directory to sort reads into that pass quality filtering
-        qfilt_path = mkdir_exist_ok(
-            new_dir=f'./{QUALFILT_PREFIX}_{run_name}',
-            parent_dir=qfilt_parent,
-        )
-
-        ## CREATE LIST OF INPUT FILES FROM PAIRED-END READS ##
-
-        if platform == 'illumina':
-
-            # pair togetherthe R1/R2 input files for each sample from the input files
-            paired_dict = pair_reads(input_files)
-
-            ## MERGE PAIRED-END READS ##
-
-            if merge:
-
-                # use the merge_reads() function to first merge forward (R1) and reverse (R2) input sequences
-                qfilt_seqs_in = merge_reads(
-                    input_files=paired_dict,
-                    output_dir=qfilt_parent,
-                    reference_dir=reference_dir,
-                    compress_output=compress_output,
-                    keep_removed_seqs=keep_removed_seqs,
-                    keep_log=keep_log,
-                )
-
-            ## QUALITY FILTER ONLY FORWARD READS ##
-
-            # if these paired-end illumina sequence files are not going to be merged...
+            # if the discarded / untrimmed reads are to be removed completely...
             else:
 
-                # create a list of input sequence files to process that are only the forward reads
-                qfilt_seqs_in = list(paired_dict.keys())
+                # you need to specify that they are not wanted, or else will be written to the trimmed output too
+                append_subprocess(
+                    cli_command_list=cutadapt_cmd,
+                    options_to_add=['--discard-untrimmed'],
+                    position=-1,
+                    return_copy=False,
+                )
 
+            run_subprocess(
+                cutadapt_cmd,
+                dest_dir=trim_parent,
+                separate_sample_output=True,
+                run_name=run_name,
+                auto_respond=settings['automate']['auto_respond'],
+            )
 
-        ## CREATE LIST OF INPUT FILES FROM SINGLE-END READS ##
+    ## SINGLE READ PRIMER TRIMMING ############################################
 
-        # if the platform isn't illumina, then it is sanger or pacbio, both of which are single-end reads
+    # compose and execute the command line command to run cutadapt for single-end reads
+    else:
+
+        # get the reverse complements of the forward and reverse primers
+        fwd_revcomp_primer = primer_dict['fwd_rc']
+        rev_revcomp_primer = primer_dict['rev_rc']
+
+        # for unpaired sequences, process one sequence file at a time
+        for seqs_in in input_files:
+
+            # create an output path for the primer-trimmed sequences
+            seqs_out = add_prefix(
+                file_path=seqs_in,
+                prefix=TRIMMED_PREFIX,
+                dest_dir=trim_path,
+                action=None,
+                f_delim=settings['formatting']['filename_delim'],
+                output_compressed=True,
+                replace_prefix=True,
+            )
+
+            # compose the standard cutadapt command to use, before incorporating additional options
+            cutadapt_cmd = [
+                'cutadapt',  # call cutadapt
+                '-a', f'^{fwd_primer}...{rev_revcomp_primer}$',  # search 5' end for anchored, linked primers
+                '-a', f'^{rev_primer}...{fwd_revcomp_primer}$',  # search 3' end for anchored, linked primers
+                '--revcomp',  # search the reverse complement of each read as well
+                '-n', '2',  # do two passes over each read
+                '-e', str(max_error),  # maximum expected error
+                '--cores', str(0),  # auto-detect the number of available CPUs to use
+                '-o', seqs_out,  # output file path
+                seqs_in,  # input file path
+            ]
+
+            # if the untrimmed / discarded reads are to be retained...
+            if keep_removed_seqs:
+
+                # make an output directory for all untrimmed / discarded reads
+                notrim_path = mkdir_exist_ok(
+                    new_dir=f'./{flip_prefix(TRIMMED_PREFIX)}_{run_name}',
+                    parent_dir=trim_parent,
+                )
+
+                # create an output path for the untrimmed / discarded reads from this sample
+                untrim_seqs_out = add_prefix(
+                    file_path=seqs_in,
+                    prefix=flip_prefix(TRIMMED_PREFIX),
+                    dest_dir=notrim_path,
+                    action=None,
+                    f_delim=settings['formatting']['filename_delim'],
+                    output_compressed=True,
+                    replace_prefix=True,
+                )
+
+                # add the cutadapt option and output file paths to the standard cutadapt command
+                append_subprocess(
+                    cli_command_list=cutadapt_cmd,
+                    options_to_add=['--untrimmed-output', untrim_seqs_out],
+                    position=-1,
+                    return_copy=False,
+                )
+
+            # if the discarded / untrimmed reads are to be removed completely...
+            else:
+
+                # you need to specify that they are not wanted, or else will be written to the trimmed output too
+                append_subprocess(
+                    cli_command_list=cutadapt_cmd,
+                    options_to_add=['--discard-untrimmed'],
+                    position=-1,
+                    return_copy=False,
+                )
+
+            # create or append to cutadapt stderr/stdout, all output goes to one file (not one per sample)
+            run_subprocess(
+                cutadapt_cmd,
+                dest_dir=trim_parent,
+                separate_sample_output=True,
+                run_name=run_name,
+                auto_respond=settings['automate']['auto_respond'],
+            )
+
+    return trim_path
+
+def quality_filter(input_files, output_dir, platform, reference_dir, min_qscore, max_qscore, min_len, max_len,
+                   max_error, merge, keep_removed_seqs, keep_log, compress_output):
+
+    ## LOAD SETTINGS ##
+
+    # load in the configuration settings
+    settings = get_settings(reference_dir)
+    run_name = settings['run_details']['run_name']
+
+    ## CREATE OUTPUT FILE PATHS ##
+
+    # create a directory to send all quality filtered output files and directories to
+    qfilt_parent = mkdir_exist_ok(
+        new_dir=output_dir,
+    )
+
+    # create a parent directory to sort reads into that pass quality filtering
+    qfilt_path = mkdir_exist_ok(
+        new_dir=f'./{QUALFILT_PREFIX}_{run_name}',
+        parent_dir=qfilt_parent,
+    )
+
+    ## CREATE LIST OF INPUT FILES FROM PAIRED-END READS ##
+
+    if platform == 'illumina':
+
+        # pair togetherthe R1/R2 input files for each sample from the input files
+        paired_dict = pair_reads(input_files)
+
+        ## MERGE PAIRED-END READS ##
+
+        if merge:
+
+            # use the merge_reads() function to first merge forward (R1) and reverse (R2) input sequences
+            qfilt_seqs_in = merge_reads(
+                input_files=paired_dict,
+                output_dir=qfilt_parent,
+                reference_dir=reference_dir,
+                compress_output=compress_output,
+                keep_removed_seqs=keep_removed_seqs,
+                keep_log=keep_log,
+            )
+
+        ## QUALITY FILTER ONLY FORWARD READS ##
+
+        # if these paired-end illumina sequence files are not going to be merged...
         else:
 
-            # just rename the input file list so that it matches the name used for illumina sequences after pre-processing
-            qfilt_seqs_in = input_files
+            # create a list of input sequence files to process that are only the forward reads
+            qfilt_seqs_in = list(paired_dict.keys())
 
-        ## QUALITY FILTER INPUT FILES ##
 
-        # keep track of how many input files were .fasta formatted and couldn't be filtered beyond lengths
-        input_is_fasta = 0
+    ## CREATE LIST OF INPUT FILES FROM SINGLE-END READS ##
 
-        # add all output files paths to a dictionary of output file paths, sorted by quality filtered or unfiltered (if any)
-        output_files = {dest: [] for dest in ['quality_filtered', 'unfiltered']}
+    # if the platform isn't illumina, then it is sanger or pacbio, both of which are single-end reads
+    else:
 
-        # iterate through each file in the input file list
-        for seq_in in qfilt_seqs_in:
+        # just rename the input file list so that it matches the name used for illumina sequences after pre-processing
+        qfilt_seqs_in = input_files
 
-            ## CREATE OUTPUT FILE PATH ##
+    ## QUALITY FILTER INPUT FILES ##
 
-            # determine the file format of the input sequence files; pull just the difference
-            #    between .fasta and .fastq (i.e., the a or q from the string)
-            input_filefmt = seq_in.suffixes[0][-1]
+    # keep track of how many input files were .fasta formatted and couldn't be filtered beyond lengths
+    input_is_fasta = 0
 
-            # create an output file path for the quality-filtered version of this input file
-            seq_out = add_prefix(
+    # add all output files paths to a dictionary of output file paths, sorted by quality filtered or unfiltered (if any)
+    output_files = {dest: [] for dest in ['quality_filtered', 'unfiltered']}
+
+    # iterate through each file in the input file list
+    for seq_in in qfilt_seqs_in:
+
+        ## CREATE OUTPUT FILE PATH ##
+
+        # determine the file format of the input sequence files; pull just the difference
+        #    between .fasta and .fastq (i.e., the a or q from the string)
+        input_filefmt = seq_in.suffixes[0][-1]
+
+        # create an output file path for the quality-filtered version of this input file
+        seq_out = add_prefix(
+            file_path=seq_in,
+            prefix=QUALFILT_PREFIX,
+            dest_dir=qfilt_path,
+            action=None,
+            f_delim=settings['formatting']['filename_delim'],
+            output_compressed=False,
+            replace_prefix=True,
+        )
+
+        # add this output file path to the output file dictionary in the quality filtered list of files
+        output_files['quality_filtered'].append(seq_out)
+
+        ## ASSEMBLE STANDARD VSEARCH COMMAND ##
+
+        # assemble a standard vsearch --fastx_filter command without any additional options from params
+        # only add options that are available for both .fastq and .fasta input files
+        vsearch_qfilt_cmd = [
+            'vsearch',  # call on vsearch
+            '--fastx_filter', seq_in,  # where to read the unfiltered input sequeces from
+            f'--fast{input_filefmt}out', seq_out,  # where to write the filtered output sequences to
+            f'--fast{input_filefmt}_maxlen', str(max_len),  # filter out any input reads above this length (bp)
+            f'--fast{input_filefmt}_minlen', str(min_len),  # filter out any input reads below this length (bp)
+        ]
+
+        ## ADD ADDITIONAL VSEARCH OPTIONS IF QUALITY SCORES PRESENT ##
+
+        # add any vsearch options available only if input files are .fastq files
+        if input_filefmt == 'q':
+
+            # .fastq options to append to the standard vsearch filtering command
+            vsearch_qfilt_fastq_opts = [
+                '--fastq_qmax', str(max_qscore),  # filter out any input sequences above this quality score
+                '--fastq_qmin', str(min_qscore),  # filter out any input sequences below this quality score
+                '--fastq_maxee', str(max_error),
+                # filter out any input sequences with maximum expected errors above this value
+            ]
+
+            # append the additional .fastq options to the standard vsearch filtering command
+            append_subprocess(
+                cli_command_list=vsearch_qfilt_cmd,
+                options_to_add=vsearch_qfilt_fastq_opts,
+                position=-1,
+                return_copy=False,
+            )
+
+
+        # if the input file is a .fasta file, add to a counter keeping track of how many input files lacked quality score info
+        #   and therefore could not be filtered beyond read length
+        else:
+            input_is_fasta += 1
+
+        ## KEEP UNFILTERED READS ##
+
+        if keep_removed_seqs:
+
+            # create an output directory for sample sequence files for reads that don't pass the quality filter
+            unfilt_path = mkdir_exist_ok(
+                new_dir=f'./{flip_prefix(QUALFILT_PREFIX)}_{run_name}',
+                parent_dir=qfilt_parent,
+            )
+
+            # create an output sequence file path for this sample's unfiltered reads
+            seq_unfilt_out = add_prefix(
                 file_path=seq_in,
-                prefix=QUALFILT_PREFIX,
-                dest_dir=qfilt_path,
+                prefix=flip_prefix(QUALFILT_PREFIX),
+                dest_dir=unfilt_path,
                 action=None,
                 f_delim=settings['formatting']['filename_delim'],
                 output_compressed=False,
                 replace_prefix=True,
             )
 
-            # add this output file path to the output file dictionary in the quality filtered list of files
-            output_files['quality_filtered'].append(seq_out)
+            # add this output file path to the output file dictionary in the unfiltered list of files
+            output_files['unfiltered'].append(seq_unfilt_out)
 
-            ## ASSEMBLE STANDARD VSEARCH COMMAND ##
-
-            # assemble a standard vsearch --fastx_filter command without any additional options from params
-            # only add options that are available for both .fastq and .fasta input files
-            vsearch_qfilt_cmd = [
-                'vsearch',  # call on vsearch
-                '--fastx_filter', seq_in,  # where to read the unfiltered input sequeces from
-                f'--fast{input_filefmt}out', seq_out,  # where to write the filtered output sequences to
-                f'--fast{input_filefmt}_maxlen', str(max_len),  # filter out any input reads above this length (bp)
-                f'--fast{input_filefmt}_minlen', str(min_len),  # filter out any input reads below this length (bp)
-            ]
-
-            ## ADD ADDITIONAL VSEARCH OPTIONS IF QUALITY SCORES PRESENT ##
-
-            # add any vsearch options available only if input files are .fastq files
-            if input_filefmt == 'q':
-
-                # .fastq options to append to the standard vsearch filtering command
-                vsearch_qfilt_fastq_opts = [
-                    '--fastq_qmax', str(max_qscore),  # filter out any input sequences above this quality score
-                    '--fastq_qmin', str(min_qscore),  # filter out any input sequences below this quality score
-                    '--fastq_maxee', str(max_error),
-                    # filter out any input sequences with maximum expected errors above this value
-                ]
-
-                # append the additional .fastq options to the standard vsearch filtering command
-                append_subprocess(
-                    cli_command_list=vsearch_qfilt_cmd,
-                    options_to_add=vsearch_qfilt_fastq_opts,
-                    position=-1,
-                    return_copy=False,
-                )
-
-
-            # if the input file is a .fasta file, add to a counter keeping track of how many input files lacked quality score info
-            #   and therefore could not be filtered beyond read length
-            else:
-                input_is_fasta += 1
-
-            ## KEEP UNFILTERED READS ##
-
-            if keep_removed_seqs:
-
-                # create an output directory for sample sequence files for reads that don't pass the quality filter
-                unfilt_path = mkdir_exist_ok(
-                    new_dir=f'./{flip_prefix(QUALFILT_PREFIX)}_{run_name}',
-                    parent_dir=qfilt_parent,
-                )
-
-                # create an output sequence file path for this sample's unfiltered reads
-                seq_unfilt_out = add_prefix(
-                    file_path=seq_in,
-                    prefix=flip_prefix(QUALFILT_PREFIX),
-                    dest_dir=unfilt_path,
-                    action=None,
-                    f_delim=settings['formatting']['filename_delim'],
-                    output_compressed=False,
-                    replace_prefix=True,
-                )
-
-                # add this output file path to the output file dictionary in the unfiltered list of files
-                output_files['unfiltered'].append(seq_unfilt_out)
-
-                # add the option to write the discarded reads that don't pass the quality filtering steps to a file
-                append_subprocess(
-                    cli_command_list=vsearch_qfilt_cmd,
-                    options_to_add=[f'--fast{input_filefmt}out_discarded', seq_unfilt_out],
-                    position=3,
-                    return_copy=False
-                )
-
-            ## DISCARD UNFILTERED READS ##
-
-            else:
-                pass
-
-            ## EXECUTE FINAL VSEARCH QUALITY FILTER COMMAND FOR THIS SAMPLE ##
-
-            run_subprocess(
+            # add the option to write the discarded reads that don't pass the quality filtering steps to a file
+            append_subprocess(
                 cli_command_list=vsearch_qfilt_cmd,
-                dest_dir=qfilt_parent,
-                run_name=run_name,
-                program='vsearch-qualfilt',
-                separate_sample_output=True,
-                auto_respond=settings['automate']['auto_respond'],
+                options_to_add=[f'--fast{input_filefmt}out_discarded', seq_unfilt_out],
+                position=3,
+                return_copy=False
             )
 
-        ## REPORT NUMBER OF INPUT .FASTA FILES ##
+        ## DISCARD UNFILTERED READS ##
 
-        # if any of the input files were .fasta files...
-        if input_is_fasta > 0:
-
-            # issue a warning regarding the filtering of input files
-            warnings.warn(
-                f'{input_is_fasta} input files in the file path:\n'
-                f'   {input_files[0].parent}\n'
-                f'are .fasta files. Due to the lack of quality score information, these input files'
-                f'could only be filtered based on the maximum and minimum sequence length parameters.\n'
-            )
-
-        # otherwise, issue no print
         else:
             pass
 
-        ## COMPRESS VSEARCH OUTPUT TO GZIP FORMAT ##
+        ## EXECUTE FINAL VSEARCH QUALITY FILTER COMMAND FOR THIS SAMPLE ##
 
-        if compress_output:
+        run_subprocess(
+            cli_command_list=vsearch_qfilt_cmd,
+            dest_dir=qfilt_parent,
+            run_name=run_name,
+            program='vsearch-qualfilt',
+            separate_sample_output=True,
+            auto_respond=settings['automate']['auto_respond'],
+        )
 
-            # compress the filtered output files
-            seq_filt_compressed = compress_data(
-                input_path=qfilt_path,
+    ## REPORT NUMBER OF INPUT .FASTA FILES ##
+
+    # if any of the input files were .fasta files...
+    if input_is_fasta > 0:
+
+        # issue a warning regarding the filtering of input files
+        warnings.warn(
+            f'{input_is_fasta} input files in the file path:\n'
+            f'   {input_files[0].parent}\n'
+            f'are .fasta files. Due to the lack of quality score information, these input files'
+            f'could only be filtered based on the maximum and minimum sequence length parameters.\n'
+        )
+
+    # otherwise, issue no print
+    else:
+        pass
+
+    ## COMPRESS VSEARCH OUTPUT TO GZIP FORMAT ##
+
+    if compress_output:
+
+        # compress the filtered output files
+        seq_filt_compressed = compress_data(
+            input_path=qfilt_path,
+            output_path=None,
+            compress_fmt='gzip',
+            keep_input=False,
+        )
+
+        # if unfiltered sequence files were also created...
+        if keep_removed_seqs:
+
+            # compress the unfiltered output files
+            seq_unfilt_compressed = compress_data(
+                input_path=unfilt_path,
                 output_path=None,
                 compress_fmt='gzip',
                 keep_input=False,
             )
 
-            # if unfiltered sequence files were also created...
-            if keep_removed_seqs:
-
-                # compress the unfiltered output files
-                seq_unfilt_compressed = compress_data(
-                    input_path=unfilt_path,
-                    output_path=None,
-                    compress_fmt='gzip',
-                    keep_input=False,
-                )
-
-            # otherwise, create an empty list for an unfiltered sequence file placeholder
-            else:
-                seq_unfilt_compressed = []
-
-            # create a new output file dictionary with these compressed file paths
-            output_files_compressed = {
-                f_type: f_list for f_type, f_list in zip(
-                    ['quality_filtered', 'unfiltered'],
-                    [seq_filt_compressed, seq_unfilt_compressed]
-                )
-            }
-
-            return output_files_compressed
-
-        ## DO NOT COMPRESS VSEARCH OUTPUT TO GZIP FORMAT ##
-
-        # do not compress any output files, leave a .fastq / .fasta
+        # otherwise, create an empty list for an unfiltered sequence file placeholder
         else:
-            pass
+            seq_unfilt_compressed = []
 
-        # return a dictionary of the output file paths (filtered and unfiltered separated)
-        return output_files
+        # create a new output file dictionary with these compressed file paths
+        output_files_compressed = {
+            f_type: f_list for f_type, f_list in zip(
+                ['quality_filtered', 'unfiltered'],
+                [seq_filt_compressed, seq_unfilt_compressed]
+            )
+        }
 
-    def dereplicate(input_files, output_dir, reference_dir, min_count, derep_step, keep_log):
+        return output_files_compressed
 
-        # create the file prefix name based on whether it is full-length (1) or region-specific (2) dereplication
-        derep_prefix = DEREP_PREFIX + '0' + str(derep_step)
+    ## DO NOT COMPRESS VSEARCH OUTPUT TO GZIP FORMAT ##
 
-        if derep_step == 1:
-            out_tag = 'derep-full-length'
-        else:
-            out_tag = 'derep-subregions'
+    # do not compress any output files, leave a .fastq / .fasta
+    else:
+        pass
 
-        # read in settings from the configuration file
-        settings = get_settings(reference_dir)
-        run_name = settings['run_details']['run_name']
+    # return a dictionary of the output file paths (filtered and unfiltered separated)
+    return output_files
 
-        # create main file paths for dereplicated read output
+def dereplicate(input_files, output_dir, reference_dir, min_count, derep_step, keep_log):
 
-        # main output directory, provided as the output directory in the pipeline/ script
-        derep_parent = mkdir_exist_ok(new_dir=output_dir)
+    # create the file prefix name based on whether it is full-length (1) or region-specific (2) dereplication
+    derep_prefix = DEREP_PREFIX + '0' + str(derep_step)
 
-        # subfolder within the main directory for this specific bioinformatics run
-        derep_path = mkdir_exist_ok(
-            new_dir=f'./{out_tag}_{run_name}',
-            parent_dir=derep_parent,
-        )
+    if derep_step == 1:
+        out_tag = 'derep-full-length'
+    else:
+        out_tag = 'derep-subregions'
 
-        # for each of the files (typically derep01) or directories (typically derep02)...
-        for file in input_files:
+    # read in settings from the configuration file
+    settings = get_settings(reference_dir)
+    run_name = settings['run_details']['run_name']
 
-            # the derep02 for pacbio sequences will be directories, one per sample, if/when run immediately after itsx
-            if file.is_dir():
+    # create main file paths for dereplicated read output
 
-                # create a regex that will match any of the possible output region / subregion file suffixes, post-itsx
-                subregion_suffix_re = '|'.join(list(POST_ITSX_SUFFIXES.values()))
+    # main output directory, provided as the output directory in the pipeline/ script
+    derep_parent = mkdir_exist_ok(new_dir=output_dir)
 
-                # create a list of region / subregion files to dereplicate based on this regex
-                subregion_files = [f for f in file.glob('*') if re.search(subregion_suffix_re, f.name, re.I)]
+    # subfolder within the main directory for this specific bioinformatics run
+    derep_path = mkdir_exist_ok(
+        new_dir=f'./{out_tag}_{run_name}',
+        parent_dir=derep_parent,
+    )
 
-                # create a main output derep directory for this sample
-                derep_sample_output = add_prefix(
-                    file_path=file,
-                    prefix=derep_prefix,
-                    dest_dir=derep_path,
-                    action='mkdir',
-                )
+    # for each of the files (typically derep01) or directories (typically derep02)...
+    for file in input_files:
 
-                # go through the list of region / subregion files for this sample and dereplicate
-                for region_seqs in subregion_files:
+        # the derep02 for pacbio sequences will be directories, one per sample, if/when run immediately after itsx
+        if file.is_dir():
 
-                    # pull the file format from the input file, to determine whether to use fasta or fastq commands
-                    input_filefmt = region_seqs.suffixes[0][-1]
+            # create a regex that will match any of the possible output region / subregion file suffixes, post-itsx
+            subregion_suffix_re = '|'.join(list(POST_ITSX_SUFFIXES.values()))
 
-                    # create a path for the region / subregion derep sequences within the main sample output dir
-                    derep_region_output = add_prefix(
-                        file_path=region_seqs,
-                        prefix=derep_prefix,
-                        dest_dir=derep_sample_output,
-                        action=None,
-                        f_delim=settings['formatting']['filename_delim'],
-                        output_compressed=False,
-                        replace_prefix=True,
-                    )
+            # create a list of region / subregion files to dereplicate based on this regex
+            subregion_files = [f for f in file.glob('*') if re.search(subregion_suffix_re, f.name, re.I)]
 
-                    # compile the vsearch dereplication command for this region's post-itsx sequence file
-                    vsearch_derep_cmd = [
-                        'vsearch',
-                        '--fastx_uniques', region_seqs,
-                        f'--fast{input_filefmt}out', derep_region_output,
-                        '--minuniquesize', str(min_count),
-                        '--sizeout',
-                    ]
+            # create a main output derep directory for this sample
+            derep_sample_output = add_prefix(
+                file_path=file,
+                prefix=derep_prefix,
+                dest_dir=derep_path,
+                action='mkdir',
+            )
 
-                    # add a log file output if keep_log=True
-                    if keep_log:
-
-                        # create an output file path for the vsearch derep log file
-                        vsearch_derep_log = derep_parent / f'vsearch_{derep_prefix}.log'
-
-                        # add the logging command to the standard vsearch derep command
-                        append_subprocess(
-                            cli_command_list=vsearch_derep_cmd,
-                            options_to_add=['--tabbedout', vsearch_derep_log],
-                            position=-1,
-                            return_copy=False,
-                        )
-
-                    # otherwise, do not add anything to the standard command
-                    else:
-                        pass
-
-                    # execute the final vsearch dereplication command
-                    run_subprocess(
-                        cli_command_list=vsearch_derep_cmd,
-                        dest_dir=derep_parent,
-                        run_name=run_name,
-                        program=f'vsearch-{derep_prefix}',
-                        separate_sample_output=True,
-                        auto_respond=settings['automate']['auto_respond'],
-                    )
-
-            # derep01 in all cases will (should) be a list of sequence files, not directories
-            else:
+            # go through the list of region / subregion files for this sample and dereplicate
+            for region_seqs in subregion_files:
 
                 # pull the file format from the input file, to determine whether to use fasta or fastq commands
-                input_filefmt = file.suffixes[0][-1]
+                input_filefmt = region_seqs.suffixes[0][-1]
 
-                # create the output file path for the dereplicated reads
-                derep_output = add_prefix(
-                    file_path=file,
+                # create a path for the region / subregion derep sequences within the main sample output dir
+                derep_region_output = add_prefix(
+                    file_path=region_seqs,
                     prefix=derep_prefix,
-                    dest_dir=derep_path,
+                    dest_dir=derep_sample_output,
                     action=None,
                     f_delim=settings['formatting']['filename_delim'],
                     output_compressed=False,
                     replace_prefix=True,
                 )
 
+                # compile the vsearch dereplication command for this region's post-itsx sequence file
                 vsearch_derep_cmd = [
                     'vsearch',
-                    '--fastx_uniques', file,
-                    f'--fast{input_filefmt}out', derep_output,
+                    '--fastx_uniques', region_seqs,
+                    f'--fast{input_filefmt}out', derep_region_output,
                     '--minuniquesize', str(min_count),
                     '--sizeout',
                 ]
@@ -943,630 +959,361 @@ class Sequence:
                     auto_respond=settings['automate']['auto_respond'],
                 )
 
-        return None
-
-    def separate_subregions(input_files, output_dir, reference_dir, cpus=4, verbose=False):
-
-        # import configuration settings
-        settings = get_settings(reference_dir)
-        run_name = settings['run_details']['run_name']
-
-        # create a directory for all ITSx output, if one does not exist
-        itsx_parent = mkdir_exist_ok(new_dir=output_dir)
-
-        # create a directory within the main ITSx output for this particular pipeline run
-        itsx_path = mkdir_exist_ok(new_dir=f'./{ITSX_PREFIX}_{run_name}', parent_dir=itsx_parent)
-
-        # if no cpu count provided as argument, auto-detect cpus available
-        if cpus is None:
-            # auto-detect the number of available CPUs that itsx can use (otherwise will default to 1)
-            cpu_use_count = len(
-                os.sched_getaffinity(0))  # i thought os.process_cpu_count() was the correct one here, but not attribute
+        # derep01 in all cases will (should) be a list of sequence files, not directories
         else:
-            # check that the specified number of cpus is available
-            # if cpus <= len(os.sched_getaffinity(0)):
-            #     cpu_use_count = cpus
-            # else:
-            #     cpu_use_count = len(os.sched_getaffinity(0))
-            #     warning_msg = (f'The requested number of CPUs to use for ITSx ({cpus}) exceeds the available '
-            #                    f'number of CPUs. Instead using the maximum available CPUs for this '
-            #                    f'job ({cpu_use_count}).\n')
-            #     print(warning_msg)
-            cpu_use_count = cpus
-            pass
 
-        print(f'ITSx is using {cpu_use_count} CPUs.')
+            # pull the file format from the input file, to determine whether to use fasta or fastq commands
+            input_filefmt = file.suffixes[0][-1]
 
-        # run ITSx for each input file
-        for file in input_files:
-
-            # create a new directory for each sample, since multiple files per sample are produced
-            itsx_sample_dir = add_prefix(file_path=file, prefix=ITSX_PREFIX, dest_dir=itsx_path, action='mkdir')
-
-            # construct a base name that ITSx will use for the output files
-            itsx_output_basename = add_prefix(file_path=file, prefix=ITSX_PREFIX,
-                                              dest_dir=itsx_sample_dir, action=None).with_suffix('')
-
-            # construct the ITSx command; will produce more output if verbose=True (defaults to False)
-            if verbose:
-                itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'fungi', '--multi_thread', 'T',
-                                '--save_regions', 'all', '--cpu', str(cpu_use_count)]
-            else:
-                itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'fungi', '--multi_thread', 'T',
-                                '--graphical', 'F', '--positions', 'F', '--silent', 'T',
-                                '--save_regions', '{ITS1,5.8S,ITS2,LSU}', '--cpu', str(cpu_use_count)]
-
-            # run the ITSx command
-            run_subprocess(itsx_command, dest_dir=itsx_parent, run_name=run_name,
-                           auto_respond=settings['automate']['auto_respond'])
-
-        # WITH MULTI-PROCESSING
-        # itsx_command_list = []
-        # for file in input_files:
-        #
-        #     # create a new directory for each sample, since multiple files per sample are produced
-        #     itsx_sample_dir = add_prefix(file_path=file, prefix=ITSX_PREFIX, dest_dir=itsx_path, action='mkdir')
-        #
-        #     # construct a base name that ITSx will use for the output files
-        #     itsx_output_basename = add_prefix(file_path=file, prefix=ITSX_PREFIX,
-        #                                       dest_dir=itsx_sample_dir, action=None).with_suffix('')
-        #
-        #     # construct the ITSx command; will produce more output if verbose=True (defaults to False)
-        #     if verbose:
-        #         itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'fungi', '--multi_thread', 'T',
-        #                         '--save_regions', 'all']
-        #     else:
-        #         itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'fungi', '--multi_thread', 'T',
-        #                         '--graphical', 'F', '--positions', 'F', '--silent', 'T',
-        #                         '--save_regions', '{ITS1,5.8S,ITS2,LSU}']
-        #
-        #     itsx_command_list.append(itsx_command)
-        #
-        # # set variables for the run_subprocess function here, don't kknow how to add multiple to .map
-        # num_samples = len(itsx_command_list)
-        # itsx_parent_repeats = [itsx_parent] * num_samples
-        # auto_responses = [settings['automate']['auto_respond']] * num_samples
-        #
-        # if __name__ == '__main__':
-        #     print(f'Number of cores available: {cpu_count()}')
-        #
-        #     p = Process(target=run_subprocess,
-        #                 args=(itsx_parent_repeats, auto_responses, itsx_command_list))
-        #     p.start()
-        #     p.join()
-
-        # return the ITSx output path for this sequencing run
-        return itsx_path
-
-    def check_chimeras(input_files, reference_dir, output_dir, method, alpha, keep_chimeras):
-
-        ## GET SETTINGS ###################################
-
-        # read in the configuration settings, get bioinformatics run name from settings
-        settings = get_settings(reference_dir)
-        run_name = settings['run_details']['run_name']
-
-        ## CREATE OUTPUT DIRECTORIES ######################
-
-        # make the main output directory for chimera check output
-        chim_parent = mkdir_exist_ok(new_dir=output_dir)
-
-        # within main chimera check output directory, create a subdirectory for the chimeric and non-chimeric reads
-        nochim_path = mkdir_exist_ok(new_dir=f'./{NOCHIM_PREFIX}_{run_name}', parent_dir=chim_parent)
-        chim_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(NOCHIM_PREFIX)}_{run_name}', parent_dir=chim_parent)
-
-        # create a log file for any UCHIME summary content produce by vsearch flag --uchimeout
-        uchime_log = chim_parent / f'uchime_{run_name}.log'
-
-        ## DE NOVO CHIMERA DETECTION #######################
-
-        # if the method is set to denovo, then do de novo chimera detection
-        if method == 'denovo':
-
-            # function for de novo chimera detection depends on whether sequences have been denoised or not
-
-            # sort input files into whether they have been denoised (have denoise_ file prefix) or not
-            input_sorted = {p: [] for p in [DENOISE_PREFIX, flip_prefix(DENOISE_PREFIX)]}
-
-            # go through each input file and sort by whether sequences in file are denoised or not
-            for file in create_file_list(input_files):
-
-                # get the file prefix of the file
-                file_prefix = file.name.split('_')[0]
-
-                # add the file path to the sorted dictionary, based on prefix
-                if file_prefix == DENOISE_PREFIX:
-                    input_sorted[DENOISE_PREFIX].append(file)
-                else:
-                    input_sorted[flip_prefix(DENOISE_PREFIX)].append(file)
-
-            # run UCHIME3 de novo chimera detection on denoised sequences
-            for denoised_file in input_sorted[DENOISE_PREFIX]:
-
-                # create an output file path for the non-chimeric read output
-                nochim_out = add_prefix(
-                    file_path=denoised_file,
-                    prefix=NOCHIM_PREFIX,
-                    dest_dir=nochim_path,
-                    action=None,
-                    f_delim=settings['formatting']['filename_delim'],
-                    output_compressed=False,
-                    replace_prefix=True,
-                )
-
-                # UCHIME will only write out .fasta-formatted files, so ensure output filename is .fasta formatted
-                nochim_out = replace_file_ext(
-                    file_path=nochim_out,
-                    output_ext='.fasta',
-                    create_file=False,
-                    replace_file=False,
-                    output_dir=None,
-                )
-
-                # assemble the vsearch UCHIME3 command for the command line
-                vsearch_denovo_cmd = ['vsearch',
-                                      '--uchime3_denovo', denoised_file,
-                                      '--abskew', str(alpha[method]['denoised']),
-                                      '--nonchimeras', nochim_out,
-                                      '--uchimeout', uchime_log]
-
-                if keep_chimeras:
-
-                    # if configured to keep chimeras, create an output file path for chimeric reads
-                    chim_out = add_prefix(
-                        file_path=denoised_file,
-                        prefix=flip_prefix(NOCHIM_PREFIX),
-                        dest_dir=chim_path,
-                        action=None,
-                        f_delim=settings['formatting']['filename_delim'],
-                        output_compressed=False,
-                        replace_prefix=True,
-                    )
-
-                    # UCHIME will only write out .fasta-formatted files, so ensure output filename is .fasta formatted
-                    chim_out = replace_file_ext(
-                        file_path=chim_out,
-                        output_ext='.fasta',
-                        create_file=False,
-                        replace_file=False,
-                        output_dir=None,
-                    )
-
-                    # insert the command to keep chimeras into the uchime command
-                    append_subprocess(
-                        cli_command_list=vsearch_denovo_cmd,
-                        options_to_add=['--chimeras', chim_out],
-                        position=-1,
-                        return_copy=False,
-                    )
-
-                else:
-                    pass
-
-                # execute the vsearch UCHIME command
-                run_subprocess(vsearch_denovo_cmd, dest_dir=chim_parent, run_name=run_name, program='uchime3-denovo',
-                               auto_respond=settings['automate']['auto_respond'])
-
-            # run UCHIME de novo chimera detection on sequences that have not been denoised
-            for undenoised_file in input_sorted[flip_prefix(DENOISE_PREFIX)]:
-
-                # create an output file path for the non-chimeric read output
-                nochim_out = add_prefix(
-                    file_path=undenoised_file,
-                    prefix=NOCHIM_PREFIX,
-                    dest_dir=nochim_path,
-                    action=None,
-                    f_delim=settings['formatting']['filename_delim'],
-                    output_compressed=False,
-                    replace_prefix=True,
-                )
-
-                # UCHIME will only write out .fasta-formatted files, so ensure output filename is .fasta formatted
-                nochim_out = replace_file_ext(
-                    file_path=nochim_out,
-                    output_ext='.fasta',
-                    create_file=False,
-                    replace_file=False,
-                    output_dir=None,
-                )
-
-                # assemble the vsearch UCHIME3 command for the command line
-                vsearch_denovo_cmd = ['vsearch', '--uchime_denovo', undenoised_file,
-                                      '--abskew', str(alpha[method]['undenoised']),
-                                      '--nonchimeras', nochim_out,
-                                      '--uchimeout', uchime_log]
-
-                if keep_chimeras:
-
-                    # if configured to keep chimeras, create an output file path for chimeric reads
-                    chim_out = add_prefix(
-                        file_path=undenoised_file,
-                        prefix=flip_prefix(NOCHIM_PREFIX),
-                        dest_dir=chim_path,
-                        action=None,
-                        f_delim=settings['formatting']['filename_delim'],
-                        output_compressed=False,
-                        replace_prefix=True,
-                    )
-
-                    # UCHIME will only write out .fasta-formatted files, so ensure output filename is .fasta formatted
-                    chim_out = replace_file_ext(
-                        file_path=chim_out,
-                        output_ext='.fasta',
-                        create_file=False,
-                        replace_file=False,
-                        output_dir=None,
-                    )
-
-                    # insert the command to keep chimeras into the uchime command
-                    append_subprocess(
-                        cli_command_list=vsearch_denovo_cmd,
-                        options_to_add=['--chimeras', chim_out],
-                        position=-1,
-                        return_copy=False,
-                    )
-
-                else:
-                    pass
-
-                # execute the vsearch de novo UCHIME command
-                run_subprocess(vsearch_denovo_cmd, dest_dir=chim_parent, run_name=run_name, program='uchime-denovo',
-                               auto_respond=settings['automate']['auto_respond'])
-
-        ## REFERENCE-BASED CHIMERA DETECTION #################
-
-        # if the method is set to reference-based, then do reference-based chimera detection
-        elif method == 'reference':
-
-            # get the path to the directory with the chimera reference datasets
-            chim_ref_dir = file_finder(
-                reference_dir=reference_dir,
-                search_glob='reference-sequences/chimera-check',
+            # create the output file path for the dereplicated reads
+            derep_output = add_prefix(
+                file_path=file,
+                prefix=derep_prefix,
+                dest_dir=derep_path,
+                action=None,
+                f_delim=settings['formatting']['filename_delim'],
+                output_compressed=False,
+                replace_prefix=True,
             )
 
-            # if the directory with the chimera reference datasets contains a single directory, then replace
-            #  the file path with the path to this child directory
+            vsearch_derep_cmd = [
+                'vsearch',
+                '--fastx_uniques', file,
+                f'--fast{input_filefmt}out', derep_output,
+                '--minuniquesize', str(min_count),
+                '--sizeout',
+            ]
 
-            # create a list of contents of chim_ref_dir, ignoring hidden files like .DS_Store
-            chim_ref_dir_contents = [child for child in chim_ref_dir.iterdir() if not child.name.startswith('.')]
+            # add a log file output if keep_log=True
+            if keep_log:
 
-            # if only a single item and this item is a directory, replace path variable with this child directory path
-            if (len(chim_ref_dir_contents) == 1) and (chim_ref_dir_contents[0].is_dir()):
-                chim_ref_dir = chim_ref_dir_contents[0]
+                # create an output file path for the vsearch derep log file
+                vsearch_derep_log = derep_parent / f'vsearch_{derep_prefix}.log'
+
+                # add the logging command to the standard vsearch derep command
+                append_subprocess(
+                    cli_command_list=vsearch_derep_cmd,
+                    options_to_add=['--tabbedout', vsearch_derep_log],
+                    position=-1,
+                    return_copy=False,
+                )
+
+            # otherwise, do not add anything to the standard command
             else:
                 pass
 
-            # sort the input files based on the DNA region; e.g., ITS1 and ITS2 have distinct reference datasets
+            # execute the final vsearch dereplication command
+            run_subprocess(
+                cli_command_list=vsearch_derep_cmd,
+                dest_dir=derep_parent,
+                run_name=run_name,
+                program=f'vsearch-{derep_prefix}',
+                separate_sample_output=True,
+                auto_respond=settings['automate']['auto_respond'],
+            )
 
-            # create a dictionary where the key is the DNA region that will match the file tags and values are empty list
-            ref_chim_regions = [region_tag.lower() for region_tag in POST_ITSX_SUFFIXES.values() if
-                                not (region_tag in ['5_8S', 'LSU'])]
-            input_files_sorted = {region: [] for region in ref_chim_regions}
+    return None
 
-            # create a regex that will search for any of the regions
-            ref_chim_regions_re = '|'.join(ref_chim_regions)
+def separate_subregions(input_files, output_dir, reference_dir, cpus=4, verbose=False):
 
-            # if input files are directories (pacbio), create a list of all sequence files within all input directories
-            updated_file_list = []
-            for file_in in input_files:
-                if file_in.is_dir():
-                    for fasta_file in file_in.glob(SEQ_FILE_GLOB):
-                        updated_file_list.append(fasta_file)
-                else:
-                    updated_file_list.append(file_in)
+    # import configuration settings
+    settings = get_settings(reference_dir)
+    run_name = settings['run_details']['run_name']
 
-            # go through the input files and sort files by region
-            for file_in in updated_file_list:
-                wanted_region_found = re.search(ref_chim_regions_re, file_in.name, re.I)
-                if wanted_region_found:
-                    input_files_sorted[wanted_region_found.group(0).lower()].append(file_in)
-                else:
-                    continue
+    # create a directory for all ITSx output, if one does not exist
+    itsx_parent = mkdir_exist_ok(new_dir=output_dir)
 
-            # keep track of whether multiple regions are included in the input files; later use this to decide whether to
-            #   create multiple output subdirectories, one for each region (only do this if multiple regions processed)
-            input_region_count = 0
-            for dna_region, region_file_list in input_files_sorted.items():
-                if len(region_file_list) > 0:
-                    input_region_count += 1
-                else:
-                    pass
+    # create a directory within the main ITSx output for this particular pipeline run
+    itsx_path = mkdir_exist_ok(new_dir=f'./{ITSX_PREFIX}_{run_name}', parent_dir=itsx_parent)
 
-            # create a dictionary with the same keys as the input_files_sorted list, to add paths to the correct
-            #   reference files to use for each region
-            chim_ref_by_region = {r: '' for r in input_files_sorted.keys()}
+    # if no cpu count provided as argument, auto-detect cpus available
+    if cpus is None:
+        # auto-detect the number of available CPUs that itsx can use (otherwise will default to 1)
+        cpu_use_count = len(
+            os.sched_getaffinity(0))  # i thought os.process_cpu_count() was the correct one here, but not attribute
+    else:
+        # check that the specified number of cpus is available
+        # if cpus <= len(os.sched_getaffinity(0)):
+        #     cpu_use_count = cpus
+        # else:
+        #     cpu_use_count = len(os.sched_getaffinity(0))
+        #     warning_msg = (f'The requested number of CPUs to use for ITSx ({cpus}) exceeds the available '
+        #                    f'number of CPUs. Instead using the maximum available CPUs for this '
+        #                    f'job ({cpu_use_count}).\n')
+        #     print(warning_msg)
+        cpu_use_count = cpus
+        pass
 
-            # go through each DNA region
-            for dna_region in chim_ref_by_region:
+    print(f'ITSx is using {cpu_use_count} CPUs.')
 
-                # create a list of all file paths that match this DNA region in the chimera reference dir path
-                region_ref_files = []
+    # run ITSx for each input file
+    for file in input_files:
 
-                # locate all matching directories or files for this DNA region
-                for ref_file in chim_ref_dir.iterdir():
+        # create a new directory for each sample, since multiple files per sample are produced
+        itsx_sample_dir = add_prefix(file_path=file, prefix=ITSX_PREFIX, dest_dir=itsx_path, action='mkdir')
 
-                    # if a file or directory matches this region...
-                    match_found = re.search(dna_region, ref_file.name, re.I)
-                    if match_found:
+        # construct a base name that ITSx will use for the output files
+        itsx_output_basename = add_prefix(file_path=file, prefix=ITSX_PREFIX,
+                                          dest_dir=itsx_sample_dir, action=None).with_suffix('')
 
-                        # if the matching path is a directory, look inside directory for a sequence file
-                        if ref_file.is_dir():
-                            match_found_inside = [f for f in ref_file.glob(SEQ_FILE_GLOB) if
-                                                  re.search(dna_region, f.name, re.I)]
-
-                            # if a single sequence file is located that matches the region, add this to the list of ref files
-                            if len(match_found_inside) == 1:
-                                region_ref_files.append(match_found_inside[0])
-
-                            # if multiple sequence files match the region inside this directory, add all of them
-                            elif len(match_found_inside) > 1:
-                                region_ref_files.append(*match_found_inside)
-
-                            # if no matching files are found in this directory, pass over it
-                            else:
-                                pass
-
-                        # if the matching path is a sequence file, add it to the matching file list
-                        elif re.search(SEQ_FILE_RE, ref_file.suffix, re.I):
-                            region_ref_files.append(ref_file)
-
-                        # if the matching path isn't a directory nor a sequence file, skip over it (don't add to list)
-                        else:
-                            pass
-
-                    else:
-                        continue
-
-                # if a single file / directory is located for this region...
-                if len(region_ref_files) == 1:
-                    # add this as the path location of the chimera ref file for this region
-                    chim_ref_by_region.update({dna_region: region_ref_files[0]})
-
-                # if multiple are located for this region...
-                elif len(region_ref_files) > 1:
-                    # print an error; can't proceed with multiple matches
-                    err_msg = (f'Multiple chimera reference files were detected for the DNA region {dna_region} based '
-                               f'on matching the region string to a file name in the directory: \n'
-                               f'   {chim_ref_dir}')
-                    return exit_process(err_msg)
-
-                # if no reference datasets exactly match this region...
-                else:
-
-                    # likely indicates that the general-use reference file should be used for this region
-                    if dna_region.lower() in ['full-its', 'its-lsu']:
-                        general_ref = [fasta_file for fasta_file in chim_ref_dir.glob(SEQ_FILE_GLOB)][0]
-                        chim_ref_by_region.update({dna_region: general_ref})
-                    else:
-                        err_msg = (f'A reference chimera dataset for the {dna_region} DNA region should be available '
-                                   f'for vsearch to use, but one was not detected.')
-                        return exit_process(err_msg)
-
-            # go through the list of input files by region...
-            for dna_region, region_file_list in input_files_sorted.items():
-
-                # if there aren't any files for this region, skip over it
-                if len(region_file_list) == 0:
-                    continue
-
-                else:
-
-                    # get the reference dataset to use based on the DNA region of the input files
-                    chim_ref_file = chim_ref_by_region[dna_region]
-
-                    # create a subdirectory for this DNA region, only if multiple regions are represented in input files
-                    if input_region_count > 1:
-                        region_nonchim_out = mkdir_exist_ok(
-                            new_dir=dna_region,
-                            parent_dir=nochim_path,
-                        )
-                    # otherwise, put directory into the main output directory
-                    else:
-                        region_nonchim_out = nochim_path
-
-                    # process one input file at a time from this region file list
-                    for input_file in region_file_list:
-
-                        # file name of the non-chimeric sequences for this sample
-                        nochim_out = add_prefix(
-                            file_path=input_file,
-                            prefix=NOCHIM_PREFIX,
-                            dest_dir=region_nonchim_out,
-                            action=None,
-                            f_delim=settings['formatting']['filename_delim'],
-                            output_compressed=False,
-                            replace_prefix=True,
-                        )
-
-                        # UCHIME will only write out .fasta-formatted files, so ensure output filename is .fasta formatted
-                        nochim_out = replace_file_ext(
-                            file_path=nochim_out,
-                            output_ext='.fasta',
-                            create_file=False,
-                            replace_file=False,
-                            output_dir=None,
-                        )
-
-                        vsearch_ref_cmd = ['vsearch', '--uchime_ref', input_file,
-                                           '--abskew', str(alpha[method]),
-                                           '--nonchimeras', nochim_out,
-                                           '--uchimeout', uchime_log,
-                                           '--db', chim_ref_file]
-
-                        if keep_chimeras:
-
-                            # create a subdirectory for this DNA region, only if multiple regions are represented in input files
-                            if input_region_count > 1:
-                                region_chim_out = mkdir_exist_ok(
-                                    new_dir=dna_region,
-                                    parent_dir=chim_path,
-                                )
-                            # otherwise, put directory into the main output directory
-                            else:
-                                region_chim_out = chim_path
-
-                            # file name of the chimeric sequences for this sample (if keep_chimeras=True)
-                            chim_out = add_prefix(
-                                file_path=input_file,
-                                prefix=flip_prefix(NOCHIM_PREFIX),
-                                dest_dir=region_chim_out,
-                                action=None,
-                                f_delim=settings['formatting']['filename_delim'],
-                                output_compressed=False,
-                                replace_prefix=True,
-                            )
-
-                            # UCHIME will only write out .fasta-formatted files, so ensure output filename is .fasta formatted
-                            chim_out = replace_file_ext(
-                                file_path=chim_out,
-                                output_ext='.fasta',
-                                create_file=False,
-                                replace_file=False,
-                                output_dir=None,
-                            )
-
-                            # insert the command to keep chimeras into the uchime command
-                            append_subprocess(
-                                cli_command_list=vsearch_ref_cmd,
-                                options_to_add=['--chimeras', chim_out],
-                                position=-1,
-                                return_copy=False,
-                            )
-
-                        else:
-                            pass
-
-                        # execute the chimera detection vsearch command for this sample sequence file
-                        run_subprocess(
-                            vsearch_ref_cmd,
-                            dest_dir=chim_parent,
-                            run_name=run_name,
-                            program='uchime-ref',
-                            auto_respond=settings['automate']['auto_respond'],
-                        )
-
+        # construct the ITSx command; will produce more output if verbose=True (defaults to False)
+        if verbose:
+            itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'fungi', '--multi_thread', 'T',
+                            '--save_regions', 'all', '--cpu', str(cpu_use_count)]
         else:
-            pass
+            itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'fungi', '--multi_thread', 'T',
+                            '--graphical', 'F', '--positions', 'F', '--silent', 'T',
+                            '--save_regions', '{ITS1,5.8S,ITS2,LSU}', '--cpu', str(cpu_use_count)]
 
-        ## OUTPUT SUMMARY FILE WITH TABLE OF SAMPLES WITHOUT NON-CHIMERA READS
+        # run the ITSx command
+        run_subprocess(itsx_command, dest_dir=itsx_parent, run_name=run_name,
+                       auto_respond=settings['automate']['auto_respond'])
 
-        # create an empty dictionary to add sample IDs and read counts of empty files only (no sequences)
-        empty_nonchim = {}
+    # WITH MULTI-PROCESSING
+    # itsx_command_list = []
+    # for file in input_files:
+    #
+    #     # create a new directory for each sample, since multiple files per sample are produced
+    #     itsx_sample_dir = add_prefix(file_path=file, prefix=ITSX_PREFIX, dest_dir=itsx_path, action='mkdir')
+    #
+    #     # construct a base name that ITSx will use for the output files
+    #     itsx_output_basename = add_prefix(file_path=file, prefix=ITSX_PREFIX,
+    #                                       dest_dir=itsx_sample_dir, action=None).with_suffix('')
+    #
+    #     # construct the ITSx command; will produce more output if verbose=True (defaults to False)
+    #     if verbose:
+    #         itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'fungi', '--multi_thread', 'T',
+    #                         '--save_regions', 'all']
+    #     else:
+    #         itsx_command = ['ITSx', '-i', file, '-o', itsx_output_basename, '-t', 'fungi', '--multi_thread', 'T',
+    #                         '--graphical', 'F', '--positions', 'F', '--silent', 'T',
+    #                         '--save_regions', '{ITS1,5.8S,ITS2,LSU}']
+    #
+    #     itsx_command_list.append(itsx_command)
+    #
+    # # set variables for the run_subprocess function here, don't kknow how to add multiple to .map
+    # num_samples = len(itsx_command_list)
+    # itsx_parent_repeats = [itsx_parent] * num_samples
+    # auto_responses = [settings['automate']['auto_respond']] * num_samples
+    #
+    # if __name__ == '__main__':
+    #     print(f'Number of cores available: {cpu_count()}')
+    #
+    #     p = Process(target=run_subprocess,
+    #                 args=(itsx_parent_repeats, auto_responses, itsx_command_list))
+    #     p.start()
+    #     p.join()
 
-        # create a Boolean that will switch to True if there are samples added to empty_nonchim dict
-        samples_with_only_chimeras = False
+    # return the ITSx output path for this sequencing run
+    return itsx_path
 
-        # go through each non-chimeric file that was just created
-        for nonchim_file in nochim_path.glob(f'{NOCHIM_PREFIX}*fasta'):
+def check_chimeras(input_files, reference_dir, output_dir, method, alpha, keep_chimeras):
 
-            # for each non-chimeric file, count the number of sequences (read count)
-            read_count = 0
-            with open(nonchim_file) as fasta_in:
-                for record in SeqIO.parse(fasta_in, 'fasta'):
-                    read_count += 1
+    ## GET SETTINGS ###################################
 
-            # if there are no sequences in the non-chim file for this sample...
-            if read_count == 0:
-                # get the sample ID
-                sample_id = get_sample_id(file_path=nonchim_file)
+    # read in the configuration settings, get bioinformatics run name from settings
+    settings = get_settings(reference_dir)
+    run_name = settings['run_details']['run_name']
 
-                # append the sample ID and read count to the empty non-chim dictionary
-                empty_nonchim.update({sample_id: read_count})
+    ## CREATE OUTPUT DIRECTORIES ######################
 
-                # switch to True
-                samples_with_only_chimeras = True
+    # make the main output directory for chimera check output
+    chim_parent = mkdir_exist_ok(new_dir=output_dir)
 
-        # after going through each non-chimeric file...
+    # within main chimera check output directory, create a subdirectory for the chimeric and non-chimeric reads
+    nochim_path = mkdir_exist_ok(new_dir=f'./{NOCHIM_PREFIX}_{run_name}', parent_dir=chim_parent)
+    chim_path = mkdir_exist_ok(new_dir=f'./{flip_prefix(NOCHIM_PREFIX)}_{run_name}', parent_dir=chim_parent)
 
-        # if samples without any non-chimera reads were detected...
-        if samples_with_only_chimeras:
+    # create a log file for any UCHIME summary content produce by vsearch flag --uchimeout
+    uchime_log = chim_parent / f'uchime_{run_name}.log'
 
-            # write out the empty non-chimeric samples to a summary file
-            empty_nonchim_out = chim_parent / f'{run_name}_no-nonchim-reads.txt'
-            with open(empty_nonchim_out, 'wt') as fout:
-                fout.write(f'read count\tsample id\n')
-                for sample_id, read_count in empty_nonchim.items():
-                    fout.write(f'{read_count}\t{sample_id}\n')
+    ## DE NOVO CHIMERA DETECTION #######################
 
-        # otherwise, do nothing
-        else:
-            pass
+    # if the method is set to denovo, then do de novo chimera detection
+    if method == 'denovo':
 
-        return None
+        # function for de novo chimera detection depends on whether sequences have been denoised or not
 
-    def assign_taxonomy(otu_fasta, query_fasta, reference_dir, method=None):
+        # sort input files into whether they have been denoised (have denoise_ file prefix) or not
+        input_sorted = {p: [] for p in [DENOISE_PREFIX, flip_prefix(DENOISE_PREFIX)]}
 
-        # import settings from the configuration file
-        settings = get_settings(reference_dir)
-        run_name = settings['run_details']['run_name']
+        # go through each input file and sort by whether sequences in file are denoised or not
+        for file in create_file_list(input_files):
 
-        # define list of available methods
-        available_methods = ['amptk', 'rdp', 'blastn']
+            # get the file prefix of the file
+            file_prefix = file.name.split('_')[0]
 
-        # if a method to assign taxonomy isn't provided to the function, then look in the configuration file
-        if method is None:
-            method = settings['taxonomy']['method']
+            # add the file path to the sorted dictionary, based on prefix
+            if file_prefix == DENOISE_PREFIX:
+                input_sorted[DENOISE_PREFIX].append(file)
+            else:
+                input_sorted[flip_prefix(DENOISE_PREFIX)].append(file)
 
-        # based on the specified method, compile the command for the CLI
-        if method == 'blastn':
-            pass
-            # ref_db = create_blast_db(config_dict, file_map, taxa_list=None)
-            #
-            # blast_out = (tax_output / f'{run_name}').with_suffix('.txt')
-            # blast_cmd = ['blastn', '-query', ref_db, '-out', blast_out]
-            #
-            # run_subprocess(blast_cmd, dest_dir = tax_output)
+        # run UCHIME3 de novo chimera detection on denoised sequences
+        for denoised_file in input_sorted[DENOISE_PREFIX]:
 
-        elif method == 'rdp':
-            pass
+            # create an output file path for the non-chimeric read output
+            nochim_out = add_prefix(
+                file_path=denoised_file,
+                prefix=NOCHIM_PREFIX,
+                dest_dir=nochim_path,
+                action=None,
+                f_delim=settings['formatting']['filename_delim'],
+                output_compressed=False,
+                replace_prefix=True,
+            )
 
+            # UCHIME will only write out .fasta-formatted files, so ensure output filename is .fasta formatted
+            nochim_out = replace_file_ext(
+                file_path=nochim_out,
+                output_ext='.fasta',
+                create_file=False,
+                replace_file=False,
+                output_dir=None,
+            )
 
-        ## AMPTK
+            # assemble the vsearch UCHIME3 command for the command line
+            vsearch_denovo_cmd = ['vsearch',
+                                  '--uchime3_denovo', denoised_file,
+                                  '--abskew', str(alpha[method]['denoised']),
+                                  '--nonchimeras', nochim_out,
+                                  '--uchimeout', uchime_log]
 
-        elif method == 'amptk':
+            if keep_chimeras:
 
-            # import the amptk databases based on type of sequences to assign taxonomy to
-            # hm easier in theory; could be a mix, filename wouldn't indicate, only read headers would
-            amptk_db_install_cmd = ['amptk', 'install', '-i', 'ITS']
-            run_subprocess(amptk_db_install_cmd, dest_dir=otu_fasta.parent, run_name=run_name, program='amptk-db',
-                           separate_sample_output=True, auto_respond=False)
+                # if configured to keep chimeras, create an output file path for chimeric reads
+                chim_out = add_prefix(
+                    file_path=denoised_file,
+                    prefix=flip_prefix(NOCHIM_PREFIX),
+                    dest_dir=chim_path,
+                    action=None,
+                    f_delim=settings['formatting']['filename_delim'],
+                    output_compressed=False,
+                    replace_prefix=True,
+                )
 
-            amptk_cmd = ['amptk', 'taxonomy', '-i', otu_fasta, '-f', SOMETHING, '-m',
-                         SOMETHING, '-d', 'ITS1']
+                # UCHIME will only write out .fasta-formatted files, so ensure output filename is .fasta formatted
+                chim_out = replace_file_ext(
+                    file_path=chim_out,
+                    output_ext='.fasta',
+                    create_file=False,
+                    replace_file=False,
+                    output_dir=None,
+                )
 
-        else:
-            error_msg = (f'ERROR. The provided method of assigning taxonomy, {method}, is not currently '
-                         f'recognized among the list of available methods. Please choose one of the following '
-                         f'accepted methods:\n')
-            print_indented_list(available_methods)
-            exit_process(error_msg)
+                # insert the command to keep chimeras into the uchime command
+                append_subprocess(
+                    cli_command_list=vsearch_denovo_cmd,
+                    options_to_add=['--chimeras', chim_out],
+                    position=-1,
+                    return_copy=False,
+                )
 
-        error_msg = (f'ERROR. The provided method of assigning taxonomy, {method}, is not currently '
-                     f'available for use in the pipeline.\n')
-        exit_process(error_msg)
+            else:
+                pass
 
-        return None
+            # execute the vsearch UCHIME command
+            run_subprocess(vsearch_denovo_cmd, dest_dir=chim_parent, run_name=run_name, program='uchime3-denovo',
+                           auto_respond=settings['automate']['auto_respond'])
 
-    def cluster_reads(input_files, output_dir, reference_dir, clust_threshold, clust_method, group=True):
+        # run UCHIME de novo chimera detection on sequences that have not been denoised
+        for undenoised_file in input_sorted[flip_prefix(DENOISE_PREFIX)]:
 
-        ## IMPORT SETTINGS FOR PIPELINE ###################
+            # create an output file path for the non-chimeric read output
+            nochim_out = add_prefix(
+                file_path=undenoised_file,
+                prefix=NOCHIM_PREFIX,
+                dest_dir=nochim_path,
+                action=None,
+                f_delim=settings['formatting']['filename_delim'],
+                output_compressed=False,
+                replace_prefix=True,
+            )
 
-        # import configuration settings
-        settings = get_settings(reference_dir)
-        run_name = settings['run_details']['run_name']
+            # UCHIME will only write out .fasta-formatted files, so ensure output filename is .fasta formatted
+            nochim_out = replace_file_ext(
+                file_path=nochim_out,
+                output_ext='.fasta',
+                create_file=False,
+                replace_file=False,
+                output_dir=None,
+            )
 
-        ## CREATE OUTPUT FILE PATHS #######################
+            # assemble the vsearch UCHIME3 command for the command line
+            vsearch_denovo_cmd = ['vsearch', '--uchime_denovo', undenoised_file,
+                                  '--abskew', str(alpha[method]['undenoised']),
+                                  '--nonchimeras', nochim_out,
+                                  '--uchimeout', uchime_log]
 
-        # create a directory for all clustering output
-        clust_parent = mkdir_exist_ok(new_dir=output_dir)
+            if keep_chimeras:
 
-        # create a directory within the main clustering output for this particular pipeline run
-        clust_output = mkdir_exist_ok(
-            new_dir=f'./{CLUSTER_PREFIX}_{run_name}',
-            parent_dir=clust_parent,
+                # if configured to keep chimeras, create an output file path for chimeric reads
+                chim_out = add_prefix(
+                    file_path=undenoised_file,
+                    prefix=flip_prefix(NOCHIM_PREFIX),
+                    dest_dir=chim_path,
+                    action=None,
+                    f_delim=settings['formatting']['filename_delim'],
+                    output_compressed=False,
+                    replace_prefix=True,
+                )
+
+                # UCHIME will only write out .fasta-formatted files, so ensure output filename is .fasta formatted
+                chim_out = replace_file_ext(
+                    file_path=chim_out,
+                    output_ext='.fasta',
+                    create_file=False,
+                    replace_file=False,
+                    output_dir=None,
+                )
+
+                # insert the command to keep chimeras into the uchime command
+                append_subprocess(
+                    cli_command_list=vsearch_denovo_cmd,
+                    options_to_add=['--chimeras', chim_out],
+                    position=-1,
+                    return_copy=False,
+                )
+
+            else:
+                pass
+
+            # execute the vsearch de novo UCHIME command
+            run_subprocess(vsearch_denovo_cmd, dest_dir=chim_parent, run_name=run_name, program='uchime-denovo',
+                           auto_respond=settings['automate']['auto_respond'])
+
+    ## REFERENCE-BASED CHIMERA DETECTION #################
+
+    # if the method is set to reference-based, then do reference-based chimera detection
+    elif method == 'reference':
+
+        # get the path to the directory with the chimera reference datasets
+        chim_ref_dir = file_finder(
+            reference_dir=reference_dir,
+            search_glob='reference-sequences/chimera-check',
         )
 
-        ## FLATTEN INPUT FILE LIST ########################
+        # if the directory with the chimera reference datasets contains a single directory, then replace
+        #  the file path with the path to this child directory
+
+        # create a list of contents of chim_ref_dir, ignoring hidden files like .DS_Store
+        chim_ref_dir_contents = [child for child in chim_ref_dir.iterdir() if not child.name.startswith('.')]
+
+        # if only a single item and this item is a directory, replace path variable with this child directory path
+        if (len(chim_ref_dir_contents) == 1) and (chim_ref_dir_contents[0].is_dir()):
+            chim_ref_dir = chim_ref_dir_contents[0]
+        else:
+            pass
+
+        # sort the input files based on the DNA region; e.g., ITS1 and ITS2 have distinct reference datasets
+
+        # create a dictionary where the key is the DNA region that will match the file tags and values are empty list
+        ref_chim_regions = [region_tag.lower() for region_tag in POST_ITSX_SUFFIXES.values() if
+                            not (region_tag in ['5_8S', 'LSU'])]
+        input_files_sorted = {region: [] for region in ref_chim_regions}
+
+        # create a regex that will search for any of the regions
+        ref_chim_regions_re = '|'.join(ref_chim_regions)
 
         # if input files are directories (pacbio), create a list of all sequence files within all input directories
         updated_file_list = []
@@ -1577,113 +1324,435 @@ class Sequence:
             else:
                 updated_file_list.append(file_in)
 
-        ## COMBINE SAMPLE SEQUENCES PRE-CLUSTERING ########
+        # go through the input files and sort files by region
+        for file_in in updated_file_list:
+            wanted_region_found = re.search(ref_chim_regions_re, file_in.name, re.I)
+            if wanted_region_found:
+                input_files_sorted[wanted_region_found.group(0).lower()].append(file_in)
+            else:
+                continue
 
-        # if group=True, gather all like sequences together into a single .fasta before clustering
-        if group:
+        # keep track of whether multiple regions are included in the input files; later use this to decide whether to
+        #   create multiple output subdirectories, one for each region (only do this if multiple regions processed)
+        input_region_count = 0
+        for dna_region, region_file_list in input_files_sorted.items():
+            if len(region_file_list) > 0:
+                input_region_count += 1
+            else:
+                pass
 
-            ## SORT BY DNA REGION ##
+        # create a dictionary with the same keys as the input_files_sorted list, to add paths to the correct
+        #   reference files to use for each region
+        chim_ref_by_region = {r: '' for r in input_files_sorted.keys()}
 
-            # create a dictionary where the key is the DNA region that will match the file tags and values are empty list
-            clust_regions = [region_tag.lower() for region_tag in POST_ITSX_SUFFIXES.values() if
-                             not (region_tag in ['5_8S', 'LSU'])]
-            input_files_sorted = {region: [] for region in clust_regions}
+        # go through each DNA region
+        for dna_region in chim_ref_by_region:
 
-            # create a regex that will search for any of the regions in the input .fasta files
-            clust_regions_re = '|'.join(clust_regions)
+            # create a list of all file paths that match this DNA region in the chimera reference dir path
+            region_ref_files = []
 
-            # go through the input files and sort files by region
-            for file_in in updated_file_list:
-                wanted_region_found = re.search(clust_regions_re, file_in.name, re.I)
-                if wanted_region_found:
-                    input_files_sorted[wanted_region_found.group(0).lower()].append(file_in)
+            # locate all matching directories or files for this DNA region
+            for ref_file in chim_ref_dir.iterdir():
+
+                # if a file or directory matches this region...
+                match_found = re.search(dna_region, ref_file.name, re.I)
+                if match_found:
+
+                    # if the matching path is a directory, look inside directory for a sequence file
+                    if ref_file.is_dir():
+                        match_found_inside = [f for f in ref_file.glob(SEQ_FILE_GLOB) if
+                                              re.search(dna_region, f.name, re.I)]
+
+                        # if a single sequence file is located that matches the region, add this to the list of ref files
+                        if len(match_found_inside) == 1:
+                            region_ref_files.append(match_found_inside[0])
+
+                        # if multiple sequence files match the region inside this directory, add all of them
+                        elif len(match_found_inside) > 1:
+                            region_ref_files.append(*match_found_inside)
+
+                        # if no matching files are found in this directory, pass over it
+                        else:
+                            pass
+
+                    # if the matching path is a sequence file, add it to the matching file list
+                    elif re.search(SEQ_FILE_RE, ref_file.suffix, re.I):
+                        region_ref_files.append(ref_file)
+
+                    # if the matching path isn't a directory nor a sequence file, skip over it (don't add to list)
+                    else:
+                        pass
+
                 else:
                     continue
 
-            ## COMBINE BY DNA REGION ##
+            # if a single file / directory is located for this region...
+            if len(region_ref_files) == 1:
+                # add this as the path location of the chimera ref file for this region
+                chim_ref_by_region.update({dna_region: region_ref_files[0]})
 
-            # create an output file path for these grouped sequences in the bioinfo run clustering directory
-            combined_seq_output = mkdir_exist_ok(
-                new_dir=f'pre-{CLUSTER_PREFIX}_grouped-sequences',
-                parent_dir=clust_output,
-            )
+            # if multiple are located for this region...
+            elif len(region_ref_files) > 1:
+                # print an error; can't proceed with multiple matches
+                err_msg = (f'Multiple chimera reference files were detected for the DNA region {dna_region} based '
+                           f'on matching the region string to a file name in the directory: \n'
+                           f'   {chim_ref_dir}')
+                return exit_process(err_msg)
 
-            # create a dict of the combined sequence files created below, will be input for vsearch clustering
-            seq_files_to_cluster = {}
+            # if no reference datasets exactly match this region...
+            else:
 
-            # go through the list of sorted input files by DNA region...
-            for dna_region, region_files in input_files_sorted.items():
+                # likely indicates that the general-use reference file should be used for this region
+                if dna_region.lower() in ['full-its', 'its-lsu']:
+                    general_ref = [fasta_file for fasta_file in chim_ref_dir.glob(SEQ_FILE_GLOB)][0]
+                    chim_ref_by_region.update({dna_region: general_ref})
+                else:
+                    err_msg = (f'A reference chimera dataset for the {dna_region} DNA region should be available '
+                               f'for vsearch to use, but one was not detected.')
+                    return exit_process(err_msg)
 
-                # gather all sequence records into a list of sequence records for this DNA region
-                region_seq_records = []
+        # go through the list of input files by region...
+        for dna_region, region_file_list in input_files_sorted.items():
 
-                # create an output file path for these grouped sequences in the bioinfo run clustering directory
-                region_seq_output = combined_seq_output / f'pre-{CLUSTER_PREFIX}_{run_name}_{dna_region}.fasta'
+            # if there aren't any files for this region, skip over it
+            if len(region_file_list) == 0:
+                continue
 
-                # add this output file path to the list of combined sequence files to cluster
-                seq_files_to_cluster.update({dna_region: region_seq_output})
+            else:
 
-                # go through each sample's sequence file for this DNA region...
-                for sample_fasta in region_files:
+                # get the reference dataset to use based on the DNA region of the input files
+                chim_ref_file = chim_ref_by_region[dna_region]
 
-                    # get the sample ID from the input sequence file name
-                    sample_id = get_sample_id(sample_fasta, platform='itslsu').replace(f'{run_name}_', '')
+                # create a subdirectory for this DNA region, only if multiple regions are represented in input files
+                if input_region_count > 1:
+                    region_nonchim_out = mkdir_exist_ok(
+                        new_dir=dna_region,
+                        parent_dir=nochim_path,
+                    )
+                # otherwise, put directory into the main output directory
+                else:
+                    region_nonchim_out = nochim_path
 
-                    # go through each record (read) in this sample's sequence file...
-                    for record in SeqIO.parse(sample_fasta, 'fasta'):
-                        # update the read header to include sample=<sample-id>; as first item, which is required
-                        #  in order for vsearch clustering to recognize the sample ID for the OTU table
-                        # otu=<read-id> is also required in order for the sequence read IDs to be used as the OTU name
-                        updated_record_header = f'sample={sample_id};otu={record.id}'
+                # process one input file at a time from this region file list
+                for input_file in region_file_list:
 
-                        # create a new sequence record using this updated header
-                        seq_record_updated = SeqRecord(
-                            id=updated_record_header,
-                            name=updated_record_header,
-                            description=updated_record_header,
-                            seq=record.seq,
+                    # file name of the non-chimeric sequences for this sample
+                    nochim_out = add_prefix(
+                        file_path=input_file,
+                        prefix=NOCHIM_PREFIX,
+                        dest_dir=region_nonchim_out,
+                        action=None,
+                        f_delim=settings['formatting']['filename_delim'],
+                        output_compressed=False,
+                        replace_prefix=True,
+                    )
+
+                    # UCHIME will only write out .fasta-formatted files, so ensure output filename is .fasta formatted
+                    nochim_out = replace_file_ext(
+                        file_path=nochim_out,
+                        output_ext='.fasta',
+                        create_file=False,
+                        replace_file=False,
+                        output_dir=None,
+                    )
+
+                    vsearch_ref_cmd = ['vsearch', '--uchime_ref', input_file,
+                                       '--abskew', str(alpha[method]),
+                                       '--nonchimeras', nochim_out,
+                                       '--uchimeout', uchime_log,
+                                       '--db', chim_ref_file]
+
+                    if keep_chimeras:
+
+                        # create a subdirectory for this DNA region, only if multiple regions are represented in input files
+                        if input_region_count > 1:
+                            region_chim_out = mkdir_exist_ok(
+                                new_dir=dna_region,
+                                parent_dir=chim_path,
+                            )
+                        # otherwise, put directory into the main output directory
+                        else:
+                            region_chim_out = chim_path
+
+                        # file name of the chimeric sequences for this sample (if keep_chimeras=True)
+                        chim_out = add_prefix(
+                            file_path=input_file,
+                            prefix=flip_prefix(NOCHIM_PREFIX),
+                            dest_dir=region_chim_out,
+                            action=None,
+                            f_delim=settings['formatting']['filename_delim'],
+                            output_compressed=False,
+                            replace_prefix=True,
                         )
 
-                        # add this updated sequence record to the list of sequence records for this DNA region
-                        region_seq_records.append(seq_record_updated)
+                        # UCHIME will only write out .fasta-formatted files, so ensure output filename is .fasta formatted
+                        chim_out = replace_file_ext(
+                            file_path=chim_out,
+                            output_ext='.fasta',
+                            create_file=False,
+                            replace_file=False,
+                            output_dir=None,
+                        )
 
-                # once new sequence records have been created for all samples for this DNA region, write out .fasta
-                SeqIO.write(region_seq_records, region_seq_output, 'fasta')
+                        # insert the command to keep chimeras into the uchime command
+                        append_subprocess(
+                            cli_command_list=vsearch_ref_cmd,
+                            options_to_add=['--chimeras', chim_out],
+                            position=-1,
+                            return_copy=False,
+                        )
 
-        # if group=False, cluster reads only within a sequence file, not among input sequence files
+                    else:
+                        pass
+
+                    # execute the chimera detection vsearch command for this sample sequence file
+                    run_subprocess(
+                        vsearch_ref_cmd,
+                        dest_dir=chim_parent,
+                        run_name=run_name,
+                        program='uchime-ref',
+                        auto_respond=settings['automate']['auto_respond'],
+                    )
+
+    else:
+        pass
+
+    ## OUTPUT SUMMARY FILE WITH TABLE OF SAMPLES WITHOUT NON-CHIMERA READS
+
+    # create an empty dictionary to add sample IDs and read counts of empty files only (no sequences)
+    empty_nonchim = {}
+
+    # create a Boolean that will switch to True if there are samples added to empty_nonchim dict
+    samples_with_only_chimeras = False
+
+    # go through each non-chimeric file that was just created
+    for nonchim_file in nochim_path.glob(f'{NOCHIM_PREFIX}*fasta'):
+
+        # for each non-chimeric file, count the number of sequences (read count)
+        read_count = 0
+        with open(nonchim_file) as fasta_in:
+            for record in SeqIO.parse(fasta_in, 'fasta'):
+                read_count += 1
+
+        # if there are no sequences in the non-chim file for this sample...
+        if read_count == 0:
+            # get the sample ID
+            sample_id = get_sample_id(file_path=nonchim_file)
+
+            # append the sample ID and read count to the empty non-chim dictionary
+            empty_nonchim.update({sample_id: read_count})
+
+            # switch to True
+            samples_with_only_chimeras = True
+
+    # after going through each non-chimeric file...
+
+    # if samples without any non-chimera reads were detected...
+    if samples_with_only_chimeras:
+
+        # write out the empty non-chimeric samples to a summary file
+        empty_nonchim_out = chim_parent / f'{run_name}_no-nonchim-reads.txt'
+        with open(empty_nonchim_out, 'wt') as fout:
+            fout.write(f'read count\tsample id\n')
+            for sample_id, read_count in empty_nonchim.items():
+                fout.write(f'{read_count}\t{sample_id}\n')
+
+    # otherwise, do nothing
+    else:
+        pass
+
+    return None
+
+def assign_taxonomy(otu_fasta, query_fasta, reference_dir, method=None):
+
+    # import settings from the configuration file
+    settings = get_settings(reference_dir)
+    run_name = settings['run_details']['run_name']
+
+    # define list of available methods
+    available_methods = ['amptk', 'rdp', 'blastn']
+
+    # if a method to assign taxonomy isn't provided to the function, then look in the configuration file
+    if method is None:
+        method = settings['taxonomy']['method']
+
+    # based on the specified method, compile the command for the CLI
+    if method == 'blastn':
+        pass
+        # ref_db = create_blast_db(config_dict, file_map, taxa_list=None)
+        #
+        # blast_out = (tax_output / f'{run_name}').with_suffix('.txt')
+        # blast_cmd = ['blastn', '-query', ref_db, '-out', blast_out]
+        #
+        # run_subprocess(blast_cmd, dest_dir = tax_output)
+
+    elif method == 'rdp':
+        pass
+
+
+    ## AMPTK
+
+    elif method == 'amptk':
+
+        # import the amptk databases based on type of sequences to assign taxonomy to
+        # hm easier in theory; could be a mix, filename wouldn't indicate, only read headers would
+        amptk_db_install_cmd = ['amptk', 'install', '-i', 'ITS']
+        run_subprocess(amptk_db_install_cmd, dest_dir=otu_fasta.parent, run_name=run_name, program='amptk-db',
+                       separate_sample_output=True, auto_respond=False)
+
+        amptk_cmd = ['amptk', 'taxonomy', '-i', otu_fasta, '-f', SOMETHING, '-m',
+                     SOMETHING, '-d', 'ITS1']
+
+    else:
+        error_msg = (f'ERROR. The provided method of assigning taxonomy, {method}, is not currently '
+                     f'recognized among the list of available methods. Please choose one of the following '
+                     f'accepted methods:\n')
+        print_indented_list(available_methods)
+        exit_process(error_msg)
+
+    error_msg = (f'ERROR. The provided method of assigning taxonomy, {method}, is not currently '
+                 f'available for use in the pipeline.\n')
+    exit_process(error_msg)
+
+    return None
+
+def cluster_reads(input_files, output_dir, reference_dir, clust_threshold, clust_method, group=True):
+
+    ## IMPORT SETTINGS FOR PIPELINE ###################
+
+    # import configuration settings
+    settings = get_settings(reference_dir)
+    run_name = settings['run_details']['run_name']
+
+    ## CREATE OUTPUT FILE PATHS #######################
+
+    # create a directory for all clustering output
+    clust_parent = mkdir_exist_ok(new_dir=output_dir)
+
+    # create a directory within the main clustering output for this particular pipeline run
+    clust_output = mkdir_exist_ok(
+        new_dir=f'./{CLUSTER_PREFIX}_{run_name}',
+        parent_dir=clust_parent,
+    )
+
+    ## FLATTEN INPUT FILE LIST ########################
+
+    # if input files are directories (pacbio), create a list of all sequence files within all input directories
+    updated_file_list = []
+    for file_in in input_files:
+        if file_in.is_dir():
+            for fasta_file in file_in.glob(SEQ_FILE_GLOB):
+                updated_file_list.append(fasta_file)
         else:
+            updated_file_list.append(file_in)
 
-            # COME BACK AND ADD THIS #
+    ## COMBINE SAMPLE SEQUENCES PRE-CLUSTERING ########
 
-            seq_files_to_cluster = {'NA': updated_file_list}
+    # if group=True, gather all like sequences together into a single .fasta before clustering
+    if group:
 
-        ## CLUSTER SEQUENCE FILE READS W/ VSEARCH #########
+        ## SORT BY DNA REGION ##
 
-        ## CLUSTER BY DNA REGION ##
+        # create a dictionary where the key is the DNA region that will match the file tags and values are empty list
+        clust_regions = [region_tag.lower() for region_tag in POST_ITSX_SUFFIXES.values() if
+                         not (region_tag in ['5_8S', 'LSU'])]
+        input_files_sorted = {region: [] for region in clust_regions}
 
-        for dna_region, clust_input in seq_files_to_cluster.items():
-            # create output file paths for the centroid sequences and OTU table
-            centroid_seqs_out = clust_output / f'{CLUSTER_PREFIX}_{run_name}_{dna_region}_centroids-{str(clust_threshold)}.fasta'
-            otu_table_out = clust_output / f'{CLUSTER_PREFIX}_{run_name}_{dna_region}_otu-table-{str(clust_threshold)}.txt'
+        # create a regex that will search for any of the regions in the input .fasta files
+        clust_regions_re = '|'.join(clust_regions)
 
-            # compile the clustering command for vsearch
-            vsearch_clust_cmd = ['vsearch', '--cluster_fast', clust_input,
-                                 '--id', str(clust_threshold), '--iddef', str(clust_method),
-                                 '--centroids', centroid_seqs_out, '--clusterout_id',
-                                 '--otutabout', otu_table_out]
+        # go through the input files and sort files by region
+        for file_in in updated_file_list:
+            wanted_region_found = re.search(clust_regions_re, file_in.name, re.I)
+            if wanted_region_found:
+                input_files_sorted[wanted_region_found.group(0).lower()].append(file_in)
+            else:
+                continue
 
-            # execute the compiled command for vsearch clustering
-            run_subprocess(
-                cli_command_list=vsearch_clust_cmd,
-                dest_dir=clust_output,
-                run_name=run_name,
-                program='vsearch-clust',
-                separate_sample_output=True,
-                auto_respond=settings['automate']['auto_respond'],
-            )
+        ## COMBINE BY DNA REGION ##
 
-        # return the output path for clustered sequences from this bioinformatics run
-        return clust_output
+        # create an output file path for these grouped sequences in the bioinfo run clustering directory
+        combined_seq_output = mkdir_exist_ok(
+            new_dir=f'pre-{CLUSTER_PREFIX}_grouped-sequences',
+            parent_dir=clust_output,
+        )
+
+        # create a dict of the combined sequence files created below, will be input for vsearch clustering
+        seq_files_to_cluster = {}
+
+        # go through the list of sorted input files by DNA region...
+        for dna_region, region_files in input_files_sorted.items():
+
+            # gather all sequence records into a list of sequence records for this DNA region
+            region_seq_records = []
+
+            # create an output file path for these grouped sequences in the bioinfo run clustering directory
+            region_seq_output = combined_seq_output / f'pre-{CLUSTER_PREFIX}_{run_name}_{dna_region}.fasta'
+
+            # add this output file path to the list of combined sequence files to cluster
+            seq_files_to_cluster.update({dna_region: region_seq_output})
+
+            # go through each sample's sequence file for this DNA region...
+            for sample_fasta in region_files:
+
+                # get the sample ID from the input sequence file name
+                sample_id = get_sample_id(sample_fasta, platform='itslsu').replace(f'{run_name}_', '')
+
+                # go through each record (read) in this sample's sequence file...
+                for record in SeqIO.parse(sample_fasta, 'fasta'):
+                    # update the read header to include sample=<sample-id>; as first item, which is required
+                    #  in order for vsearch clustering to recognize the sample ID for the OTU table
+                    # otu=<read-id> is also required in order for the sequence read IDs to be used as the OTU name
+                    updated_record_header = f'sample={sample_id};otu={record.id}'
+
+                    # create a new sequence record using this updated header
+                    seq_record_updated = SeqRecord(
+                        id=updated_record_header,
+                        name=updated_record_header,
+                        description=updated_record_header,
+                        seq=record.seq,
+                    )
+
+                    # add this updated sequence record to the list of sequence records for this DNA region
+                    region_seq_records.append(seq_record_updated)
+
+            # once new sequence records have been created for all samples for this DNA region, write out .fasta
+            SeqIO.write(region_seq_records, region_seq_output, 'fasta')
+
+    # if group=False, cluster reads only within a sequence file, not among input sequence files
+    else:
+
+        # COME BACK AND ADD THIS #
+
+        seq_files_to_cluster = {'NA': updated_file_list}
+
+    ## CLUSTER SEQUENCE FILE READS W/ VSEARCH #########
+
+    ## CLUSTER BY DNA REGION ##
+
+    for dna_region, clust_input in seq_files_to_cluster.items():
+        # create output file paths for the centroid sequences and OTU table
+        centroid_seqs_out = clust_output / f'{CLUSTER_PREFIX}_{run_name}_{dna_region}_centroids-{str(clust_threshold)}.fasta'
+        otu_table_out = clust_output / f'{CLUSTER_PREFIX}_{run_name}_{dna_region}_otu-table-{str(clust_threshold)}.txt'
+
+        # compile the clustering command for vsearch
+        vsearch_clust_cmd = ['vsearch', '--cluster_fast', clust_input,
+                             '--id', str(clust_threshold), '--iddef', str(clust_method),
+                             '--centroids', centroid_seqs_out, '--clusterout_id',
+                             '--otutabout', otu_table_out]
+
+        # execute the compiled command for vsearch clustering
+        run_subprocess(
+            cli_command_list=vsearch_clust_cmd,
+            dest_dir=clust_output,
+            run_name=run_name,
+            program='vsearch-clust',
+            separate_sample_output=True,
+            auto_respond=settings['automate']['auto_respond'],
+        )
+
+    # return the output path for clustered sequences from this bioinformatics run
+    return clust_output
 
 
 class Illumina(Sequence):

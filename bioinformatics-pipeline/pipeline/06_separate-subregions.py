@@ -1,48 +1,59 @@
-from mapping import filepath_map as fpm
-
 import argparse, pathlib
 from pathlib import Path
-from climush.constants import *
-# from climush.bioinfo import separate_subregions, concat_regions, check_concat_output
-from climush.bioinfo import separate_subregions
-from climush.utilities import *
+from climush.bioinfo import separate_subregions, concat_regions
+from climush.utilities import check_for_input, get_settings, continue_to_next
 
-settings = get_settings(fpm)
-run_name = settings['run_details']['run_name']
+## IMPORT PIPELINE CONFIGURATION #######################################################################################
+
+# create a reference directory path for file-finding functions
+ref_dir=Path(__file__).parent
+
+# import the settings for the bioinformatics configuration
+settings = get_settings(ref_dir)
+
+########################################################################################################################
+
+
+## COMMAND LINE ARGUMENTS ##############################################################################################
+
+## INSTANTIATE PARSER ##
 
 parser = argparse.ArgumentParser(prog=Path(__file__).stem,
                                  description='Identify and separate the ITS/LSU subregions.',
                                  epilog='This script is part of the CliMush bioinformatics pipeline.')
 
-# input directory containing the files to dereplicate
+## FILE PATHS ##
+
+# path to the directory containing the sequencing files to run through itsx
 parser.add_argument('-i', '--input',
-                    default=fpm['pipeline-output']['derep-full-length'] / f'derep01_{run_name}',
+                    required=True,
                     type=pathlib.PosixPath,
-                    help='The path to a directory containing sequencing files to separate. If nothing provided, '
-                         'will default to the location that is expected in the Docker container\'s native file '
-                         'structure, detailed in pipeline/mapping.py.')
+                    help='The path to the directory containing the sequence files that need to be separated into '
+                         'subregions by ITSx, if the --concat-only flag is not used. If the --concat-only flag '
+                         'is used here, then this is the path to the sample directories created from ITSx that '
+                         'contains the per-subregion sequence files to concatenate into longer reads.')
+
+parser.add_argument('-o', '--output',
+                    required=True,
+                    type=pathlib.PosixPath,
+                    help='The path to the directory in which the output files and directories will be written.')
+
+## DO NOT RUN ITSX ##
 
 parser.add_argument('-c', '--concat-only',
                     action='store_true',
-                    help='If this flag is used, ITSx will not run but the ITSx output files will be accessed to '
-                         'concatenate subregions.')
+                    help='If this flag is used, ITSx will not run but the ITSx output files will be concatenated '
+                         'into: (i) full-length reads by combining all re-oriented subregions and (ii) full ITS '
+                         'regions by concatenating the ITS1, 5.8S, and ITS2 subregions. When this flag is used, '
+                         'the required -i / --input parameter should be the path to the directory that contains '
+                         'the output of the post-ITSx sample directories.')
 
-# input directory containing the files to dereplicate
-parser.add_argument('--concat-in',
-                    default=fpm['pipeline-output']['separated-subregions'] / f'itsx_{run_name}',
-                    type=pathlib.PosixPath,
-                    help='The path to a directory containing sequencing files to concatenate. If nothing provided, '
-                         'will default to the location that is expected in the Docker container\'s native file '
-                         'structure, detailed in pipeline/mapping.py.')
+## PARSE OPTIONS INTO DICTIONARY ##
 
-# parse default or CL arguments
 args = vars(parser.parse_args())
 
-# ## REMOVE AFTER TESTING ########################################################################################
-# args = {'input': fpm['pipeline-output']['derep-full-length'] / f'derep01_{run_name}',
-#         'concat_only': False,
-#         'concat_in': fpm['pipeline-output']['separated-subregions'] / f'itsx_{run_name}'}
-# ################################################################################################################
+########################################################################################################################
+
 
 #####################
 # ILLUMINA ##########
@@ -56,23 +67,74 @@ args = vars(parser.parse_args())
 #####################
 platform = 'pacbio'
 
+# if only concatenating sequences...
 if args['concat_only']:
-    for itsx_sample in args['concat_in'].glob('*'):
+
+    # use the path provided to -i / --input as location of seqs to concatenate
+    for itsx_sample in args['input'].glob('*'):
+
+        # print which sample is currently being processed
         print(f'\n{itsx_sample.stem}\n')
-        # concat_regions(dir_path=itsx_sample, file_map=fpm, regions_to_concat=['ITS1', '5_8S', 'ITS2'])  # full ITS
-        # concat_regions(dir_path=itsx_sample, file_map=fpm, regions_to_concat=['ITS1', '5_8S', 'ITS2', 'LSU'])  # full length read (reoriented)
+
+        # concatenate full ITS sequence
+        concat_regions(
+            dir_path=itsx_sample,
+            reference_dir=ref_dir,
+            platform=platform,
+            regions_to_concat=['ITS1', '5_8S', 'ITS2'],
+        )
+
+        # concatenate full-length ITS-LSU sequence
+        concat_regions(
+            dir_path=itsx_sample,
+            reference_dir=ref_dir,
+            platform=platform,
+            regions_to_concat=['ITS1', '5_8S', 'ITS2', 'LSU'],
+        )
+
         # check_concat_output(itsx_dir=concat_path, full_len_dir=args['input'], num_bp_compare=50)
+
+# if running itsx prior to concatenating sequences...
 else:
+
+    # check for ITS-LSU sequences in the input directory
     is_input, pacbio_files = check_for_input(
-        args['input'],
+        file_dir=args['input'],
         config_dict=settings,
-        file_identifier=[*SEQ_FILE_PREFIX_DICT[platform], platform]
+        file_identifier=platform,
     )
+
+    # if ITS-LSU sequences are located...
     if is_input:
-        itsx_out_path = separate_subregions(input_files=pacbio_files, file_map=fpm, verbose=True)
-        # concat_regions(dir_path=itsx_out_path, file_map=fpm, regions_to_concat=['ITS1', '5_8S', 'ITS2'])  # full ITS
-        # concat_regions(dir_path=itsx_out_path, file_map=fpm, regions_to_concat=['ITS1', '5_8S', 'ITS2', 'LSU'])  # full length read (reoriented)
+
+        # run ITSx on the sequences
+        itsx_out_path = separate_subregions(
+            input_files=pacbio_files,
+            output_dir=args['output'],
+            reference_dir=ref_dir,
+            verbose=True,
+        )
+
+        # using the output path where ITSx wrote files, concatenate the ITSx sequence output
+
+        # concatenate full ITS sequence
+        concat_regions(
+            dir_path=itsx_out_path,
+            reference_dir=ref_dir,
+            platform=platform,
+            regions_to_concat=['ITS1', '5_8S', 'ITS2'],
+        )
+
+        # concatenate full-length ITS-LSU sequence
+        concat_regions(
+            dir_path=itsx_out_path,
+            reference_dir=ref_dir,
+            platform=platform,
+            regions_to_concat=['ITS1', '5_8S', 'ITS2', 'LSU'],
+        )
+
         # check_concat_output(itsx_dir=itsx_out_path, full_len_dir=args['input'], num_bp_compare=50)
+
     else:
         pass
 
