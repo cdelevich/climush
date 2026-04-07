@@ -1,0 +1,9 @@
+__title__ = 'climush'
+__description__='collaborative ecological research support'
+__url__ = ''
+__version__ = 'v1.0.0.dev1'
+__build__ = ...
+__author__ = 'Carolyn Delevich'
+__author_email__ = 'carolyndelevich@gmail.com'
+__license__ = 'MIT'
+__copyright__ = 'Copyright Carolyn Delevich'
