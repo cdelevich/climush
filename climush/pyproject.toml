@@ -9,8 +9,7 @@ authors = [
 ]
 description = "Customized data workflow for the CliMush fungal distributions project."
 
-#dynamic = ["version"]
-version = "v1.0.0.dev1"
+dynamic = ["version"]
 readme = "README.md"
 license = "MIT"  # SPDX format
 classifiers = [
@@ -29,9 +28,6 @@ dependencies = [
     "tomlkit",                      # parsing bioinformatics configuration from the .toml configuration file
     "psutil",                       # determine available system memory for use with bbduk to filter out PhiX reads
 ]
-
-#[tool.setuptools_scm]
-#version_file = "src/climush/_version.py"
 
 [project.urls]
 Homepage   = "https://github.com/cdelevich/climush/tree/main"
