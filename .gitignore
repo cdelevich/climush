@@ -1,8 +1,5 @@
 ## PYTHON ##############################################################################################################
 
-# package version file
-climush/src/climush/_version.py
-
 # byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
